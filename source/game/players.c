@@ -3493,7 +3493,17 @@ void players_update_before_game(
 						points, while the body and the view keep facing where the
 						head looks (port/linux/src/vr.c) */
 						real vr_aim[3];
+						real vr_look[3];
 
+						/* and it looks where the head looks, whether or not the
+						game lets the player turn now (scripts test it:
+						unit_can_see_point) */
+						if (halo_vr_look_vector(player->local_player_index, vr_look))
+						{
+							control_data.looking_vector.i = vr_look[0];
+							control_data.looking_vector.j = vr_look[1];
+							control_data.looking_vector.k = vr_look[2];
+						}
 						if (halo_vr_aim_vector(player->local_player_index, vr_aim))
 						{
 							control_data.aiming_vector.i = vr_aim[0];

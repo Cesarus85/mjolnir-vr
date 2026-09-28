@@ -601,6 +601,18 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 	return 1;
 }
 
+int halo_vr_look_vector(short local_player_index, float vector[3])
+{
+	static const float forward[3] = { 0.0f, 0.0f, -1.0f };
+	float direction[3];
+
+	if (local_player_index != 0 || !halo_vr_stereo_frame() || !(vr.frame.head_flags & HALO_XR_POSE_VALID))
+		return 0;
+	quaternion_rotate(vr.frame.head.orientation, forward, direction);
+	local_to_game(direction, vr.body_yaw, vector);
+	return 1;
+}
+
 int halo_vr_look_delta(float *yaw, float *pitch)
 {
 	/* past the head's tremble */
@@ -670,6 +682,7 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 	(void)local_player_index; (void)start; (void)direction;
 	return 0;
 }
+int halo_vr_look_vector(short local_player_index, float vector[3]) { (void)local_player_index; (void)vector; return 0; }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_hide_crosshair(void) { return 0; }
 
