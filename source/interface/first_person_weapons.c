@@ -1047,6 +1047,283 @@ static void first_person_weapon_set_state(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* ---------- VR arms
+
+The first-person skeleton hangs from the camera at the right controller
+(halo_vr_weapon_camera), so the weapon and the right hand lie where they
+should; its arms, though, reach up to shoulders that float with the weapon.
+Here each arm's upper arm and forearm are turned (two-bone inverse
+kinematics) to run from the player's shoulders, below the head, to its
+wrist. The left wrist, unless the hand holds the weapon's foregrip, goes to
+the left controller, its fingers with it. */
+
+#define VR_METRES_PER_WORLD_UNIT 3.048f
+
+struct vr_arm_nodes
+{
+	long graph_index;
+	short upper[2];
+	short fore[2];
+	short wrist[2];
+};
+
+static struct vr_arm_nodes vr_arm_nodes = { NONE };
+
+static void vr_vector_scale_add(
+	real_vector3d *out,
+	real_vector3d const *vector,
+	real scale)
+{
+	out->i += vector->i * scale;
+	out->j += vector->j * scale;
+	out->k += vector->k * scale;
+}
+
+/* turns the vector by the least rotation that takes from to to (unit) */
+static void vr_rotate_between(
+	real_vector3d const *from,
+	real_vector3d const *to,
+	real_vector3d *v)
+{
+	real_vector3d axis;
+	real_vector3d turned;
+	real sine, cosine, along;
+
+	cross_product3d(from, to, &axis);
+	sine = normalize3d(&axis);
+	if (sine < 1e-6f)
+		return;
+	cosine = dot_product3d(from, to);
+	cross_product3d(&axis, v, &turned);
+	along = dot_product3d(&axis, v);
+	v->i = v->i * cosine + turned.i * sine + axis.i * along * (1.f - cosine);
+	v->j = v->j * cosine + turned.j * sine + axis.j * along * (1.f - cosine);
+	v->k = v->k * cosine + turned.k * sine + axis.k * along * (1.f - cosine);
+}
+
+/* a node turned so that the bone to its child, from old to new direction */
+static void vr_turn_bone(
+	real_matrix4x3 *node,
+	real_vector3d const *old_direction,
+	real_vector3d const *new_direction,
+	real_point3d const *position)
+{
+	real_vector3d from = *old_direction;
+	real_vector3d to = *new_direction;
+
+	normalize3d(&from);
+	normalize3d(&to);
+	vr_rotate_between(&from, &to, &node->forward);
+	vr_rotate_between(&from, &to, &node->left);
+	vr_rotate_between(&from, &to, &node->up);
+	node->position = *position;
+}
+
+/* moves the descendants of a node that moved from old to new with it */
+static void vr_carry_descendants(
+	long graph_index,
+	real_matrix4x3 *node_matrices,
+	short node_count,
+	short root,
+	real_matrix4x3 const *old_root,
+	real_matrix4x3 const *new_root)
+{
+	real_matrix4x3 inverse;
+	real_matrix4x3 delta;
+	short node_index;
+
+	matrix4x3_inverse(old_root, &inverse);
+	matrix4x3_multiply(new_root, &inverse, &delta);
+	for (node_index = 0; node_index < node_count; node_index++)
+	{
+		short ancestor = animation_graph_node_parent(graph_index, node_index);
+		short steps;
+
+		/* parents come first; bounded in case of a malformed graph */
+		for (steps = 0; ancestor > 0 && ancestor != root && steps < node_count; steps++)
+			ancestor = animation_graph_node_parent(graph_index, ancestor);
+		if (ancestor == root && node_index != root)
+		{
+			real_matrix4x3 moved;
+
+			matrix4x3_multiply(&delta, &node_matrices[node_index], &moved);
+			node_matrices[node_index] = moved;
+		}
+	}
+}
+
+/* one arm: upper arm and forearm from the shoulder to the wrist at target */
+static void vr_arm(
+	real_matrix4x3 *node_matrices,
+	short upper,
+	short fore,
+	short wrist,
+	real_point3d shoulder,
+	real_point3d const *target,
+	real_vector3d const *pole)
+{
+	real_vector3d old_upper, old_fore, reach, bend, new_upper, new_fore;
+	real upper_length, fore_length, distance, along, height;
+	real_point3d elbow;
+
+	vector_from_points3d(&node_matrices[upper].position, &node_matrices[fore].position, &old_upper);
+	vector_from_points3d(&node_matrices[fore].position, &node_matrices[wrist].position, &old_fore);
+	upper_length = magnitude3d(&old_upper);
+	fore_length = magnitude3d(&old_fore);
+	vector_from_points3d(&shoulder, target, &reach);
+	distance = normalize3d(&reach);
+	if (upper_length < 1e-4f || fore_length < 1e-4f || distance < 1e-4f)
+		return;
+	/* out of reach: the shoulder follows the hand (the arm stays whole) */
+	if (distance > (upper_length + fore_length) * 0.999f)
+	{
+		distance = (upper_length + fore_length) * 0.999f;
+		shoulder = *target;
+		point_from_line3d(target, &reach, -distance, &shoulder);
+	}
+	along = (upper_length * upper_length - fore_length * fore_length + distance * distance) / (2.f * distance);
+	height = upper_length * upper_length - along * along;
+	height = height > 0.f ? square_root(height) : 0.f;
+	bend = *pole;
+	vr_vector_scale_add(&bend, &reach, -dot_product3d(pole, &reach));
+	normalize3d(&bend);
+	point_from_line3d(&shoulder, &reach, along, &elbow);
+	point_from_line3d(&elbow, &bend, height, &elbow);
+
+	vector_from_points3d(&shoulder, &elbow, &new_upper);
+	vector_from_points3d(&elbow, target, &new_fore);
+	vr_turn_bone(&node_matrices[upper], &old_upper, &new_upper, &shoulder);
+	vr_turn_bone(&node_matrices[fore], &old_fore, &new_fore, &elbow);
+}
+
+static void first_person_weapon_vr_arms(
+	short local_player_index,
+	long graph_index,
+	real_matrix4x3 *node_matrices,
+	short node_count,
+	struct render_camera const *weapon_camera)
+{
+	static char const *const upper_names[2] = { "l upperarm", "r upperarm" };
+	static char const *const fore_names[2] = { "l forearm", "r forearm" };
+	static char const *const wrist_names[2] = { "l wriste", "r wriste" };
+	float head[3], body_forward[3];
+	real_vector3d forward, left, weapon_left, weapon_right;
+	real_point3d eye;
+	short side;
+	boolean gripping;
+
+	if (vr_arm_nodes.graph_index != graph_index)
+	{
+		vr_arm_nodes.graph_index = graph_index;
+		for (side = 0; side < 2; side++)
+		{
+			vr_arm_nodes.upper[side] = animation_graph_find_node(graph_index, upper_names[side]);
+			vr_arm_nodes.fore[side] = animation_graph_find_node(graph_index, fore_names[side]);
+			vr_arm_nodes.wrist[side] = animation_graph_find_node(graph_index, wrist_names[side]);
+		}
+	}
+	if (!halo_vr_body_frame(local_player_index, head, body_forward))
+		return;
+	eye.x = head[0];
+	eye.y = head[1];
+	eye.z = head[2];
+	forward.i = body_forward[0];
+	forward.j = body_forward[1];
+	forward.k = 0.f;
+	cross_product3d(global_up3d, &forward, &left);
+	cross_product3d(&weapon_camera->up, &weapon_camera->forward, &weapon_left);
+	weapon_right.i = -weapon_left.i;
+	weapon_right.j = -weapon_left.j;
+	weapon_right.k = -weapon_left.k;
+
+	/* the left hand on the foregrip, or at the controller */
+	gripping = FALSE;
+	if (vr_arm_nodes.wrist[0] != NONE && vr_arm_nodes.wrist[1] != NONE)
+	{
+		real_matrix4x3 const *left_wrist = &node_matrices[vr_arm_nodes.wrist[0]];
+		real_matrix4x3 const *right_wrist = &node_matrices[vr_arm_nodes.wrist[1]];
+		real_vector3d between;
+		float foregrip[3], reference[3];
+
+		vector_from_points3d(&right_wrist->position, &left_wrist->position, &between);
+		foregrip[0] = left_wrist->position.x;
+		foregrip[1] = left_wrist->position.y;
+		foregrip[2] = left_wrist->position.z;
+		reference[0] = dot_product3d(&between, &weapon_camera->forward);
+		reference[1] = dot_product3d(&between, &weapon_right);
+		reference[2] = dot_product3d(&between, &weapon_camera->up);
+		gripping = halo_vr_two_hand(local_player_index, foregrip, reference);
+	}
+	if (!gripping && vr_arm_nodes.wrist[0] != NONE)
+	{
+		float hand_position[3], hand_forward[3], hand_up[3];
+
+		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
+		{
+			real_matrix4x3 old_wrist = node_matrices[vr_arm_nodes.wrist[0]];
+			real_matrix4x3 *wrist = &node_matrices[vr_arm_nodes.wrist[0]];
+			real_vector3d controller_forward, controller_up, controller_left;
+			real_vector3d const *axes[3];
+			real_vector3d *new_axes[3];
+			short axis;
+
+			controller_forward.i = hand_forward[0];
+			controller_forward.j = hand_forward[1];
+			controller_forward.k = hand_forward[2];
+			controller_up.i = hand_up[0];
+			controller_up.j = hand_up[1];
+			controller_up.k = hand_up[2];
+			cross_product3d(&controller_up, &controller_forward, &controller_left);
+			/* the hand turned as the controller is from the weapon */
+			axes[0] = &old_wrist.forward;
+			axes[1] = &old_wrist.left;
+			axes[2] = &old_wrist.up;
+			new_axes[0] = &wrist->forward;
+			new_axes[1] = &wrist->left;
+			new_axes[2] = &wrist->up;
+			for (axis = 0; axis < 3; axis++)
+			{
+				real x = dot_product3d(axes[axis], &weapon_camera->forward);
+				real y = dot_product3d(axes[axis], &weapon_left);
+				real z = dot_product3d(axes[axis], &weapon_camera->up);
+
+				new_axes[axis]->i = controller_forward.i * x + controller_left.i * y + controller_up.i * z;
+				new_axes[axis]->j = controller_forward.j * x + controller_left.j * y + controller_up.j * z;
+				new_axes[axis]->k = controller_forward.k * x + controller_left.k * y + controller_up.k * z;
+			}
+			wrist->position.x = hand_position[0];
+			wrist->position.y = hand_position[1];
+			wrist->position.z = hand_position[2];
+			vr_carry_descendants(graph_index, node_matrices, node_count, vr_arm_nodes.wrist[0], &old_wrist, wrist);
+		}
+	}
+
+	for (side = 0; side < 2; side++)
+	{
+		real_point3d shoulder;
+		real_vector3d pole;
+		real outward = side ? -1.f : 1.f; /* left is +left */
+
+		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
+			continue;
+		/* the shoulder: below the eyes, a little behind them, to the side */
+		shoulder = eye;
+		point_from_line3d(&shoulder, global_up3d, -0.25f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		point_from_line3d(&shoulder, &forward, -0.06f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		point_from_line3d(&shoulder, &left, outward * 0.19f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		/* the elbow bends down, out and back */
+		pole.i = -global_up3d->i;
+		pole.j = -global_up3d->j;
+		pole.k = -global_up3d->k;
+		vr_vector_scale_add(&pole, &left, outward * 0.6f);
+		vr_vector_scale_add(&pole, &forward, -0.3f);
+		vr_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], vr_arm_nodes.wrist[side],
+			shoulder, &node_matrices[vr_arm_nodes.wrist[side]].position, &pole);
+	}
+}
+
+#endif
 static void first_person_weapon_build_node_matrices(
 	short local_player_index)
 {
@@ -1058,6 +1335,26 @@ static void first_person_weapon_build_node_matrices(
 	struct render_camera weapon_camera;
 	float weapon_position[3], weapon_forward[3], weapon_up[3];
 
+	if (first_person_weapon->weapon_index!=NONE)
+	{
+		/* once per skeleton: its nodes, for the arms (debug.txt) */
+		static long logged_graph_index= NONE;
+		struct weapon_datum *weapon= weapon_get(first_person_weapon->weapon_index);
+		long graph_index= weapon_definition_get(weapon->definition_index)->weapon.interface_definition.first_person_animations.index;
+
+		if (graph_index!=NONE && graph_index!=logged_graph_index)
+		{
+			short node_index;
+
+			logged_graph_index= graph_index;
+			for (node_index= 0; node_index<animation_graph_node_count(graph_index); node_index++)
+			{
+				error(2, "first-person node %d '%s' parent %d", node_index,
+					animation_graph_node_name(graph_index, node_index),
+					animation_graph_node_parent(graph_index, node_index));
+			}
+		}
+	}
 	if (halo_vr_weapon_camera(local_player_index, weapon_position, weapon_forward, weapon_up))
 	{
 		weapon_camera= render.camera;
@@ -1361,6 +1658,17 @@ static void first_person_weapon_build_node_matrices(
 			first_person_weapon->node_matrices,
 			(short)animation_graph->nodes.count,
 			camera);
+#endif
+#ifdef HALO_ANDROID
+		if (camera!=&render.camera)
+		{
+			first_person_weapon_vr_arms(
+				local_player_index,
+				weapon_definition->weapon.interface_definition.first_person_animations.index,
+				first_person_weapon->node_matrices,
+				(short)animation_graph->nodes.count,
+				camera);
+		}
 #endif
 	}
 

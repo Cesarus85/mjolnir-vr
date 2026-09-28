@@ -92,6 +92,12 @@ static struct
 	int laser;
 	float weapon_offset[3];  /* forward, right, down, metres: the weapon model's camera from the hand */
 	float muzzle_distance;
+	/* the left hand on the weapon (halo_vr_two_hand) */
+	int two_hand_gripping;
+	int two_hand_latched;    /* the grip is held (on the weapon or not) */
+	int two_hand_valid;
+	float two_hand_reach;    /* metres from the foregrip a closing grip takes the weapon */
+	float two_hand_reference[3]; /* left wrist from right, in the weapon's forward, right, up */
 	float lean_limit;
 	float crouch_limit;
 	float rise_limit;
@@ -217,6 +223,7 @@ void halo_vr_initialize(void)
 	vr.weapon_offset[1] = (float)config_real("vr.weapon_right");
 	vr.weapon_offset[2] = (float)config_real("vr.weapon_down");
 	vr.muzzle_distance = 0.3f;
+	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -506,6 +513,48 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 	return 1;
 }
 
+/* ---------- vector helpers */
+
+static void cross3(const float a[3], const float b[3], float out[3])
+{
+	float result[3];
+
+	result[0] = a[1] * b[2] - a[2] * b[1];
+	result[1] = a[2] * b[0] - a[0] * b[2];
+	result[2] = a[0] * b[1] - a[1] * b[0];
+	memcpy(out, result, sizeof(result));
+}
+
+static float normalize3(float v[3])
+{
+	float length = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+
+	if (length > 1e-6f)
+	{
+		v[0] /= length;
+		v[1] /= length;
+		v[2] /= length;
+	}
+	return length;
+}
+
+/* turns v by the least rotation that takes the unit vector from to to */
+static void rotate_between(const float from[3], const float to[3], float v[3])
+{
+	float axis[3], turned[3], cosine, sine, along;
+	int index;
+
+	cross3(from, to, axis);
+	sine = normalize3(axis);
+	cosine = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
+	if (sine < 1e-6f)
+		return;
+	cross3(axis, v, turned);
+	along = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+	for (index = 0; index < 3; index++)
+		v[index] = v[index] * cosine + turned[index] * sine + axis[index] * along * (1.0f - cosine);
+}
+
 /* ---------- the weapon in the right hand (vr.aim_with = "controller") */
 
 static int weapon_hand_tracked(short local_player_index)
@@ -529,9 +578,30 @@ static void weapon_axes(float forward[3], float up[3], float right[3])
 	quaternion_rotate(orientation, local_up, direction);
 	local_to_game(direction, vr.body_yaw, up);
 	/* the game's axes are right-handed with +z up: forward x up is right */
-	right[0] = forward[1] * up[2] - forward[2] * up[1];
-	right[1] = forward[2] * up[0] - forward[0] * up[2];
-	right[2] = forward[0] * up[1] - forward[1] * up[0];
+	cross3(forward, up, right);
+	if (vr.two_hand_gripping && vr.two_hand_valid)
+	{
+		/* both hands on the weapon: turn it (the least) so that the line
+		from the right hand to the left one runs where the model's grips do */
+		float reference[3], target[3], left[3], right_hand[3];
+		int axis;
+
+		for (axis = 0; axis < 3; axis++)
+		{
+			reference[axis] = forward[axis] * vr.two_hand_reference[0] + right[axis] * vr.two_hand_reference[1] +
+				up[axis] * vr.two_hand_reference[2];
+		}
+		tracked_offset(vr.frame.hands[HALO_XR_HAND_LEFT].grip.position, left);
+		tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, right_hand);
+		for (axis = 0; axis < 3; axis++)
+			target[axis] = left[axis] - right_hand[axis];
+		if (normalize3(reference) > 0.0f && normalize3(target) > 0.0f)
+		{
+			rotate_between(reference, target, forward);
+			rotate_between(reference, target, up);
+			cross3(forward, up, right);
+		}
+	}
 }
 
 /* the hand's offset from the game's camera, in world units */
@@ -628,6 +698,81 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 		head[0], head[1], head[2], unit_looking[0], unit_looking[1], unit_looking[2], in_vehicle ? ", in a vehicle" : "");
 }
 
+/* the body: where the head is (world units) and its heading, flat */
+int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
+{
+	float offset[3], look[3];
+	int axis;
+
+	if (local_player_index != 0 || !halo_vr_stereo_frame() || !(vr.frame.head_flags & HALO_XR_POSE_VALID))
+		return 0;
+	tracked_offset(vr.frame.head.position, offset);
+	for (axis = 0; axis < 3; axis++)
+		head[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	if (!halo_vr_look_vector(local_player_index, look))
+		return 0;
+	forward[0] = look[0];
+	forward[1] = look[1];
+	forward[2] = 0.0f;
+	if (normalize3(forward) < 1e-3f)
+	{
+		forward[0] = cosf(vr.body_yaw);
+		forward[1] = sinf(vr.body_yaw);
+	}
+	return 1;
+}
+
+int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3])
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	float offset[3], direction[3];
+	int axis;
+
+	if (!vr.aim_with_controller || local_player_index != 0 || !halo_vr_stereo_frame() || !hand->active ||
+		!(hand->flags & HALO_XR_POSE_VALID))
+	{
+		return 0;
+	}
+	tracked_offset(hand->grip.position, offset);
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	quaternion_rotate(hand->aim.orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(hand->aim.orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	return 1;
+}
+
+int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3])
+{
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	float position[3], forward[3], up[3];
+	int squeezed = hand->squeeze > (vr.two_hand_latched ? 0.35f : 0.6f);
+
+	memcpy(vr.two_hand_reference, reference, sizeof(vr.two_hand_reference));
+	vr.two_hand_valid = 1;
+	if (!squeezed || !halo_vr_left_hand(local_player_index, position, forward, up))
+	{
+		vr.two_hand_latched = vr.two_hand_gripping = 0;
+		return 0;
+	}
+	if (!vr.two_hand_latched)
+	{
+		/* the grip closed: on the weapon if the hand is at its foregrip */
+		float distance = sqrtf((position[0] - foregrip[0]) * (position[0] - foregrip[0]) +
+			(position[1] - foregrip[1]) * (position[1] - foregrip[1]) +
+			(position[2] - foregrip[2]) * (position[2] - foregrip[2])) * METRES_PER_WORLD_UNIT;
+
+		vr.two_hand_latched = 1;
+		vr.two_hand_gripping = distance < vr.two_hand_reach;
+		if (vr.two_hand_gripping)
+			host_xr_haptic(HALO_XR_HAND_LEFT, 0.4f, 0.04f);
+	}
+	return vr.two_hand_gripping;
+}
+
 int halo_vr_look_delta(float *yaw, float *pitch)
 {
 	/* past the head's tremble */
@@ -703,6 +848,21 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
+int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
+{
+	(void)local_player_index; (void)head; (void)forward;
+	return 0;
+}
+int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3])
+{
+	(void)local_player_index; (void)position; (void)forward; (void)up;
+	return 0;
+}
+int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3])
+{
+	(void)local_player_index; (void)foregrip; (void)reference;
+	return 0;
+}
 int halo_vr_hide_crosshair(void) { return 0; }
 
 #endif

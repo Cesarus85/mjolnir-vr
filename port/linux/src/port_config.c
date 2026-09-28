@@ -113,6 +113,9 @@ static const struct config_setting config_settings[] =
 		"See weapon_forward." },
 	{ "vr.weapon_down", _config_real, "0.14", "HALO_VR_WEAPON_DOWN", _environment_value, _platform_android,
 		"See weapon_forward." },
+	{ "vr.two_hand_reach", _config_real, "0.2", "HALO_VR_TWO_HAND_REACH", _environment_value, _platform_android,
+		"How near, in metres, the left hand must be to the weapon's foregrip for\n"
+		"its grip button to take hold of it with both hands." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,

@@ -434,9 +434,9 @@ static int controller_port(HANDLE device)
 In play, laid out for VR shooters rather than by position:
 
 	right trigger  fire                 left trigger   throw grenade
-	right grip     melee (B)            left grip      switch weapon (Y)
-	A              jump                 X              switch grenade (black)
-	B              action, reload (X)   Y              flashlight (white)
+	right grip     melee (B)            left grip      hold the weapon with both hands (vr.c)
+	A              jump                 X              flashlight (white); held, switch grenade (black)
+	B              action, reload (X)   Y              switch weapon (Y)
 	right stick    turns (vr.c); click zooms       left stick  move; click crouches
 	menu           pause (start)
 
@@ -493,9 +493,38 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_X, (right->buttons & HALO_XR_BUTTON_B) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_SQUEEZE) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_BLACK, (left->buttons & HALO_XR_BUTTON_A) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_WHITE, (left->buttons & HALO_XR_BUTTON_B) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
+	{
+		/* X: a tap is the flashlight, holding it switches grenades; the
+		game sees a short press of either */
+		static Uint64 pressed_at, pulse_until;
+		static int pulse_button = -1, held_handled;
+		Uint64 now = SDL_GetTicks();
+		int down = (left->buttons & HALO_XR_BUTTON_A) != 0;
+
+		if (down && !pressed_at)
+		{
+			pressed_at = now;
+			held_handled = 0;
+		}
+		else if (down && !held_handled && now - pressed_at >= 500)
+		{
+			pulse_button = XINPUT_GAMEPAD_BLACK;
+			pulse_until = now + 100;
+			held_handled = 1;
+		}
+		else if (!down && pressed_at)
+		{
+			if (!held_handled)
+			{
+				pulse_button = XINPUT_GAMEPAD_WHITE;
+				pulse_until = now + 100;
+			}
+			pressed_at = 0;
+		}
+		if (pulse_button >= 0 && now < pulse_until)
+			merge_button(pad, pulse_button, TRUE);
+	}
 }
 #endif
 

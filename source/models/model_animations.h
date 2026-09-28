@@ -24,5 +24,20 @@ void animation_graph_node_matrices_from_orientations(
 	real_point3d const *origin,
 	real_vector3d const *forward,
 	real_vector3d const *up);
+#ifdef HALO_ANDROID
+/* an animation graph's nodes by name, and their parents (the VR arms,
+interface/first_person_weapons.c) */
+short animation_graph_node_count(
+	long animation_graph_index);
+char const *animation_graph_node_name(
+	long animation_graph_index,
+	short node_index);
+short animation_graph_node_parent(
+	long animation_graph_index,
+	short node_index);
+short animation_graph_find_node(
+	long animation_graph_index,
+	char const *name);
+#endif
 
 #endif // __MODEL_ANIMATIONS_H

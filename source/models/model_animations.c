@@ -508,6 +508,55 @@ short animation_update_internal(
 	return result;
 }
 
+#ifdef HALO_ANDROID
+short animation_graph_node_count(
+	long animation_graph_index)
+{
+	return (short)animation_graph_definition_get(animation_graph_index)->nodes.count;
+}
+
+char const *animation_graph_node_name(
+	long animation_graph_index,
+	short node_index)
+{
+	struct animation_graph const *animation_graph = animation_graph_definition_get(animation_graph_index);
+
+	return TAG_BLOCK_GET_ELEMENT(&animation_graph->nodes, node_index, struct animation_graph_node)->name;
+}
+
+short animation_graph_node_parent(
+	long animation_graph_index,
+	short node_index)
+{
+	struct animation_graph const *animation_graph = animation_graph_definition_get(animation_graph_index);
+
+	return TAG_BLOCK_GET_ELEMENT(&animation_graph->nodes, node_index, struct animation_graph_node)->parent_node_index;
+}
+
+/* the node whose name ends with name ("frame l hand" for "l hand"); NONE */
+short animation_graph_find_node(
+	long animation_graph_index,
+	char const *name)
+{
+	struct animation_graph const *animation_graph = animation_graph_definition_get(animation_graph_index);
+	long name_length = csstrlen(name);
+	short node_index;
+
+	for (node_index = 0; node_index < animation_graph->nodes.count; node_index++)
+	{
+		char const *node_name = TAG_BLOCK_GET_ELEMENT(
+			&animation_graph->nodes,
+			node_index,
+			struct animation_graph_node)->name;
+		long node_name_length = csstrlen(node_name);
+
+		if (node_name_length >= name_length && !csstrcasecmp(node_name + node_name_length - name_length, name))
+			return node_index;
+	}
+	return NONE;
+}
+
+#endif
 void animation_graph_node_matrices_from_orientations(
 	long animation_graph_index,
 	real_matrix4x3 *node_matrices,

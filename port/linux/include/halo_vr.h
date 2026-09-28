@@ -83,6 +83,17 @@ int halo_vr_aim_vector(short local_player_index, float vector[3]);
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
+/* The arms (interface/first_person_weapons.c):
+- the body: the head's position (world units) and flat heading, from
+  which the shoulders hang;
+- the left hand's pose;
+- the left hand on the weapon: given where the model's left hand holds it
+  (world units) and the line from its right hand to its left in the
+  weapon's forward, right and up, whether the left hand grips it; then the
+  weapon aims along both hands; */
+int halo_vr_body_frame(short local_player_index, float head[3], float forward[3]);
+int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3]);
+int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);
