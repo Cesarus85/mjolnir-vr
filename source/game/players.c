@@ -275,6 +275,9 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -3483,6 +3486,22 @@ void players_update_before_game(
 						&action->desired_facing);
 					control_data.facing_vector =
 						control_data.looking_vector = control_data.aiming_vector;
+#ifdef HALO_ANDROID
+					if (unit->object.parent_object_index == NONE)
+					{
+						/* VR: on foot, the weapon aims where the right controller
+						points, while the body and the view keep facing where the
+						head looks (port/linux/src/vr.c) */
+						real vr_aim[3];
+
+						if (halo_vr_aim_vector(player->local_player_index, vr_aim))
+						{
+							control_data.aiming_vector.i = vr_aim[0];
+							control_data.aiming_vector.j = vr_aim[1];
+							control_data.aiming_vector.k = vr_aim[2];
+						}
+					}
+#endif
 					control_data.throttle.i = action->throttle.i;
 					control_data.throttle.j = action->throttle.j;
 					control_data.throttle.k = 0.f;

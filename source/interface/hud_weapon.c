@@ -79,6 +79,9 @@ symbols in this file:
 
 #include <math.h>
 #include <string.h>
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -967,6 +970,12 @@ static void crosshairs_draw(
 		stack_buffer,
 		0x62,
 		sizeof(stack_buffer));
+#ifdef HALO_ANDROID
+	/* VR: the crosshair marks where the head looks; the weapon in the hand
+	has its laser instead (render.c) */
+	if (halo_vr_hide_crosshair())
+		return;
+#endif
 	if (TEST_FLAG(weapon_hud_globals->script_flags, _hud_crosshair_show_bit) &&
 		hud_index != NONE)
 	{

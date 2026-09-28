@@ -83,6 +83,8 @@ symbols in this file:
 #include "effects/weather_particle_systems.h"
 #ifdef HALO_ANDROID
 #include "cutscene/cinematics.h"
+#include "game/players.h"
+#include "physics/collisions.h"
 #include "halo_vr.h"
 #endif
 
@@ -140,6 +142,8 @@ static void render_vr_player_frame(
 	struct render_window *window);
 static void render_vr_overlay(
 	const struct render_window *window);
+static void render_vr_laser(
+	short local_player_index);
 #endif
 
 void structure_get_planar_fog(
@@ -478,6 +482,10 @@ static void render_window(
 	}
 
 	bink_playback_render();
+#ifdef HALO_ANDROID
+	if (render_vr_eye_pass)
+		render_vr_laser(local_player_index);
+#endif
 	render_camera_debug_frustum(&render.camera, &render.frustum);
 	render_debug();
 	editor_render();
@@ -699,6 +707,40 @@ static void render_vr_player_frame(
 		halo_vr_capture_eye(eye);
 	}
 	render_vr_overlay(window);
+
+	return;
+}
+
+/* the aiming laser of the weapon in the right hand, up to what it hits */
+static void render_vr_laser(
+	short local_player_index)
+{
+	static real_argb_color const laser_color = { 1.f, 1.f, 0.15f, 0.1f };
+	float start[3], direction[3];
+	real_point3d origin, end;
+	real_vector3d ray;
+	struct collision_result collision;
+	long player_index;
+	long unit_index = NONE;
+
+	if (!halo_vr_laser(local_player_index, start, direction))
+		return;
+	player_index = local_player_get_player_index(local_player_index);
+	if (player_index != NONE)
+		unit_index = player_get(player_index)->unit_index;
+	origin.x = start[0];
+	origin.y = start[1];
+	origin.z = start[2];
+	/* as far as the longest-ranged weapons reach */
+	ray.i = direction[0] * 100.f;
+	ray.j = direction[1] * 100.f;
+	ray.k = direction[2] * 100.f;
+	if (collision_test_vector(_collision_test_for_projectiles_flags, &origin, &ray, unit_index, &collision))
+		end = collision.point;
+	else
+		point_from_line3d(&origin, &ray, 1.f, &end);
+	render_debug_line(TRUE, &origin, &end, &laser_color);
+	render_debug_point(TRUE, &end, 0.02f, &laser_color);
 
 	return;
 }

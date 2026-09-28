@@ -51,6 +51,7 @@ static struct
 	the view last recentred (vr_recentre) */
 	float origin[3];
 	int origin_valid;
+	float game_camera[3];    /* the game's camera this frame (world units) */
 	int recentre_frames;     /* recentre on this many more frames */
 
 	/* vr.log_performance: sums over the frames since the last report */
@@ -80,6 +81,10 @@ static struct
 	float screen_distance;
 	float screen_width;
 	int positional_tracking;
+	int aim_with_controller;
+	int laser;
+	float weapon_offset[3];  /* forward, right, down, metres: the weapon model's camera from the hand */
+	float muzzle_distance;
 	float lean_limit;
 	float crouch_limit;
 	float rise_limit;
@@ -147,10 +152,11 @@ static void vr_recentre(void)
 	vr.aim_synced = 0;
 }
 
-/* an eye's offset from the game's camera, in the game's axes (metres): the
-head's offset from the origin, kept within the lean and crouch limits so the
-view stays near the player's body, plus the eye's own offset from the head */
-static void head_offset(const struct halo_xr_view *view, float out[3])
+/* the offset of a tracked point (an eye, a hand) from the game's camera, in
+the game's axes (metres): the head's offset from the origin, kept within the
+lean and crouch limits so the view stays near the player's body, plus the
+point's own offset from the head */
+static void tracked_offset(const float position[3], float out[3])
 {
 	float head[3] = { 0.0f, 0.0f, 0.0f }, local[3];
 	int axis;
@@ -175,7 +181,7 @@ static void head_offset(const struct halo_xr_view *view, float out[3])
 			head[1] = vr.rise_limit;
 	}
 	for (axis = 0; axis < 3; axis++)
-		local[axis] = head[axis] + view->pose.position[axis] - vr.frame.head.position[axis];
+		local[axis] = head[axis] + position[axis] - vr.frame.head.position[axis];
 	local_to_game(local, vr.body_yaw, out);
 }
 
@@ -198,6 +204,12 @@ void halo_vr_initialize(void)
 	vr.crouch_limit = (float)config_real("vr.crouch_limit");
 	vr.rise_limit = 0.25f;
 	vr.log_performance = config_boolean("vr.log_performance");
+	vr.aim_with_controller = strcmp(config_string("vr.aim_with"), "head") != 0;
+	vr.laser = config_boolean("vr.laser");
+	vr.weapon_offset[0] = (float)config_real("vr.weapon_forward");
+	vr.weapon_offset[1] = (float)config_real("vr.weapon_right");
+	vr.weapon_offset[2] = (float)config_real("vr.weapon_down");
+	vr.muzzle_distance = 0.3f;
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -393,7 +405,8 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 	float half_tangent;
 	int axis;
 
-	head_offset(view, offset);
+	tracked_offset(view->pose.position, offset);
+	memcpy(vr.game_camera, game_position, sizeof(vr.game_camera));
 	for (axis = 0; axis < 3; axis++)
 		position[axis] = game_position[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
 	quaternion_rotate(view->pose.orientation, local_forward, direction);
@@ -462,6 +475,107 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 	return 1;
 }
 
+/* ---------- the weapon in the right hand (vr.aim_with = "controller") */
+
+static int weapon_hand_tracked(short local_player_index)
+{
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+
+	return vr.aim_with_controller && local_player_index == 0 && halo_vr_stereo_frame() &&
+		hand->active && (hand->flags & HALO_XR_POSE_VALID);
+}
+
+/* the weapon's axes in the game's: where the right controller points */
+static void weapon_axes(float forward[3], float up[3], float right[3])
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	const float *orientation = vr.frame.hands[HALO_XR_HAND_RIGHT].aim.orientation;
+	float direction[3];
+
+	quaternion_rotate(orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	/* the game's axes are right-handed with +z up: forward x up is right */
+	right[0] = forward[1] * up[2] - forward[2] * up[1];
+	right[1] = forward[2] * up[0] - forward[0] * up[2];
+	right[2] = forward[0] * up[1] - forward[1] * up[0];
+}
+
+/* the hand's offset from the game's camera, in world units */
+static void hand_offset(float out[3])
+{
+	int axis;
+
+	tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, out);
+	for (axis = 0; axis < 3; axis++)
+		out[axis] /= METRES_PER_WORLD_UNIT;
+}
+
+int halo_vr_aim_vector(short local_player_index, float vector[3])
+{
+	float up[3], right[3];
+
+	if (!weapon_hand_tracked(local_player_index))
+		return 0;
+	weapon_axes(vector, up, right);
+	return 1;
+}
+
+int halo_vr_weapon_origin_offset(short local_player_index, float offset[3])
+{
+	float forward[3], up[3], right[3];
+	int axis;
+
+	if (!weapon_hand_tracked(local_player_index))
+		return 0;
+	weapon_axes(forward, up, right);
+	hand_offset(offset);
+	for (axis = 0; axis < 3; axis++)
+		offset[axis] += forward[axis] * vr.muzzle_distance / METRES_PER_WORLD_UNIT;
+	return 1;
+}
+
+int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
+{
+	float right[3], hand[3];
+	int axis;
+
+	if (!weapon_hand_tracked(local_player_index))
+		return 0;
+	weapon_axes(forward, up, right);
+	hand_offset(hand);
+	/* the first-person model hangs from a camera: put that camera where the
+	model's grip lands in the hand */
+	for (axis = 0; axis < 3; axis++)
+	{
+		position[axis] = vr.game_camera[axis] + hand[axis] -
+			(forward[axis] * vr.weapon_offset[0] + right[axis] * vr.weapon_offset[1] -
+			up[axis] * vr.weapon_offset[2]) / METRES_PER_WORLD_UNIT;
+	}
+	return 1;
+}
+
+int halo_vr_laser(short local_player_index, float start[3], float direction[3])
+{
+	float up[3], right[3], offset[3];
+	int axis;
+
+	if (!vr.laser || !halo_vr_weapon_origin_offset(local_player_index, offset))
+		return 0;
+	weapon_axes(direction, up, right);
+	for (axis = 0; axis < 3; axis++)
+		start[axis] = vr.game_camera[axis] + offset[axis];
+	return 1;
+}
+
+int halo_vr_hide_crosshair(void)
+{
+	/* the head's crosshair shows where the head looks, not the weapon */
+	return vr.active && vr.aim_with_controller;
+}
+
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus)
 {
@@ -494,5 +608,18 @@ void halo_vr_initialize(void) {}
 void halo_vr_frame_begin(void) {}
 void halo_vr_present(unsigned int back_buffer_texture) { (void)back_buffer_texture; }
 int halo_vr_eye_size(int *width, int *height) { (void)width; (void)height; return 0; }
+int halo_vr_aim_vector(short local_player_index, float vector[3]) { (void)local_player_index; (void)vector; return 0; }
+int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]) { (void)local_player_index; (void)offset; return 0; }
+int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
+{
+	(void)local_player_index; (void)position; (void)forward; (void)up;
+	return 0;
+}
+int halo_vr_laser(short local_player_index, float start[3], float direction[3])
+{
+	(void)local_player_index; (void)start; (void)direction;
+	return 0;
+}
+int halo_vr_hide_crosshair(void) { return 0; }
 
 #endif

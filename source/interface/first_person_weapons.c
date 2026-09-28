@@ -125,6 +125,9 @@ symbols in this file:
 #include "sound/game_sound.h"
 #include "sound/sound_manager.h"
 #include "units/units.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -1048,11 +1051,33 @@ static void first_person_weapon_build_node_matrices(
 	short local_player_index)
 {
 	struct first_person_weapon *first_person_weapon= first_person_weapon_get(local_player_index);
+	struct render_camera const *camera= &render.camera;
+#ifdef HALO_ANDROID
+	/* VR: posed from the right controller, so the weapon lies in the hand
+	(port/linux/src/vr.c) */
+	struct render_camera weapon_camera;
+	float weapon_position[3], weapon_forward[3], weapon_up[3];
+
+	if (halo_vr_weapon_camera(local_player_index, weapon_position, weapon_forward, weapon_up))
+	{
+		weapon_camera= render.camera;
+		weapon_camera.position.x= weapon_position[0];
+		weapon_camera.position.y= weapon_position[1];
+		weapon_camera.position.z= weapon_position[2];
+		weapon_camera.forward.i= weapon_forward[0];
+		weapon_camera.forward.j= weapon_forward[1];
+		weapon_camera.forward.k= weapon_forward[2];
+		weapon_camera.up.i= weapon_up[0];
+		weapon_camera.up.j= weapon_up[1];
+		weapon_camera.up.k= weapon_up[2];
+		camera= &weapon_camera;
+	}
+#endif
 
 	if (!first_person_weapon->rendered)
 	{
-		euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
-		first_person_weapon->render_position= render.camera.position;
+		euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &camera->forward);
+		first_person_weapon->render_position= camera->position;
 	}
 #ifdef HALO_LINUX
 	/* The native ports draw several frames per tick. The turning sway
@@ -1072,9 +1097,9 @@ static void first_person_weapon_build_node_matrices(
 	first_person_weapon->last_render_facing= first_person_weapon->render_facing;
 	first_person_weapon->last_render_position= first_person_weapon->render_position;
 #endif
-	euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
-	first_person_weapon->render_position= render.camera.position;
-	first_person_weapon->render_forward= render.camera.forward;
+	euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &camera->forward);
+	first_person_weapon->render_position= camera->position;
+	first_person_weapon->render_forward= camera->forward;
 	first_person_weapon->rendered= TRUE;
 
 	if (first_person_weapon->weapon_index!=NONE &&
@@ -1326,16 +1351,16 @@ static void first_person_weapon_build_node_matrices(
 			weapon_definition->weapon.interface_definition.first_person_animations.index,
 			first_person_weapon->node_matrices,
 			first_person_weapon->node_orientations,
-			&render.camera.position,
-			&render.camera.forward,
-			&render.camera.up);
+			&camera->position,
+			&camera->forward,
+			&camera->up);
 #ifdef HALO_LINUX
 		/* the pose between the last two ticks (render_interpolation.c) */
 		render_interpolation_first_person(
 			local_player_index,
 			first_person_weapon->node_matrices,
 			(short)animation_graph->nodes.count,
-			&render.camera);
+			camera);
 #endif
 	}
 

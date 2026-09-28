@@ -100,6 +100,19 @@ static const struct config_setting config_settings[] =
 	{ "vr.log_performance", _config_boolean, "false", "HALO_VR_LOG_PERFORMANCE", _environment_value, _platform_android,
 		"Log the frame rate and where the frame time goes every five seconds\n"
 		"(adb logcat -s halo)." },
+	{ "vr.aim_with", _config_string, "\"controller\"", "HALO_VR_AIM_WITH", _environment_value, _platform_android,
+		"\"controller\": the weapon is in your right hand and aims where it points,\n"
+		"while you move and look with your head; \"head\": you aim where you look." },
+	{ "vr.laser", _config_boolean, "true", "HALO_VR_LASER", _environment_value, _platform_android,
+		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
+	{ "vr.weapon_forward", _config_real, "0.18", "HALO_VR_WEAPON_FORWARD", _environment_value, _platform_android,
+		"Where the weapon lies in your hand: how far the first-person model's\n"
+		"camera is behind your hand, in metres (weapon_right: to its left,\n"
+		"weapon_down: above it)." },
+	{ "vr.weapon_right", _config_real, "0.10", "HALO_VR_WEAPON_RIGHT", _environment_value, _platform_android,
+		"See weapon_forward." },
+	{ "vr.weapon_down", _config_real, "0.14", "HALO_VR_WEAPON_DOWN", _environment_value, _platform_android,
+		"See weapon_forward." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,

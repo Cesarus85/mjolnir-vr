@@ -59,6 +59,22 @@ facing, returns nonzero with the facing to use instead. */
 int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch,
 	float *yaw, float *pitch);
 
+/* The weapon in the right hand (vr.aim_with = "controller"; each returns 0,
+and the game does as before, when the hand is not tracked):
+- the direction the player's weapon aims, where the controller points (the
+  body and the view keep facing where the head looks);
+- where its shots start, as an offset from the unit's camera (world units);
+- the camera the first-person weapon model is posed from, so that it lies
+  in the hand;
+- the aiming laser's start and direction; */
+int halo_vr_aim_vector(short local_player_index, float vector[3]);
+int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
+int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
+int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
+/* - and whether the HUD's crosshair, which marks where the head looks, is
+  left out */
+int halo_vr_hide_crosshair(void);
+
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);
 void halo_vr_frame_begin(void);

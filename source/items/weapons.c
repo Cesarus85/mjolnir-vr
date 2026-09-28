@@ -228,6 +228,9 @@ symbols in this file:
 #include "sound/sound_definitions.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -2251,6 +2254,25 @@ static void trigger_create_projectiles(
 					&up,
 					trigger_definition->first_person_weapon_offset.z,
 					&origin);
+#ifdef HALO_ANDROID
+				if (unit->object.parent_object_index == NONE && unit->unit.gunner_object_index == NONE)
+				{
+					/* VR: from the muzzle of the weapon in the right hand; the
+					projectile is kept inside the level from the camera below,
+					so a hand through a wall does not fire through it */
+					real vr_offset[3];
+
+					if (halo_vr_weapon_origin_offset(player_get(player_index)->local_player_index, vr_offset))
+					{
+						real_point3d camera_position;
+
+						unit_get_camera_position(owner_object_index, &camera_position);
+						origin.x = camera_position.x + vr_offset[0];
+						origin.y = camera_position.y + vr_offset[1];
+						origin.z = camera_position.z + vr_offset[2];
+					}
+				}
+#endif
 
 				target_object_index= player_aim_projectile(player_index, &origin, &forward);
 			}
