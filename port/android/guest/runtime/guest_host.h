@@ -92,10 +92,18 @@ int host_gl_has_extension(const char *name);
 unsigned int host_gl_read_buffer_word(unsigned int buffer, unsigned int offset);
 /* unsynchronized write into the buffer bound to target */
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
+/* persistent, coherent storage for the buffer bound to target (0: the driver
+cannot); writes into such a buffer (0: it has none) */
+int host_gl_buffer_storage(unsigned int target, unsigned int size);
+int host_gl_persistent_write(unsigned int buffer, unsigned int offset, unsigned int size, const void *data);
 /* fences the GPU work queued so far as that of ring slot `slot`; waits for
 the GPU to finish the work last fenced for a slot */
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
+/* copies the visibility counters into snapshot `slot` at the end of a frame;
+reads a snapshot once its frame is finished */
+void host_gl_counters_snapshot(unsigned int buffer, unsigned int size, unsigned int slot);
+int host_gl_counters_read(unsigned int slot, void *out, unsigned int size);
 
 /* ---------- OpenXR (port/android/host/host_xr.c; the structures are in
 halo_xr_abi.h) */

@@ -105,6 +105,7 @@ static struct
 	XrAction haptic;
 	struct xr_hand_actions hands[HALO_XR_HAND_COUNT];
 
+	int has_performance_settings;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
 	PFN_xrGetDisplayRefreshRateFB get_refresh_rate;
@@ -746,6 +747,9 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	enabled[enabled_count++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
 	if (has_extension(extensions, extension_count, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME))
 		enabled[enabled_count++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+	xr.has_performance_settings = has_extension(extensions, extension_count, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+	if (xr.has_performance_settings)
+		enabled[enabled_count++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
 	xr.has_refresh_rate = has_extension(extensions, extension_count, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 	if (xr.has_refresh_rate)
 		enabled[enabled_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
@@ -867,6 +871,22 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		refresh_rate_choose(wanted_refresh_rate);
 		if (xr.has_refresh_rate)
 			xr.get_refresh_rate(xr.session, &info->refresh_rate);
+	}
+
+	if (xr.has_performance_settings)
+	{
+		/* the game's one busy thread and its GPU work both need the clocks
+		up; left alone, Horizon OS judges the load by the device's average
+		and keeps them low */
+		PFN_xrPerfSettingsSetPerformanceLevelEXT set_level = NULL;
+
+		xrGetInstanceProcAddr(xr.instance, "xrPerfSettingsSetPerformanceLevelEXT", (PFN_xrVoidFunction *)&set_level);
+		if (set_level)
+		{
+			set_level(xr.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
+			set_level(xr.session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT);
+			host_logf(HOST_LOG_INFO, "xr: CPU and GPU at sustained high");
+		}
 	}
 
 	info->eye_width = xr.eye_width;
