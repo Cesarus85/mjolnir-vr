@@ -1224,6 +1224,27 @@ static void vr_carry_descendants(
 	}
 }
 
+/* the upper arm turned about the elbow to point at the shoulder, keeping
+its length (the free left arm: vr_left_hand_free) */
+static void vr_point_upper_arm(
+	real_matrix4x3 *node_matrices,
+	short upper,
+	short fore,
+	real_point3d const *shoulder)
+{
+	real_vector3d old_direction, new_direction;
+	real_point3d position;
+	real length;
+
+	vector_from_points3d(&node_matrices[upper].position, &node_matrices[fore].position, &old_direction);
+	vector_from_points3d(shoulder, &node_matrices[fore].position, &new_direction);
+	length = magnitude3d(&old_direction);
+	if (length < 1e-4f || normalize3d(&new_direction) < 1e-4f)
+		return;
+	point_from_line3d(&node_matrices[fore].position, &new_direction, -length, &position);
+	vr_turn_bone(&node_matrices[upper], &old_direction, &new_direction, &position);
+}
+
 /* one arm: upper arm and forearm from the shoulder to the wrist at target */
 static void vr_arm(
 	real_matrix4x3 *node_matrices,
@@ -1493,9 +1514,7 @@ static void first_person_weapon_vr_arms(
 
 		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
 			continue;
-		/* the free left arm keeps its shape (vr_left_hand_free) */
-		if (!side && left_free)
-			continue;
+
 		/* the shoulder: below the eyes, a little behind them, to the side */
 		shoulder = eye;
 		point_from_line3d(&shoulder, global_up3d, -0.25f / VR_METRES_PER_WORLD_UNIT, &shoulder);
@@ -1507,6 +1526,13 @@ static void first_person_weapon_vr_arms(
 		pole.k = -global_up3d->k;
 		vr_vector_scale_add(&pole, &left, outward * 0.6f);
 		vr_vector_scale_add(&pole, &forward, -0.3f);
+		if (!side && left_free)
+		{
+			/* the free left arm keeps its shape (vr_left_hand_free), but
+			for the upper arm, which points back at the shoulder */
+			vr_point_upper_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], &shoulder);
+			continue;
+		}
 		vr_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], vr_arm_nodes.wrist[side],
 			shoulder, &node_matrices[vr_arm_nodes.wrist[side]].position, &pole);
 		vr_twist_forearm(&node_matrices[vr_arm_nodes.fore[side]], &animated_forearm[side], &animated_wrist[side],
