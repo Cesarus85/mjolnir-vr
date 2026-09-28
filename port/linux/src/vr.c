@@ -97,6 +97,13 @@ static struct
 	int two_hand_latched;    /* the grip is held (on the weapon or not) */
 	int two_hand_valid;
 	float two_hand_reach;    /* metres from the foregrip a closing grip takes the weapon */
+	/* melee by swinging a hand (vr.melee_swing_speed) */
+	float melee_swing_speed;
+	float hand_last[HALO_XR_HAND_COUNT][3];
+	int hand_last_valid[HALO_XR_HAND_COUNT];
+	unsigned long long hand_last_us;
+	unsigned long long melee_until_us;
+	unsigned long long melee_ready_us;
 	float two_hand_reference[3]; /* left wrist from right, in the weapon's forward, right, up */
 	float lean_limit;
 	float crouch_limit;
@@ -108,6 +115,9 @@ unsigned int d3d8_back_buffer_texture(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 
 /* ---------- math */
+
+static void cross3(const float a[3], const float b[3], float out[3]);
+static float normalize3(float v[3]);
 
 static void quaternion_rotate(const float q[4], const float v[3], float out[3])
 {
@@ -224,6 +234,7 @@ void halo_vr_initialize(void)
 	vr.weapon_offset[2] = (float)config_real("vr.weapon_down");
 	vr.muzzle_distance = 0.3f;
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
+	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -309,6 +320,54 @@ static void look_update(void)
 	vr.look_valid = 1;
 }
 
+/* a hand thrust forward fast enough is a melee attack; the game sees its
+button for a moment (halo_vr_melee) */
+static void melee_update(void)
+{
+	unsigned long long now = now_us();
+	float seconds = vr.hand_last_us ? (float)(now - vr.hand_last_us) * 1e-6f : 0.0f;
+	float look[3] = { 0.0f, 0.0f, -1.0f }, facing[3];
+	int hand;
+
+	vr.hand_last_us = now;
+	quaternion_rotate(vr.frame.head.orientation, look, facing);
+	facing[1] = 0.0f;
+	normalize3(facing);
+	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+	{
+		const struct halo_xr_hand *state = &vr.frame.hands[hand];
+
+		if (!state->active || !(state->flags & HALO_XR_POSE_VALID))
+		{
+			vr.hand_last_valid[hand] = 0;
+			continue;
+		}
+		if (vr.hand_last_valid[hand] && seconds > 0.0f && seconds < 0.1f && vr.melee_swing_speed > 0.0f &&
+			vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && now >= vr.melee_ready_us)
+		{
+			float velocity[3], forward_speed;
+			int axis;
+
+			for (axis = 0; axis < 3; axis++)
+				velocity[axis] = (state->grip.position[axis] - vr.hand_last[hand][axis]) / seconds;
+			forward_speed = velocity[0] * facing[0] + velocity[2] * facing[2];
+			if (forward_speed > vr.melee_swing_speed)
+			{
+				vr.melee_until_us = now + 120000;
+				vr.melee_ready_us = now + 700000;
+				host_xr_haptic(hand, 0.8f, 0.08f);
+			}
+		}
+		memcpy(vr.hand_last[hand], state->grip.position, sizeof(vr.hand_last[hand]));
+		vr.hand_last_valid[hand] = 1;
+	}
+}
+
+int halo_vr_melee(void)
+{
+	return vr.active && now_us() < vr.melee_until_us;
+}
+
 static void turn_update(void)
 {
 	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
@@ -370,6 +429,7 @@ void halo_vr_frame_begin(void)
 	}
 	turn_update();
 	look_update();
+	melee_update();
 }
 
 void halo_vr_present(unsigned int back_buffer_texture)
@@ -847,6 +907,7 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 {
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
+int halo_vr_melee(void) { return 0; }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
 {

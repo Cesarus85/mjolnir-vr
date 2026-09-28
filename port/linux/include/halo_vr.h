@@ -94,6 +94,8 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
 int halo_vr_body_frame(short local_player_index, float head[3], float forward[3]);
 int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
+/* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
+int halo_vr_melee(void);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);

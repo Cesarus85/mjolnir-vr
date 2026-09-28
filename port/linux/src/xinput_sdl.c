@@ -435,6 +435,7 @@ In play, laid out for VR shooters rather than by position:
 
 	right trigger  fire                 left trigger   throw grenade
 	right grip     melee (B)            left grip      hold the weapon with both hands (vr.c)
+	(a hand thrust forward, vr.melee_swing_speed, is a melee attack too)
 	A              jump                 X              flashlight (white); held, switch grenade (black)
 	B              action, reload (X)   Y              switch weapon (Y)
 	right stick    turns (vr.c); click zooms       left stick  move; click crouches
@@ -492,7 +493,7 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	}
 	merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_X, (right->buttons & HALO_XR_BUTTON_B) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 || halo_vr_melee());
 	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
 	{
 		/* X: a tap is the flashlight, holding it switches grenades; the
