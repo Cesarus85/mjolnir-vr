@@ -93,4 +93,12 @@ void *host_resolve_import(const char *name);
 
 void *host_gl_resolve(const char *name);
 
+/* ---------- VR (host_xr.c) */
+
+/* whether there is an OpenXR headset, and the size of its eye images;
+before the game starts */
+int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height);
+/* the VR self-test, instead of the game; does not return */
+void host_xr_test(void) __attribute__((noreturn));
+
 #endif

@@ -79,6 +79,33 @@ static const struct config_setting config_settings[] =
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second; false keeps the original 30 frames a second." },
 
+	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
+		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"
+		"on a flat panel instead. Read when the app starts." },
+	{ "vr.resolution_scale", _config_real, "1.0", "HALO_VR_RESOLUTION_SCALE", _environment_value, _platform_android,
+		"The eye images' size as a multiple of what the headset recommends;\n"
+		"lower is faster. Read when the app starts." },
+	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
+		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
+		"it picks the nearest it has at or below. 0 for the highest." },
+	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
+		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
+	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,
+		"How far a flick of the right stick turns." },
+	{ "vr.smooth_turn_speed", _config_real, "120.0", "HALO_VR_SMOOTH_TURN_SPEED", _environment_value, _platform_android,
+		"Degrees per second the right stick turns at, fully pushed, with smooth_turn." },
+	{ "vr.cinematics_in_3d", _config_boolean, "false", "HALO_VR_CINEMATICS_3D", _environment_value, _platform_android,
+		"Show cinematics around you, from the cinematic camera; false shows them\n"
+		"on the screen in front of you (easier on the stomach)." },
+	{ "vr.hud_distance", _config_real, "1.5", "HALO_VR_HUD_DISTANCE", _environment_value, _platform_android,
+		"How far in front of the eyes the HUD floats, in metres." },
+	{ "vr.hud_field_of_view", _config_real, "62.0", "HALO_VR_HUD_FOV", _environment_value, _platform_android,
+		"How wide the HUD is, in degrees across." },
+	{ "vr.screen_distance", _config_real, "2.5", "HALO_VR_SCREEN_DISTANCE", _environment_value, _platform_android,
+		"How far away the screen for menus, loading and cinematics stands, in metres." },
+	{ "vr.screen_width", _config_real, "3.2", "HALO_VR_SCREEN_WIDTH", _environment_value, _platform_android,
+		"That screen's width in metres (its height is three quarters of it)." },
+
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
 	{ "audio.volume", _config_real, "1.0", "HALO_VOLUME", _environment_value, _platform_all,

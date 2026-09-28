@@ -387,6 +387,9 @@ symbols in this file:
 #include "text/draw_string.h"
 #include "text/font_group.h"
 #include "tag_files/files.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -1128,6 +1131,10 @@ void set_window_camera_values(
 				1.0f);
 
 		if (window->local_player_index != NONE &&
+#ifdef HALO_ANDROID
+			/* VR: no camera shake, the head alone moves the view */
+			!halo_vr_active() &&
+#endif
 			!console_is_active() &&
 			!game_time_get_paused() &&
 			director_get_perspective(window->local_player_index) !=

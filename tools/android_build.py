@@ -43,6 +43,14 @@ MUSL_URL = f"https://musl.libc.org/releases/musl-{MUSL_VERSION}.tar.gz"
 SDL_TAG = "release-3.4.16"
 SDL_DIR = THIRD_PARTY / "SDL3"
 SDL_URL = "https://github.com/libsdl-org/SDL.git"
+# the Khronos OpenXR loader for Android (the VR build, host_xr.c): its
+# headers and library are linked from here; the app packages the same AAR
+# through Gradle (port/android/app/build.gradle), which also merges the
+# manifest entries the loader needs to find the runtime
+OPENXR_VERSION = "1.1.63"
+OPENXR_DIR = THIRD_PARTY / f"openxr-{OPENXR_VERSION}"
+OPENXR_URL = ("https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/"
+              f"{OPENXR_VERSION}/openxr_loader_for_android-{OPENXR_VERSION}.aar")
 ANDROID_API = 28
 
 # The guest ABI: AArch64 code with 32-bit pointers (clang's only such target
@@ -169,6 +177,25 @@ def fetch_third_party() -> None:
         print(f"Cloning SDL3 {SDL_TAG}")
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", SDL_TAG, SDL_URL, str(SDL_DIR)],
                        check=True)
+    if not OPENXR_DIR.is_dir():
+        print(f"Downloading {OPENXR_URL}")
+        import zipfile
+        archive = THIRD_PARTY / f"openxr-{OPENXR_VERSION}.aar"
+        subprocess.run(["curl", "-sSfL", "-o", str(archive), OPENXR_URL], check=True)
+        staging = THIRD_PARTY / f"openxr-{OPENXR_VERSION}.partial"
+        shutil.rmtree(staging, ignore_errors=True)
+        with zipfile.ZipFile(archive) as aar:
+            for member in aar.namelist():
+                if member.startswith("prefab/modules/headers/include/openxr/") and member.endswith(".h"):
+                    target = staging / "include" / "openxr" / Path(member).name
+                elif member == "jni/arm64-v8a/libopenxr_loader.so":
+                    target = staging / "lib" / "libopenxr_loader.so"
+                else:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(aar.read(member))
+        staging.rename(OPENXR_DIR)
+        archive.unlink()
 
 
 def _musl_sources() -> List[Path]:
@@ -497,7 +524,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_cflags = " ".join([
         "-O2", "-g", "-fPIC", "-Wall", "-Wno-unused-function", "-D_GNU_SOURCE",
         f"-I{PORT_DIR}/include", f"-I{PORT_DIR}/host", f"-I{SDL_DIR}/include", f"-I{LINUX_DIR}/src",
-        f"-I{TOML_DIR}",
+        f"-I{TOML_DIR}", f"-I{OPENXR_DIR}/include",
     ])
     host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
@@ -513,7 +540,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_objects.append(table_obj)
     n.rule(
         name="android_host_link",
-        command=(f"$android_host_cc -shared -o $out $in -L{sdl_build} "
+        command=(f"$android_host_cc -shared -o $out $in -L{sdl_build} -L{OPENXR_DIR}/lib -lopenxr_loader "
                  + " ".join(f"-l{lib}" for lib in HOST_LIBRARIES)
                  + " -Wl,-z,max-page-size=16384 -Wl,--no-undefined"),
         description="ANDROID HOST LINK $out",

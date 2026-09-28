@@ -35,6 +35,7 @@ drive the controller.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "port_config.h"
+#include "halo_vr.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -427,6 +428,77 @@ static int controller_port(HANDLE device)
 	return -1;
 }
 
+#ifdef HALO_ANDROID
+/* ---------- VR controllers (vr.c)
+
+In play, laid out for VR shooters rather than by position:
+
+	right trigger  fire                 left trigger   throw grenade
+	right grip     melee (B)            left grip      switch weapon (Y)
+	A              jump                 X              switch grenade (black)
+	B              action, reload (X)   Y              flashlight (white)
+	right stick    turns (vr.c); click zooms       left stick  move; click crouches
+	menu           pause (start)
+
+In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
+
+#include "guest_host.h"
+#include "halo_xr_abi.h"
+
+int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus);
+
+static SHORT vr_stick(float value)
+{
+	if (value > 1.0f)
+		value = 1.0f;
+	if (value < -1.0f)
+		value = -1.0f;
+	return (SHORT)(value * 32767.0f);
+}
+
+static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
+{
+	struct halo_xr_hand hands[HALO_XR_HAND_COUNT];
+	const struct halo_xr_hand *left = &hands[HALO_XR_HAND_LEFT];
+	const struct halo_xr_hand *right = &hands[HALO_XR_HAND_RIGHT];
+	int menus = 0;
+	SHORT value;
+
+	if (!halo_vr_controllers(hands, &menus))
+		return;
+	value = vr_stick(left->thumbstick[0]);
+	if (abs(value) > abs(pad->sThumbLX)) pad->sThumbLX = value;
+	value = vr_stick(left->thumbstick[1]);
+	if (abs(value) > abs(pad->sThumbLY)) pad->sThumbLY = value;
+	if (left->buttons & HALO_XR_BUTTON_MENU) pad->wButtons |= XINPUT_GAMEPAD_START;
+	if (left->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
+	if (right->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+	if ((BYTE)(right->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER])
+		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = (BYTE)(right->trigger * 255.0f);
+	if ((BYTE)(left->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER])
+		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = (BYTE)(left->trigger * 255.0f);
+	if (menus)
+	{
+		/* the right stick scrolls too; turning is off in the menus */
+		value = vr_stick(right->thumbstick[0]);
+		if (abs(value) > abs(pad->sThumbRX)) pad->sThumbRX = value;
+		value = vr_stick(right->thumbstick[1]);
+		if (abs(value) > abs(pad->sThumbRY)) pad->sThumbRY = value;
+		merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
+		merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_B) != 0);
+		merge_button(pad, XINPUT_GAMEPAD_X, (left->buttons & HALO_XR_BUTTON_A) != 0);
+		merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
+		return;
+	}
+	merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_X, (right->buttons & HALO_XR_BUTTON_B) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_SQUEEZE) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_BLACK, (left->buttons & HALO_XR_BUTTON_A) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_WHITE, (left->buttons & HALO_XR_BUTTON_B) != 0);
+}
+#endif
+
 DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 {
 	int port = controller_port(device);
@@ -449,6 +521,9 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 			keyboard_gamepad(&input, &state->Gamepad);
 		if (count > 0)
 			sdl_gamepad_state(gamepads[0], &state->Gamepad);
+#ifdef HALO_ANDROID
+		vr_gamepad_state(&state->Gamepad);
+#endif
 	}
 	else if (port < count)
 	{
@@ -475,6 +550,15 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 	feedback->Header.dwStatus = ERROR_SUCCESS;
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+#ifdef HALO_ANDROID
+	/* VR: the heavy (left) motor in the left hand, the light one in the
+	right, as the game refreshes them every frame */
+	if (port == 0 && halo_vr_active())
+	{
+		host_xr_haptic(HALO_XR_HAND_LEFT, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
+		host_xr_haptic(HALO_XR_HAND_RIGHT, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
+	}
+#endif
 	count = sdl_gamepads(gamepads);
 	if (port < count)
 	{

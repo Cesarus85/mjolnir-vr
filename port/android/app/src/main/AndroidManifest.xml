@@ -7,6 +7,10 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <!-- VR (port/android/README.md, "VR"): on a headset the game runs as an
+         immersive OpenXR app; elsewhere as before. Not required, so the one
+         APK still installs on phones. -->
+    <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="false" />
 
     <!-- controller rumble -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -46,14 +50,27 @@
             </intent-filter>
         </activity>
 
+        <!-- The VR categories make headsets start this activity immersive
+             (without them Horizon OS shows it as a flat panel, and the OpenXR
+             session never gets focus); phones ignore them. The launcher,
+             a flat panel on a headset, starts it once the game data is
+             there. -->
         <activity
             android:name=".HaloActivity"
-            android:exported="false"
+            android:exported="true"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="landscape"
             android:resizeableActivity="false"
             android:preferMinimalPostProcessing="true"
-            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.oculus.intent.category.VR" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+            </intent-filter>
+        </activity>
+
+        <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" />
     </application>
 </manifest>

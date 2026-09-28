@@ -11,6 +11,7 @@ and the debug keyboard that the game's console reads.
 
 #include "platform.h"
 #include "sdl_platform.h"
+#include "halo_vr.h"
 #include "gl.h"
 #include "port_config.h"
 #include "p2p.h"
@@ -394,6 +395,11 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
+	/* on a headset, its session on this context (vr.c); the headset then
+	paces the frames, and the window is not shown */
+	halo_vr_initialize();
+	if (halo_vr_active())
+		SDL_GL_SetSwapInterval(0);
 #ifndef HALO_ANDROID
 	platform_mouse_capture(TRUE);
 #endif
@@ -616,6 +622,9 @@ void platform_pump_events(void)
 
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
+	/* VR: the next frame starts here, after the last was presented and
+	before the game reads its input (vr.c) */
+	halo_vr_frame_begin();
 	if (exit_ticks == (Uint64)-1)
 	{
 		double seconds = config_real("debug.exit_after");

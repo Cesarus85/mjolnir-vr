@@ -24,6 +24,7 @@ Conventions carried over from the Xbox:
 #include "xgpu.h"
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
+#include "halo_vr.h"
 #include "port_config.h"
 
 #include <math.h>
@@ -88,7 +89,17 @@ static void screen_mode_choose(long *width, float scale[2])
 	/* display.screen_width, or 0 for the display's shape, which the app
 	passes (port/android/host/host_main.c) */
 	const char *display = getenv("HALO_DISPLAY_WIDTH");
+	int eye_width, eye_height;
 
+	/* VR (vr.c): the Xbox's 640x480, drawn at the eye images' resolution;
+	the stretch to their shape is part of each eye's projection */
+	if (halo_vr_eye_size(&eye_width, &eye_height))
+	{
+		*width = 640;
+		scale[0] = (float)eye_width / 640.0f;
+		scale[1] = (float)eye_height / (float)SCREEN_HEIGHT;
+		return;
+	}
 	*width = config_integer("display.screen_width");
 	if (*width <= 0)
 		*width = display ? atol(display) : 640;
@@ -3559,6 +3570,38 @@ static void write_screenshot(struct render_target_entry *target)
 	free(pixels);
 }
 
+/* ---------- VR (vr.c) */
+
+unsigned int d3d8_back_buffer_texture(void)
+{
+	struct render_target_entry *back_buffer = device.gl_ready ? render_target_get(&device.back_buffer) : NULL;
+
+	return back_buffer ? back_buffer->target.texture : 0;
+}
+
+/* clears the whole back buffer, its alpha too, and the depth buffer */
+void d3d8_clear_back_buffer(float red, float green, float blue, float alpha)
+{
+	struct render_target_entry *back_buffer = device.gl_ready ? render_target_get(&device.back_buffer) : NULL;
+	struct render_target_entry *depth_buffer = device.gl_ready ? render_target_get(&device.depth_buffer) : NULL;
+
+	if (!back_buffer)
+		return;
+	if (depth_buffer && !depth_buffer->target.depth)
+		depth_buffer = NULL;
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture,
+		depth_buffer ? depth_buffer->target.texture : 0));
+	glDisable(GL_SCISSOR_TEST);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glDepthMask(GL_TRUE);
+	glStencilMask(0xff);
+	glClearColor(red, green, blue, alpha);
+	glClearDepthf(1.0f);
+	glClearStencil(0);
+	glClear(GL_COLOR_BUFFER_BIT | (depth_buffer ? GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT : 0));
+	xgpu_gl_state_invalidate();
+}
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {
@@ -3582,27 +3625,37 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
 
-		platform_video_drawable_size(&window_width, &window_height);
-		/* letterbox to the back buffer's aspect ratio */
-		width = window_width;
-		height = (int)((long)window_width * back_buffer->target.gl_height / back_buffer->target.gl_width);
-		if (height > window_height)
+#ifdef HALO_ANDROID
+		if (halo_vr_active())
 		{
-			height = window_height;
-			width = (int)((long)window_height * back_buffer->target.gl_width / back_buffer->target.gl_height);
+			/* the headset's layers instead of the window (vr.c) */
+			halo_vr_present(back_buffer ? back_buffer->target.texture : 0);
 		}
-		x = (window_width - width) / 2;
-		y = (window_height - height) / 2;
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-		glDisable(GL_SCISSOR_TEST);
-		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
-		/* row 0 of the render target is the top of the picture */
-		glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
-			x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-		platform_video_swap();
+		else
+#endif
+		{
+			platform_video_drawable_size(&window_width, &window_height);
+			/* letterbox to the back buffer's aspect ratio */
+			width = window_width;
+			height = (int)((long)window_width * back_buffer->target.gl_height / back_buffer->target.gl_width);
+			if (height > window_height)
+			{
+				height = window_height;
+				width = (int)((long)window_height * back_buffer->target.gl_width / back_buffer->target.gl_height);
+			}
+			x = (window_width - width) / 2;
+			y = (window_height - height) / 2;
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+			glDisable(GL_SCISSOR_TEST);
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
+			/* row 0 of the render target is the top of the picture */
+			glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
+				x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			platform_video_swap();
+		}
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();
 #ifdef HALO_ANDROID

@@ -56,3 +56,11 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+dependencies {
+    // the Khronos OpenXR loader (VR, port/android/host/host_xr.c): its
+    // library, and the manifest entries through which it finds the
+    // headset's runtime. The version matches OPENXR_VERSION in
+    // tools/android_build.py, whose headers libmain.so is built against.
+    implementation "org.khronos.openxr:openxr_loader_for_android:1.1.63"
+}

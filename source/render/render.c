@@ -81,6 +81,10 @@ symbols in this file:
 #include "objects/object_lights_rendering.h"
 #include "effects/particle_systems.h"
 #include "effects/weather_particle_systems.h"
+#ifdef HALO_ANDROID
+#include "cutscene/cinematics.h"
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -131,6 +135,12 @@ static void render_window(
 static void render_player_frame(
 	struct render_window *window,
 	const point2d *screenshot_combined_index);
+#ifdef HALO_ANDROID
+static void render_vr_player_frame(
+	struct render_window *window);
+static void render_vr_overlay(
+	const struct render_window *window);
+#endif
 
 void structure_get_planar_fog(
 	short cluster_index,
@@ -172,6 +182,13 @@ boolean render_contrails_enabled = TRUE;
 boolean render_particles_enabled = TRUE;
 boolean render_particle_systems_enabled = TRUE;
 boolean render_weather_particle_systems_enabled = TRUE;
+
+#ifdef HALO_ANDROID
+/* VR (render_vr_player_frame): drawing an eye, which leaves out the HUD and
+the menus, and that eye's frustum bounds */
+static boolean render_vr_eye_pass = FALSE;
+static const real_rectangle2d *render_vr_frustum_bounds = NULL;
+#endif
 
 /* ---------- public code */
 
@@ -439,15 +456,25 @@ static void render_window(
 		rasterizer_transparent_geometry_stop();
 		structure_render_fog_screen();
 		rasterizer_lens_flares_draw();
-		interface_draw_screen();
-		rasterizer_screen_flash();
-#ifdef HALO_LINUX
-		halo_screen_ui_offset(TRUE);
-		render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
-		halo_screen_ui_offset(FALSE);
-#else
-		render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
+#ifdef HALO_ANDROID
+		if (render_vr_eye_pass)
+		{
+			/* the HUD and the menus go on the overlay (render_vr_overlay) */
+			rasterizer_screen_flash();
+		}
+		else
 #endif
+		{
+			interface_draw_screen();
+			rasterizer_screen_flash();
+#ifdef HALO_LINUX
+			halo_screen_ui_offset(TRUE);
+			render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
+			halo_screen_ui_offset(FALSE);
+#else
+			render_ui_widgets(local_player_index, &rasterizer_camera->viewport_bounds);
+#endif
+		}
 	}
 
 	bink_playback_render();
@@ -532,6 +559,10 @@ static void render_player_frame(
 			sizeof(rectangle2d)));
 
 	render_camera_build_frustum_bounds(camera, &frustum_bounds);
+#ifdef HALO_ANDROID
+	if (render_vr_frustum_bounds)
+		frustum_bounds = *render_vr_frustum_bounds;
+#endif
 
 	if (screenshot_combined_index != NULL)
 	{
@@ -612,6 +643,97 @@ static void render_player_frame(
 	return;
 }
 
+#ifdef HALO_ANDROID
+static void render_vr_camera_set(
+	struct render_camera *camera,
+	const float position[3],
+	const float forward[3],
+	const float up[3],
+	real vertical_field_of_view)
+{
+	camera->position.x = position[0];
+	camera->position.y = position[1];
+	camera->position.z = position[2];
+	camera->forward.i = forward[0];
+	camera->forward.j = forward[1];
+	camera->forward.k = forward[2];
+	camera->up.i = up[0];
+	camera->up.j = up[1];
+	camera->up.k = up[2];
+	camera->vertical_field_of_view = vertical_field_of_view;
+}
+
+/* A player's view in VR (port/linux/include/halo_vr.h): drawn once per eye
+from the headset's eye poses, placed at the game's camera, each copied to
+its eye image; then the HUD and the menus, over nothing, for the overlay
+the headset shows in front of the eyes. */
+static void render_vr_player_frame(
+	struct render_window *window)
+{
+	float game_position[3];
+	short eye;
+
+	game_position[0] = window->render_camera.position.x;
+	game_position[1] = window->render_camera.position.y;
+	game_position[2] = window->render_camera.position.z;
+	for (eye = 0; eye < 2; eye++)
+	{
+		struct render_window eye_window = *window;
+		float position[3], forward[3], up[3], bounds[4];
+		float vertical_field_of_view;
+		real_rectangle2d frustum_bounds;
+
+		halo_vr_eye_camera(eye, game_position, position, forward, up, &vertical_field_of_view, bounds);
+		render_vr_camera_set(&eye_window.render_camera, position, forward, up, vertical_field_of_view);
+		render_vr_camera_set(&eye_window.rasterizer_camera, position, forward, up, vertical_field_of_view);
+		frustum_bounds.x0 = bounds[0];
+		frustum_bounds.x1 = bounds[1];
+		frustum_bounds.y0 = bounds[2];
+		frustum_bounds.y1 = bounds[3];
+
+		render_vr_eye_pass = TRUE;
+		render_vr_frustum_bounds = &frustum_bounds;
+		render_player_frame(&eye_window, NULL);
+		render_vr_frustum_bounds = NULL;
+		render_vr_eye_pass = FALSE;
+		halo_vr_capture_eye(eye);
+	}
+	render_vr_overlay(window);
+
+	return;
+}
+
+/* the HUD and the menus of a player's view, on the cleared back buffer */
+static void render_vr_overlay(
+	const struct render_window *window)
+{
+	struct rasterizer_window_begin_parameters parameters;
+
+	halo_vr_begin_overlay(ui_widgets_menus_active());
+	profile_render_window_start(FALSE);
+	memset(&parameters, 0, sizeof(parameters));
+	render.local_player_index = window->local_player_index;
+	render.camera = window->render_camera;
+	render_camera_build_frustum(&render.camera, NULL, &render.frustum, TRUE);
+	parameters.camera = window->rasterizer_camera;
+	render_camera_build_frustum(&parameters.camera, NULL, &parameters.frustum, TRUE);
+	parameters.rasterizer_target = _render_target_primary;
+	parameters.suppress_clear = TRUE;
+	parameters.window_index = render.window_index;
+	rasterizer_window_begin(&parameters);
+
+	interface_draw_screen();
+	halo_screen_ui_offset(TRUE);
+	render_ui_widgets(window->local_player_index, &window->rasterizer_camera.viewport_bounds);
+	halo_screen_ui_offset(FALSE);
+
+	rasterizer_window_end();
+	profile_render_window_end();
+
+	return;
+}
+
+#endif
 void render_frame(
 	struct render_window *windoze,
 	short window_count,
@@ -647,6 +769,14 @@ void render_frame(
 		{
 			window_type = 0;
 		}
+#ifdef HALO_ANDROID
+		else if (window->local_player_index != NONE && screenshot_index == NULL &&
+			halo_vr_stereo_player(window->local_player_index, cinematic_in_progress()))
+		{
+			render_vr_player_frame(window);
+			continue;
+		}
+#endif
 		else if (window->local_player_index != NONE)
 		{
 			if (screenshot_index != NULL && screenshot_page_index != NULL)

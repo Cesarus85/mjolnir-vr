@@ -97,6 +97,22 @@ the GPU to finish the work last fenced for a slot */
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
 
+/* ---------- OpenXR (port/android/host/host_xr.c; the structures are in
+halo_xr_abi.h) */
+struct halo_xr_info;
+struct halo_xr_frame;
+struct halo_xr_submit;
+/* creates the session on the current GL context (the host found the
+headset before the game started, and set HALO_VR); 0 on failure */
+int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate);
+/* waits for the next frame and reports the predicted poses */
+int host_xr_begin_frame(struct halo_xr_frame *frame);
+/* copies a render target texture (0: clears) into a layer's image */
+int host_xr_copy_layer(int layer, unsigned int texture, int clear_alpha);
+/* submits the frame begun by host_xr_begin_frame */
+int host_xr_end_frame(const struct halo_xr_submit *submit);
+void host_xr_haptic(int hand, float amplitude, float seconds);
+
 /* ---------- Android */
 
 /* the storage directories the port uses, copied into buffer */

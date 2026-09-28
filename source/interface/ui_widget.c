@@ -5587,6 +5587,15 @@ static boolean ui_mouse_menus_active(
 	return virtual_keyboard_active() || ui_mouse_menu() != NULL;
 }
 
+#ifdef HALO_ANDROID
+/* whether a menu is up (VR shows it on a screen in the room: render.c) */
+boolean ui_widgets_menus_active(
+	void)
+{
+	return ui_mouse_menus_active();
+}
+
+#endif
 /* the pointer's motion, clicks and wheel since the last frame, as the first
 player's controller events */
 static void ui_widgets_process_mouse(

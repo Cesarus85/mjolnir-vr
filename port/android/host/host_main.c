@@ -181,6 +181,28 @@ static int config_sample_seconds(const char *path, char *text, size_t size)
 	return found;
 }
 
+/* a number from config.toml, or fallback when it is not set */
+static double config_number(const char *path, const char *key, double fallback)
+{
+	toml_result_t result = toml_parse_file_ex(path);
+	double value = fallback;
+
+	if (!result.ok)
+		return fallback;
+	{
+		toml_datum_t datum = toml_seek(result.toptab, key);
+
+		if (datum.type == TOML_FP64)
+			value = datum.u.fp64;
+		else if (datum.type == TOML_INT64)
+			value = (double)datum.u.int64;
+		else if (datum.type == TOML_BOOLEAN)
+			value = datum.u.boolean ? 1.0 : 0.0;
+	}
+	toml_free(result);
+	return value;
+}
+
 /* POSIX TZ for the current local offset (the guest's musl has no zone
 database) */
 static void time_zone(char *buffer, size_t size)
@@ -252,6 +274,14 @@ static void *game_main(void *unused)
 	/* readable by adb (the shell user), for managing saves */
 	mkdir(save_root, 0775);
 	share_save_tree(save_root);
+	{
+		struct stat information;
+
+		/* the VR self-test (host_xr.c), which needs no game data */
+		snprintf(path, sizeof(path), "%s/xr_test", data_root);
+		if (stat(path, &information) == 0)
+			host_xr_test();
+	}
 	if (!directory_has_maps(data_root))
 	{
 		host_fatal("The Halo game data was not found.\n\nCopy the PAL game data (build 01.01.14.2342), "
@@ -261,27 +291,47 @@ static void *game_main(void *unused)
 	environment_set(&environment, "HOME", save_root);
 	environment_set(&environment, "HALO_DATA_ROOT", data_root);
 	environment_set(&environment, "HALO_SAVE_ROOT", save_root);
+	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 	{
-		/* the game renders 480 lines at the display's aspect ratio
-		(landscape) unless display.screen_width says otherwise (d3d8_gl.c) */
-		const SDL_DisplayMode *mode;
-		char width[16];
+		int eye_width, eye_height;
 
-		SDL_InitSubSystem(SDL_INIT_VIDEO);
-		mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
-		if (mode && mode->w > 0 && mode->h > 0)
+		/* on a headset the game runs in VR (port/linux/src/vr.c): it
+		keeps the Xbox's 640x480 layout and draws it at the eye images'
+		resolution (d3d8_gl.c) */
+		if (config_number(path, "vr.enabled", 1.0) != 0.0 &&
+			host_xr_probe((float)config_number(path, "vr.resolution_scale", 1.0), &eye_width, &eye_height))
 		{
-			int longer = mode->w > mode->h ? mode->w : mode->h;
-			int shorter = mode->w > mode->h ? mode->h : mode->w;
+			char text[16];
 
-			snprintf(width, sizeof(width), "%d", (480 * longer / shorter) & ~1);
-			environment_set(&environment, "HALO_DISPLAY_WIDTH", width);
-			host_logf(HOST_LOG_INFO, "display %dx%d: rendering %sx480", mode->w, mode->h, width);
+			environment_set(&environment, "HALO_VR", "1");
+			snprintf(text, sizeof(text), "%d", eye_width);
+			environment_set(&environment, "HALO_VR_EYE_WIDTH", text);
+			snprintf(text, sizeof(text), "%d", eye_height);
+			environment_set(&environment, "HALO_VR_EYE_HEIGHT", text);
+			environment_set(&environment, "HALO_DISPLAY_WIDTH", "640");
+		}
+		else
+		{
+			/* the game renders 480 lines at the display's aspect ratio
+			(landscape) unless display.screen_width says otherwise (d3d8_gl.c) */
+			const SDL_DisplayMode *mode;
+			char width[16];
+
+			SDL_InitSubSystem(SDL_INIT_VIDEO);
+			mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+			if (mode && mode->w > 0 && mode->h > 0)
+			{
+				int longer = mode->w > mode->h ? mode->w : mode->h;
+				int shorter = mode->w > mode->h ? mode->h : mode->w;
+
+				snprintf(width, sizeof(width), "%d", (480 * longer / shorter) & ~1);
+				environment_set(&environment, "HALO_DISPLAY_WIDTH", width);
+				host_logf(HOST_LOG_INFO, "display %dx%d: rendering %sx480", mode->w, mode->h, width);
+			}
 		}
 	}
 	time_zone(zone, sizeof(zone));
 	environment_set(&environment, "TZ", zone);
-	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 
 	image = SDL_LoadFile("halo_guest.elf", &image_size);
 	if (!image)

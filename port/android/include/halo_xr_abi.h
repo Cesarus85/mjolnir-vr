@@ -1,0 +1,124 @@
+/*
+HALO_XR_ABI.H
+
+The structures the game (the ILP32 guest, port/linux/src/vr.c) and the
+host's OpenXR session (port/android/host/host_xr.c) exchange. Both sides
+compile this header, so every member is a 32-bit int or float: the layout
+is the same under ILP32 and LP64.
+
+Poses are in OpenXR's convention: metres, right-handed, +x right, +y up,
+-z forward, relative to the LOCAL reference space (the head's position and
+heading when the user last recentred). Quaternions are x, y, z, w.
+*/
+
+#ifndef __HALO_XR_ABI_H
+#define __HALO_XR_ABI_H
+
+enum
+{
+	HALO_XR_EYE_LEFT = 0,
+	HALO_XR_EYE_RIGHT = 1,
+	HALO_XR_EYE_COUNT = 2,
+
+	/* the images the game fills each frame (host_xr_copy_layer) */
+	HALO_XR_LAYER_EYE_LEFT = 0,
+	HALO_XR_LAYER_EYE_RIGHT = 1,
+	HALO_XR_LAYER_OVERLAY = 2, /* HUD, menus, cinematics: a flat quad */
+	HALO_XR_LAYER_COUNT = 3,
+
+	HALO_XR_HAND_LEFT = 0,
+	HALO_XR_HAND_RIGHT = 1,
+	HALO_XR_HAND_COUNT = 2,
+};
+
+/* halo_xr_hand.buttons */
+enum
+{
+	HALO_XR_BUTTON_A = 1 << 0,          /* right hand: A; left hand: X */
+	HALO_XR_BUTTON_B = 1 << 1,          /* right hand: B; left hand: Y */
+	HALO_XR_BUTTON_THUMBSTICK = 1 << 2, /* stick click */
+	HALO_XR_BUTTON_MENU = 1 << 3,       /* left hand's menu button */
+	HALO_XR_BUTTON_TRIGGER = 1 << 4,    /* trigger past its click point */
+	HALO_XR_BUTTON_SQUEEZE = 1 << 5,    /* grip past its click point */
+	HALO_XR_BUTTON_THUMBREST = 1 << 6,  /* thumb resting (touch) */
+};
+
+/* halo_xr_hand.flags, halo_xr_view.flags, halo_xr_frame.head_flags */
+enum
+{
+	HALO_XR_POSE_VALID = 1 << 0,
+	HALO_XR_POSE_TRACKED = 1 << 1,
+};
+
+struct halo_xr_pose
+{
+	float orientation[4];
+	float position[3];
+};
+
+struct halo_xr_view
+{
+	int flags;
+	struct halo_xr_pose pose;
+	/* tangents of the view's edges (left and down negative) */
+	float tangent_left;
+	float tangent_right;
+	float tangent_up;
+	float tangent_down;
+};
+
+struct halo_xr_hand
+{
+	int flags;
+	int active;             /* a controller of this hand is connected */
+	struct halo_xr_pose grip;
+	struct halo_xr_pose aim;
+	float trigger;          /* 0..1 */
+	float squeeze;          /* 0..1 */
+	float thumbstick[2];    /* x right, y up; -1..1 */
+	int buttons;            /* HALO_XR_BUTTON_* */
+};
+
+struct halo_xr_info
+{
+	int eye_width;          /* the eye images' size in pixels */
+	int eye_height;
+	int overlay_width;
+	int overlay_height;
+	float refresh_rate;     /* Hz; 0 if unknown */
+	char system_name[64];
+};
+
+struct halo_xr_frame
+{
+	int session_running;    /* frames are being submitted to the headset */
+	int should_render;      /* the eye images will be shown this frame */
+	int focused;            /* input goes to the app (no system menu over it) */
+	int recentred;          /* the LOCAL space moved since the last frame */
+	float predicted_display_seconds;
+	int head_flags;
+	struct halo_xr_pose head;
+	struct halo_xr_view views[HALO_XR_EYE_COUNT];
+	struct halo_xr_hand hands[HALO_XR_HAND_COUNT];
+};
+
+/* halo_xr_submit.overlay_mode */
+enum
+{
+	HALO_XR_OVERLAY_NONE = 0,
+	HALO_XR_OVERLAY_HEAD_LOCKED = 1, /* the HUD: follows the head */
+	HALO_XR_OVERLAY_SCREEN = 2,      /* menus and cinematics: a screen fixed in the room */
+};
+
+struct halo_xr_submit
+{
+	int eyes;               /* the eye layers were filled this frame */
+	int overlay_mode;       /* HALO_XR_OVERLAY_* */
+	int overlay_blend;      /* the overlay has alpha (premultiplied): it is drawn over the eyes */
+	float overlay_distance; /* metres */
+	float overlay_width;    /* metres; the height follows from 4:3 */
+	/* the screen's placement in LOCAL space (HALO_XR_OVERLAY_SCREEN) */
+	struct halo_xr_pose screen;
+};
+
+#endif

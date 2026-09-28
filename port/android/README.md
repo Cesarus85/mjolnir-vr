@@ -114,6 +114,75 @@ changes are in `rasterizer_xbox.c`, `render.c`, `ui_widget.c`,
 `cinematics.c`, `main.c` and `rasterizer_xbox_screen_effect.c`, under
 `#ifdef HALO_ANDROID`.
 
+## VR
+
+On a VR headset with an OpenXR runtime (Meta Quest 3 and 3S; the Steam
+Frame runs Android apps in Lepton) the same APK plays in VR, with 6DoF head
+tracking and the Touch controllers. The launcher, a flat panel on the
+headset, imports the game data as on a phone and then starts the game
+immersive. `vr.enabled = false` in `config.toml` shows it on a flat panel
+instead.
+
+Controls in play (in the menus the buttons are the Xbox's by position):
+
+| Controller | Halo |
+| --- | --- |
+| right trigger / left trigger | fire / throw grenade |
+| right grip / left grip | melee / switch weapon |
+| A / B | jump / action, reload |
+| X / Y | switch grenade / flashlight |
+| left stick, click | move, crouch |
+| right stick, click | turn (snap or smooth), zoom |
+| menu | pause |
+
+You aim with your head; turning your head turns the player, and the right
+stick turns you further. Recentre with the headset's own gesture (holding
+the Meta button). The `[vr]` settings in `config.toml` choose snap or
+smooth turning, the resolution, the refresh rate, and where the HUD and the
+screen for menus and cinematics float.
+
+### How VR works
+
+`host_main.c` asks the Khronos OpenXR loader for a headset before the game
+starts. If there is one, the game keeps the Xbox's 640x480 layout but draws
+it at the eye images' resolution (`d3d8_gl.c`, `screen_mode_choose`), and
+`port/linux/src/vr.c` drives the session the host keeps
+(`host/host_xr.c`, which the guest calls through the import stubs;
+`include/halo_xr_abi.h` has the structures both sides share):
+
+- the frame starts when the last one has been presented
+  (`platform_pump_events`), before the game reads its input: the host waits
+  for the headset's frame and reports where the eyes, the head and the
+  controllers will be when it is shown;
+- the player's facing follows the head (`halo_vr_aim` in
+  `player_control.c`); a "body" yaw that the right stick turns maps the
+  headset's space onto the game's;
+- `render.c` draws the player's view once per eye, from the eye's pose
+  placed at the game's camera, through the eye's asymmetric frustum
+  (`frustum_bounds`, as the tiled screenshots use), leaving out the HUD;
+  each eye is copied to its swapchain;
+- the back buffer is then cleared to transparent black, and the HUD and the
+  menus drawn over nothing; Present copies it to a quad layer that follows
+  the head (premultiplied alpha, so the HUD's additive parts add to the
+  scene), or, while a menu is up, stands in the room;
+- frames without a player's view (the main menu, loading, cinematics,
+  unless `vr.cinematics_in_3d`) go whole onto that screen in the room.
+
+The game draws in gamma space; the swapchains are sRGB, so the host copies
+through a shader that decodes to linear, and the stored bytes are the
+game's. Camera shake is off in VR.
+
+A file named `xr_test` in the data folder
+(`adb shell touch /sdcard/Android/data/com.halo.decomp/files/xr_test`)
+starts a self-test instead of the game, which needs no game data: each eye
+in its own colour (red while the right trigger is held), a checkerboard
+screen in the room (its top-left square red), and the controllers' buttons
+in the log (`adb logcat -s halo`). Delete the file to play.
+
+Not done yet: aiming with the controller and the weapon in the hand, the
+HUD's parts on the controllers, zoom through the scope, a first-person view
+in vehicles, and a separate depth for the HUD's reticle.
+
 ## How it works
 
 ### Why the game is not an ordinary arm64 library

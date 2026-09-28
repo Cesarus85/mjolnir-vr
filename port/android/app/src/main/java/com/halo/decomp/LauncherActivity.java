@@ -86,8 +86,10 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    /** The game data, or the marker file of the VR self-test (host_xr.c). */
     private boolean haveData() {
-        return dataRoot != null && new File(dataRoot, "maps/ui.map").isFile();
+        return dataRoot != null && (new File(dataRoot, "maps/ui.map").isFile() ||
+            new File(dataRoot, "xr_test").isFile());
     }
 
     private void startGame() {

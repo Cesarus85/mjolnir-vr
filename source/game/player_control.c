@@ -331,6 +331,11 @@ real player_look_pitch_rate[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS] = {0};
 boolean controls_enable_crouch = FALSE;
 boolean controls_enable_doubled_spin = FALSE;
 boolean controls_swap_doubled_spin_state = FALSE;
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+/* how far up or down the head can aim the player */
+#define VR_PITCH_LIMIT (85.f * _pi / 180.f)
+#endif
 #ifdef HALO_LINUX
 /* The native builds read input once a frame and draw several frames per
 30 Hz tick (port/linux/game/render_interpolation.c). The pitch autolevel and
@@ -684,6 +689,24 @@ static void handle_one_player_input(
 				input.facing_delta.pitch);
 #ifdef HALO_LINUX
 			player_control_angle_step_ticks = 1.f;
+#endif
+#ifdef HALO_ANDROID
+			{
+				/* VR: the player faces where the head does (vr.c) */
+				real vr_yaw;
+				real vr_pitch;
+
+				if (halo_vr_aim(
+					local_player_index,
+					player->desired_angles.yaw,
+					player->desired_angles.pitch,
+					&vr_yaw,
+					&vr_pitch))
+				{
+					player->desired_angles.yaw = vr_yaw;
+					player->desired_angles.pitch = PIN(vr_pitch, -VR_PITCH_LIMIT, VR_PITCH_LIMIT);
+				}
+			}
 #endif
 		}
 

@@ -220,6 +220,10 @@ void display_scenario_help(
 	short string_index);
 void process_ui_widgets(
 	void);
+#ifdef HALO_ANDROID
+boolean ui_widgets_menus_active(
+	void);
+#endif
 
 /* ---------- globals */
 
