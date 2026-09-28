@@ -65,6 +65,13 @@ static struct
 	int report_frames;
 	int report_stereo_frames;
 
+	/* the view's turning, gathered for halo_vr_look_delta */
+	float look_yaw;
+	float look_pitch;
+	float look_turned_yaw;
+	float look_turned_pitch;
+	int look_valid;
+
 	float body_yaw;
 	int aim_synced;
 	float last_yaw;
@@ -272,6 +279,29 @@ static void performance_report(int stereo)
 	vr.work_us = vr.eyes_us = vr.wait_us = 0;
 }
 
+/* gathers the view's turning (the head's, and the body's by the stick) for
+halo_vr_look_delta, whether or not the game lets the player turn now */
+static void look_update(void)
+{
+	float yaw, pitch;
+
+	if (!(vr.frame.head_flags & HALO_XR_POSE_VALID))
+	{
+		vr.look_valid = 0;
+		return;
+	}
+	head_angles(&yaw, &pitch);
+	yaw = wrap_angle(yaw + vr.body_yaw);
+	if (vr.look_valid)
+	{
+		vr.look_turned_yaw += wrap_angle(yaw - vr.look_yaw);
+		vr.look_turned_pitch += pitch - vr.look_pitch;
+	}
+	vr.look_yaw = yaw;
+	vr.look_pitch = pitch;
+	vr.look_valid = 1;
+}
+
 static void turn_update(void)
 {
 	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
@@ -332,6 +362,7 @@ void halo_vr_frame_begin(void)
 		vr_recentre();
 	}
 	turn_update();
+	look_update();
 }
 
 void halo_vr_present(unsigned int back_buffer_texture)
@@ -570,6 +601,25 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 	return 1;
 }
 
+int halo_vr_look_delta(float *yaw, float *pitch)
+{
+	/* past the head's tremble */
+	const float threshold = 2.0f * PI / 180.0f;
+
+	*yaw = *pitch = 0.0f;
+	if (fabsf(vr.look_turned_yaw) > threshold)
+	{
+		*yaw = vr.look_turned_yaw;
+		vr.look_turned_yaw = 0.0f;
+	}
+	if (fabsf(vr.look_turned_pitch) > threshold)
+	{
+		*pitch = vr.look_turned_pitch;
+		vr.look_turned_pitch = 0.0f;
+	}
+	return *yaw != 0.0f || *pitch != 0.0f;
+}
+
 int halo_vr_hide_crosshair(void)
 {
 	/* the head's crosshair shows where the head looks, not the weapon */
@@ -620,6 +670,7 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 	(void)local_player_index; (void)start; (void)direction;
 	return 0;
 }
+int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_hide_crosshair(void) { return 0; }
 
 #endif

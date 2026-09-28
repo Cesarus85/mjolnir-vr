@@ -59,6 +59,11 @@ facing, returns nonzero with the facing to use instead. */
 int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch,
 	float *yaw, float *pitch);
 
+/* how far the view has turned since this was last asked, once past a few
+degrees on an axis (the other axis 0); nonzero if it has. The game counts
+it as looking around (player_control.c's action tests). */
+int halo_vr_look_delta(float *yaw, float *pitch);
+
 /* The weapon in the right hand (vr.aim_with = "controller"; each returns 0,
 and the game does as before, when the hand is not tracked):
 - the direction the player's weapon aims, where the controller points (the

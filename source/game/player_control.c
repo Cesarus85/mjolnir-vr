@@ -1690,6 +1690,26 @@ static void player_control_action_test_check_reset_input_blob(
 	{
 		globals->action_flags |= FLAG(_player_control_look_relative_right_bit);
 	}
+#ifdef HALO_ANDROID
+	{
+		/* VR: turning the head is looking around too (the training at the
+		start of the campaign waits for it) */
+		real vr_yaw;
+		real vr_pitch;
+
+		if (halo_vr_look_delta(&vr_yaw, &vr_pitch))
+		{
+			if (vr_pitch > 0.f)
+				globals->action_flags |= FLAG(_player_control_look_relative_up_bit);
+			else if (vr_pitch < 0.f)
+				globals->action_flags |= FLAG(_player_control_look_relative_down_bit);
+			if (vr_yaw > 0.f)
+				globals->action_flags |= FLAG(_player_control_look_relative_left_bit);
+			else if (vr_yaw < 0.f)
+				globals->action_flags |= FLAG(_player_control_look_relative_right_bit);
+		}
+	}
+#endif
 	if (input->throttle.i > 0.f)
 	{
 		globals->action_flags |= FLAG(_player_control_move_relative_forward_bit);
