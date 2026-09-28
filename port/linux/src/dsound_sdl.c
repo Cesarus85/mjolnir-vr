@@ -429,6 +429,33 @@ static void mix(float *output, unsigned long frames)
 
 static SDL_AudioStream *audio_stream;
 static BOOL audio_started = FALSE;
+static BOOL audio_log = FALSE;
+
+/* debug.audio_log: the level of what is mixed, every five seconds */
+static void audio_log_level(const float *samples, unsigned long count)
+{
+	static double sum;
+	static float peak;
+	static unsigned long total;
+	unsigned long index;
+
+	for (index = 0; index < count; index++)
+	{
+		float value = samples[index] < 0.0f ? -samples[index] : samples[index];
+
+		sum += (double)value * value;
+		if (value > peak)
+			peak = value;
+	}
+	total += count;
+	if (total >= (unsigned long)OUTPUT_RATE * OUTPUT_CHANNELS * 5)
+	{
+		platform_log("audio: mixed peak %.4f, rms %.5f over %lu samples", peak, sqrt(sum / total), total);
+		sum = 0.0;
+		peak = 0.0f;
+		total = 0;
+	}
+}
 
 static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
@@ -445,6 +472,8 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
 		if (!frames)
 			frames = 1;
 		mix(buffer, frames);
+		if (audio_log)
+			audio_log_level(buffer, frames * OUTPUT_CHANNELS);
 		SDL_PutAudioStreamData(stream, buffer, (int)(frames * OUTPUT_CHANNELS * sizeof(float)));
 		additional_amount -= (int)(frames * OUTPUT_CHANNELS * sizeof(float));
 	}
@@ -480,6 +509,7 @@ static void audio_start(void)
 		return;
 	audio_started = TRUE;
 	master_volume = (float)config_real("audio.volume");
+	audio_log = config_boolean("debug.audio_log");
 
 	if (config_boolean("audio.enabled") && platform_sdl_initialize())
 	{
@@ -491,6 +521,8 @@ static void audio_start(void)
 		if (audio_stream)
 		{
 			SDL_ResumeAudioStreamDevice(audio_stream);
+			platform_log("audio: device stream open, %d Hz, %d channels, volume %.2f", OUTPUT_RATE, OUTPUT_CHANNELS,
+				master_volume);
 			return;
 		}
 		platform_log("cannot open an audio device (%s); sound is silent", SDL_GetError());

@@ -688,6 +688,10 @@ symbols in this file:
 #include "sound/game_sound.h"
 #include "vehicles.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -2971,6 +2975,22 @@ boolean unit_can_see_point(
 		{
 			can_see_point = TRUE;
 		}
+#ifdef HALO_ANDROID
+		else if (unit->unit.player_index != NONE && halo_vr_active())
+		{
+			/* VR: the head only points roughly where the eyes look, so it
+			sees within a wider angle; and the weapon's laser targets too
+			(the training's "target each of the flashing lights" asks for
+			5 degrees) */
+			real head_field_of_view = MAX(field_of_view, DEGREES_TO_RADIANS(15.f));
+
+			if (dot_product3d(&direction, &unit->unit.looking_vector)>cosine(head_field_of_view) ||
+				dot_product3d(&direction, &unit->unit.aiming_vector)>cosine(field_of_view))
+			{
+				can_see_point = TRUE;
+			}
+		}
+#endif
 	}
 
 	return can_see_point;

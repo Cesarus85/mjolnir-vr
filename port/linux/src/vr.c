@@ -613,6 +613,21 @@ int halo_vr_look_vector(short local_player_index, float vector[3])
 	return 1;
 }
 
+void halo_vr_debug_look(short local_player_index, const float unit_looking[3], int in_vehicle)
+{
+	static unsigned long long last_us;
+	float head[3] = { 0.0f, 0.0f, 0.0f };
+	int valid;
+	unsigned long long now = now_us();
+
+	if (!vr.log_performance || local_player_index != 0 || now - last_us < 1000000)
+		return;
+	last_us = now;
+	valid = halo_vr_look_vector(local_player_index, head);
+	platform_log("VR look: head %s (%.2f %.2f %.2f), unit looking (%.2f %.2f %.2f)%s", valid ? "valid" : "INVALID",
+		head[0], head[1], head[2], unit_looking[0], unit_looking[1], unit_looking[2], in_vehicle ? ", in a vehicle" : "");
+}
+
 int halo_vr_look_delta(float *yaw, float *pitch)
 {
 	/* past the head's tremble */
@@ -683,6 +698,10 @@ int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 	return 0;
 }
 int halo_vr_look_vector(short local_player_index, float vector[3]) { (void)local_player_index; (void)vector; return 0; }
+void halo_vr_debug_look(short local_player_index, const float unit_looking[3], int in_vehicle)
+{
+	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
+}
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_hide_crosshair(void) { return 0; }
 

@@ -3511,6 +3511,15 @@ void players_update_before_game(
 							control_data.aiming_vector.k = vr_aim[2];
 						}
 					}
+					{
+						real unit_look[3];
+
+						unit_look[0] = unit->unit.looking_vector.i;
+						unit_look[1] = unit->unit.looking_vector.j;
+						unit_look[2] = unit->unit.looking_vector.k;
+						halo_vr_debug_look(player->local_player_index, unit_look,
+							unit->object.parent_object_index != NONE);
+					}
 #endif
 					control_data.throttle.i = action->throttle.i;
 					control_data.throttle.j = action->throttle.j;

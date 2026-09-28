@@ -62,6 +62,10 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 /* where the head looks, in the game's axes; 0 when not in VR play */
 int halo_vr_look_vector(short local_player_index, float vector[3]);
 
+/* vr.log_performance: logs the unit's looking vector against the head's
+every second (players.c) */
+void halo_vr_debug_look(short local_player_index, const float unit_looking[3], int in_vehicle);
+
 /* how far the view has turned since this was last asked, once past a few
 degrees on an axis (the other axis 0); nonzero if it has. The game counts
 it as looking around (player_control.c's action tests). */

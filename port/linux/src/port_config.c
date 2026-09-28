@@ -220,6 +220,8 @@ static const struct config_setting config_settings[] =
 		"Log texture uploads." },
 	{ "debug.texture_no_cache", _config_boolean, "false", "HALO_TEXTURE_NO_CACHE", _environment_set_is_true, _platform_all,
 		"Upload textures again every time they are used." },
+	{ "debug.audio_log", _config_boolean, "false", "HALO_AUDIO_LOG", _environment_set_is_true, _platform_all,
+		"Log the level of the mixed sound every five seconds." },
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },

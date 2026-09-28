@@ -239,10 +239,20 @@ int host_sdl_rumble_gamepad(uint32_t gamepad, uint32_t low, uint32_t high, uint3
 
 /* SDL calls audio_callback on its own audio thread, which cannot run guest
 code; it passes each request to the stream's thread (audio_thread), which
-can, and waits for it to be done */
+can, and waits for it to be done. SDL holds the stream's lock through the
+callback, so the data the game puts into the stream meanwhile, from the
+other thread, is gathered here and put in by SDL's thread once the game is
+done (SDL_PutAudioStreamData from audio_thread would wait for that lock
+for ever, and the game would never be heard). */
 struct audio_binding
 {
 	uint32_t handle;
+	SDL_AudioStream *stream;
+	pthread_t thread;
+	int thread_known;
+	unsigned char *gathered;
+	size_t gathered_size;
+	size_t gathered_capacity;
 	uint32_t callback;
 	uint32_t userdata;
 	pthread_mutex_t lock;
@@ -258,6 +268,8 @@ static void *audio_thread(void *context)
 	struct audio_binding *binding = context;
 
 	pthread_mutex_lock(&binding->lock);
+	binding->thread = pthread_self();
+	binding->thread_known = 1;
 	for (;;)
 	{
 		int additional, total;
@@ -287,8 +299,17 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
 	pthread_cond_signal(&binding->requested);
 	while (binding->pending)
 		pthread_cond_wait(&binding->done, &binding->lock);
+	if (binding->gathered_size)
+	{
+		SDL_PutAudioStreamData(stream, binding->gathered, (int)binding->gathered_size);
+		binding->gathered_size = 0;
+	}
 	pthread_mutex_unlock(&binding->lock);
 }
+
+#define AUDIO_BINDINGS 4
+
+static struct audio_binding *audio_bindings[AUDIO_BINDINGS];
 
 uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t callback, uint32_t userdata)
 {
@@ -309,16 +330,55 @@ uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t 
 	}
 	/* the device starts paused, so no callback can run before this */
 	binding->handle = handle_new(_handle_audio, stream);
+	binding->stream = stream;
 	if (callback && host_native_thread_create(audio_thread, binding, 256 * 1024) != 0)
 		host_fatal("cannot start the audio thread");
+	{
+		int index;
+
+		for (index = 0; index < AUDIO_BINDINGS; index++)
+		{
+			if (!audio_bindings[index])
+			{
+				audio_bindings[index] = binding;
+				break;
+			}
+		}
+	}
 	return binding->handle;
 }
 
 int host_sdl_put_audio_stream_data(uint32_t stream, const void *data, int length)
 {
 	SDL_AudioStream *object = handle_get(stream, _handle_audio);
+	int index;
 
-	return object ? SDL_PutAudioStreamData(object, data, length) : 0;
+	if (!object || length < 0)
+		return 0;
+	/* from inside the stream's callback: gathered (struct audio_binding) */
+	for (index = 0; index < AUDIO_BINDINGS; index++)
+	{
+		struct audio_binding *binding = audio_bindings[index];
+
+		if (binding && binding->stream == object && binding->thread_known &&
+			pthread_equal(binding->thread, pthread_self()))
+		{
+			if (binding->gathered_size + (size_t)length > binding->gathered_capacity)
+			{
+				size_t capacity = (binding->gathered_size + (size_t)length) * 2;
+				unsigned char *grown = SDL_realloc(binding->gathered, capacity);
+
+				if (!grown)
+					return 0;
+				binding->gathered = grown;
+				binding->gathered_capacity = capacity;
+			}
+			memcpy(binding->gathered + binding->gathered_size, data, (size_t)length);
+			binding->gathered_size += (size_t)length;
+			return 1;
+		}
+	}
+	return SDL_PutAudioStreamData(object, data, length);
 }
 
 int host_sdl_resume_audio_stream_device(uint32_t stream)
