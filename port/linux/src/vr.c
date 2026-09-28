@@ -353,9 +353,10 @@ static void melee_update(void)
 			forward_speed = velocity[0] * facing[0] + velocity[2] * facing[2];
 			if (forward_speed > vr.melee_swing_speed)
 			{
-				vr.melee_until_us = now + 120000;
+				vr.melee_until_us = now + 150000;
 				vr.melee_ready_us = now + 700000;
 				host_xr_haptic(hand, 0.8f, 0.08f);
+				platform_log("VR: melee, %s hand at %.1f m/s", hand ? "right" : "left", forward_speed);
 			}
 		}
 		memcpy(vr.hand_last[hand], state->grip.position, sizeof(vr.hand_last[hand]));
@@ -678,6 +679,9 @@ int halo_vr_aim_vector(short local_player_index, float vector[3])
 {
 	float up[3], right[3];
 
+	/* a punch lands where the player looks, not where the weapon points */
+	if (halo_vr_melee() && halo_vr_look_vector(local_player_index, vector))
+		return 1;
 	if (!weapon_hand_tracked(local_player_index))
 		return 0;
 	weapon_axes(vector, up, right);

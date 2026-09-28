@@ -1284,7 +1284,10 @@ static void vr_frame_from(
 
 /* the free left hand: the wrist behind the controller's grip, the fingers
 along the controller and the knuckles, little finger to index, up its
-handle, as a hand holds it */
+handle, as a hand holds it. The whole arm follows the hand as it is shaped
+on the foregrip: bent to the shoulder instead (vr_arm), the arm's skin,
+bound partly to the skeleton's root at the other hand, tears into ribbons
+wherever the hand is far from where the animation has it. */
 static void vr_left_hand_free(
 	long graph_index,
 	real_matrix4x3 *node_matrices,
@@ -1333,6 +1336,24 @@ static void vr_left_hand_free(
 	wrist->position.z = hand_position[2];
 	point_from_line3d(&wrist->position, &to[0], -0.07f / VR_METRES_PER_WORLD_UNIT, &wrist->position);
 	vr_carry_descendants(graph_index, node_matrices, node_count, wrist_index, &old_wrist, wrist);
+	/* the forearm and the upper arm with it, as they are on the foregrip */
+	{
+		real_matrix4x3 inverse, delta, moved;
+		short chain[2];
+		short link;
+
+		chain[0] = vr_arm_nodes.fore[0];
+		chain[1] = vr_arm_nodes.upper[0];
+		matrix4x3_inverse(&old_wrist, &inverse);
+		matrix4x3_multiply(wrist, &inverse, &delta);
+		for (link = 0; link < 2; link++)
+		{
+			if (chain[link] == NONE)
+				continue;
+			matrix4x3_multiply(&delta, &node_matrices[chain[link]], &moved);
+			node_matrices[chain[link]] = moved;
+		}
+	}
 }
 
 /* keeps the gun in the hand through a melee attack, whose animation swings
@@ -1392,6 +1413,7 @@ static void first_person_weapon_vr_arms(
 	real_matrix4x3 animated_wrist[2];
 	short side;
 	boolean gripping;
+	boolean left_free;
 
 	if (vr_arm_nodes.graph_index != graph_index)
 	{
@@ -1435,6 +1457,7 @@ static void first_person_weapon_vr_arms(
 
 	/* the left hand on the foregrip, or at the controller */
 	gripping = FALSE;
+	left_free = FALSE;
 	if (vr_arm_nodes.wrist[0] != NONE && vr_arm_nodes.wrist[1] != NONE)
 	{
 		real_matrix4x3 const *left_wrist = &node_matrices[vr_arm_nodes.wrist[0]];
@@ -1456,7 +1479,10 @@ static void first_person_weapon_vr_arms(
 		float hand_position[3], hand_forward[3], hand_up[3];
 
 		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
+		{
 			vr_left_hand_free(graph_index, node_matrices, node_count, hand_position, hand_forward, hand_up);
+			left_free = TRUE;
+		}
 	}
 
 	for (side = 0; side < 2; side++)
@@ -1466,6 +1492,9 @@ static void first_person_weapon_vr_arms(
 		real outward = side ? -1.f : 1.f; /* left is +left */
 
 		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
+			continue;
+		/* the free left arm keeps its shape (vr_left_hand_free) */
+		if (!side && left_free)
 			continue;
 		/* the shoulder: below the eyes, a little behind them, to the side */
 		shoulder = eye;
