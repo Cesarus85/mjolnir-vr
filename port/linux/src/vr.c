@@ -27,6 +27,7 @@ the game uses (halo_vr_aim) is the body's yaw plus the head's.
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define METRES_PER_WORLD_UNIT 3.048f
 #define PI 3.14159265358979f
@@ -44,6 +45,24 @@ static struct
 	int overlay_mode;        /* HALO_XR_OVERLAY_*, this frame */
 	int overlay_blend;
 	int last_overlay_mode;
+	int last_frame_stereo;   /* the last frame drew the eyes */
+
+	/* where in LOCAL space the game's camera is: the head's position when
+	the view last recentred (vr_recentre) */
+	float origin[3];
+	int origin_valid;
+	int recentre_frames;     /* recentre on this many more frames */
+
+	/* vr.log_performance: sums over the frames since the last report */
+	int log_performance;
+	unsigned long long report_start_us;
+	unsigned long long frame_start_us;
+	unsigned long long eyes_start_us;
+	unsigned long long eyes_us;
+	unsigned long long work_us;
+	unsigned long long wait_us;
+	int report_frames;
+	int report_stereo_frames;
 
 	float body_yaw;
 	int aim_synced;
@@ -60,6 +79,10 @@ static struct
 	float hud_width;
 	float screen_distance;
 	float screen_width;
+	int positional_tracking;
+	float lean_limit;
+	float crouch_limit;
+	float rise_limit;
 } vr;
 
 /* d3d8_gl.c */
@@ -113,6 +136,49 @@ static void head_angles(float *yaw, float *pitch)
 	*pitch = atan2f(direction[1], sqrtf(direction[0] * direction[0] + direction[2] * direction[2]));
 }
 
+/* makes the head's position the game camera's, and the way it looks the
+game's facing (halo_vr_aim syncs the body's yaw again) */
+static void vr_recentre(void)
+{
+	if (!(vr.frame.head_flags & HALO_XR_POSE_VALID))
+		return;
+	memcpy(vr.origin, vr.frame.head.position, sizeof(vr.origin));
+	vr.origin_valid = 1;
+	vr.aim_synced = 0;
+}
+
+/* an eye's offset from the game's camera, in the game's axes (metres): the
+head's offset from the origin, kept within the lean and crouch limits so the
+view stays near the player's body, plus the eye's own offset from the head */
+static void head_offset(const struct halo_xr_view *view, float out[3])
+{
+	float head[3] = { 0.0f, 0.0f, 0.0f }, local[3];
+	int axis;
+
+	if (!vr.origin_valid)
+		vr_recentre();
+	if (vr.positional_tracking && vr.origin_valid)
+	{
+		float horizontal;
+
+		for (axis = 0; axis < 3; axis++)
+			head[axis] = vr.frame.head.position[axis] - vr.origin[axis];
+		horizontal = sqrtf(head[0] * head[0] + head[2] * head[2]);
+		if (horizontal > vr.lean_limit && horizontal > 0.0f)
+		{
+			head[0] *= vr.lean_limit / horizontal;
+			head[2] *= vr.lean_limit / horizontal;
+		}
+		if (head[1] < -vr.crouch_limit)
+			head[1] = -vr.crouch_limit;
+		if (head[1] > vr.rise_limit)
+			head[1] = vr.rise_limit;
+	}
+	for (axis = 0; axis < 3; axis++)
+		local[axis] = head[axis] + view->pose.position[axis] - vr.frame.head.position[axis];
+	local_to_game(local, vr.body_yaw, out);
+}
+
 /* ---------- platform side */
 
 void halo_vr_initialize(void)
@@ -127,6 +193,11 @@ void halo_vr_initialize(void)
 	vr.hud_width = 2.0f * vr.hud_distance * tanf((float)config_real("vr.hud_field_of_view") * PI / 360.0f);
 	vr.screen_distance = (float)config_real("vr.screen_distance");
 	vr.screen_width = (float)config_real("vr.screen_width");
+	vr.positional_tracking = config_boolean("vr.positional_tracking");
+	vr.lean_limit = (float)config_real("vr.lean_limit");
+	vr.crouch_limit = (float)config_real("vr.crouch_limit");
+	vr.rise_limit = 0.25f;
+	vr.log_performance = config_boolean("vr.log_performance");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -152,6 +223,41 @@ int halo_vr_eye_size(int *width, int *height)
 	*width = atoi(eye_width);
 	*height = atoi(eye_height);
 	return *width > 0 && *height > 0;
+}
+
+static unsigned long long now_us(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned long long)now.tv_sec * 1000000ULL + (unsigned long long)now.tv_nsec / 1000ULL;
+}
+
+/* vr.log_performance: every five seconds, the frames the game gave the
+headset, and where their time went: waiting for the headset (xrWaitFrame),
+drawing the eyes, and the rest (the game's update, the overlay, the copies) */
+static void performance_report(int stereo)
+{
+	unsigned long long now = now_us();
+
+	vr.work_us += now - vr.frame_start_us;
+	vr.report_frames++;
+	vr.report_stereo_frames += stereo != 0;
+	if (!vr.report_start_us)
+		vr.report_start_us = now;
+	if (now - vr.report_start_us < 5000000)
+		return;
+	{
+		float frames = (float)vr.report_frames;
+		float seconds = (float)(now - vr.report_start_us) * 1e-6f;
+
+		platform_log("VR: %.1f fps (%d%% stereo); per frame %.1f ms working (eyes %.1f ms), %.1f ms waiting "
+			"for the headset", frames / seconds, (int)(100.0f * vr.report_stereo_frames / frames),
+			vr.work_us * 1e-3f / frames, vr.eyes_us * 1e-3f / frames, vr.wait_us * 1e-3f / frames);
+	}
+	vr.report_start_us = now;
+	vr.report_frames = vr.report_stereo_frames = 0;
+	vr.work_us = vr.eyes_us = vr.wait_us = 0;
 }
 
 static void turn_update(void)
@@ -189,16 +295,30 @@ static void turn_update(void)
 
 void halo_vr_frame_begin(void)
 {
+	unsigned long long waited;
+
 	if (!vr.active || vr.frame_begun)
 		return;
+	waited = now_us();
 	if (!host_xr_begin_frame(&vr.frame))
 		memset(&vr.frame, 0, sizeof(vr.frame));
+	vr.frame_start_us = now_us();
+	vr.wait_us += vr.frame_start_us - waited;
 	vr.frame_begun = 1;
 	vr.eyes_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
 	if (vr.frame.recentred)
-		vr.aim_synced = 0;
+	{
+		/* the headset recentred (the Meta button held): its LOCAL space
+		moves over the next few frames */
+		vr.recentre_frames = 10;
+	}
+	if (vr.recentre_frames > 0)
+	{
+		vr.recentre_frames--;
+		vr_recentre();
+	}
 	turn_update();
 }
 
@@ -234,7 +354,10 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture, !vr.overlay_blend);
 	host_xr_end_frame(&submit);
 	vr.last_overlay_mode = vr.overlay_mode;
+	vr.last_frame_stereo = submit.eyes;
 	vr.frame_begun = 0;
+	if (vr.log_performance)
+		performance_report(submit.eyes);
 }
 
 /* ---------- the game's side */
@@ -247,7 +370,13 @@ int halo_vr_stereo_frame(void)
 
 int halo_vr_stereo_player(short local_player_index, int cinematic)
 {
-	return halo_vr_stereo_frame() && local_player_index == 0 && (!cinematic || vr.cinematics_3d);
+	int stereo = halo_vr_stereo_frame() && local_player_index == 0 && (!cinematic || vr.cinematics_3d);
+
+	/* from the menus, a loading screen or a cinematic into play: the game's
+	camera is where the head is now, and the player faces where it looks */
+	if (stereo && !vr.last_frame_stereo)
+		vr_recentre();
+	return stereo;
 }
 
 void halo_vr_eye_camera(int eye, const float game_position[3],
@@ -258,10 +387,13 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
 	const struct halo_xr_view *view = &vr.frame.views[eye];
 	float offset[3], direction[3];
+
+	if (eye == 0)
+		vr.eyes_start_us = now_us();
 	float half_tangent;
 	int axis;
 
-	local_to_game(view->pose.position, vr.body_yaw, offset);
+	head_offset(view, offset);
 	for (axis = 0; axis < 3; axis++)
 		position[axis] = game_position[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
 	quaternion_rotate(view->pose.orientation, local_forward, direction);
@@ -287,6 +419,8 @@ void halo_vr_capture_eye(int eye)
 		return;
 	if (host_xr_copy_layer(HALO_XR_LAYER_EYE_LEFT + eye, d3d8_back_buffer_texture(), 1))
 		vr.eyes_captured |= 1 << eye;
+	if (eye == HALO_XR_EYE_COUNT - 1 && vr.eyes_start_us)
+		vr.eyes_us += now_us() - vr.eyes_start_us;
 }
 
 void halo_vr_begin_overlay(int menus_active)

@@ -88,6 +88,18 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
+	{ "vr.positional_tracking", _config_boolean, "true", "HALO_VR_POSITIONAL", _environment_value, _platform_android,
+		"Moving your head moves the view (leaning, ducking); false only turns it.\n"
+		"The view recentres when play starts or resumes after a cinematic, and\n"
+		"when you recentre the headset (hold the Meta button)." },
+	{ "vr.lean_limit", _config_real, "0.35", "HALO_VR_LEAN_LIMIT", _environment_value, _platform_android,
+		"How far, in metres, the view follows your head sideways or forwards\n"
+		"away from the player's body (walls are not checked)." },
+	{ "vr.crouch_limit", _config_real, "0.9", "HALO_VR_CROUCH_LIMIT", _environment_value, _platform_android,
+		"How far, in metres, the view follows your head down." },
+	{ "vr.log_performance", _config_boolean, "false", "HALO_VR_LOG_PERFORMANCE", _environment_value, _platform_android,
+		"Log the frame rate and where the frame time goes every five seconds\n"
+		"(adb logcat -s halo)." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,
