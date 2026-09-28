@@ -34,6 +34,7 @@ picture; the copy flips them to GL's bottom-up images.
 #include <SDL3/SDL.h>
 #include <jni.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -385,18 +386,31 @@ static int swapchain_create(struct xr_swapchain *swapchain, int width, int heigh
 
 static int64_t choose_format(void)
 {
-	int64_t formats[64];
+	int64_t *formats;
+	int64_t chosen = 0;
 	uint32_t count = 0, index;
 
-	if (!xr_ok(xrEnumerateSwapchainFormats(xr.session, 64, &count, formats), "xrEnumerateSwapchainFormats"))
+	if (!xr_ok(xrEnumerateSwapchainFormats(xr.session, 0, &count, NULL), "xrEnumerateSwapchainFormats") || !count)
 		return 0;
-	for (index = 0; index < count; index++)
+	formats = calloc(count, sizeof(*formats));
+	if (!formats || !xr_ok(xrEnumerateSwapchainFormats(xr.session, count, &count, formats),
+		"xrEnumerateSwapchainFormats"))
+	{
+		free(formats);
+		return 0;
+	}
+	for (index = 0; index < count && !chosen; index++)
 	{
 		if (formats[index] == GL_SRGB8_ALPHA8)
-			return formats[index];
+			chosen = formats[index];
 	}
-	host_logf(HOST_LOG_WARN, "xr: no sRGB swapchain format; colours will be off");
-	return count ? formats[0] : 0;
+	if (!chosen)
+	{
+		host_logf(HOST_LOG_WARN, "xr: no sRGB swapchain format; colours will be off");
+		chosen = formats[0];
+	}
+	free(formats);
+	return chosen;
 }
 
 /* ---------- actions */

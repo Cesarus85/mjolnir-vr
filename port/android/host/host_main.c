@@ -291,6 +291,19 @@ static void *game_main(void *unused)
 	environment_set(&environment, "HOME", save_root);
 	environment_set(&environment, "HALO_DATA_ROOT", data_root);
 	environment_set(&environment, "HALO_SAVE_ROOT", save_root);
+	time_zone(zone, sizeof(zone));
+	environment_set(&environment, "TZ", zone);
+
+	image = SDL_LoadFile("halo_guest.elf", &image_size);
+	if (!image)
+		host_fatal("cannot read the game image from the APK: %s", SDL_GetError());
+	if (host_load_image(image, image_size) != 0)
+		host_fatal("cannot load the game image; see logcat (tag \"halo\") for details");
+	SDL_free(image);
+
+	/* after the image, whose loading reserves the guest's fixed address
+	ranges: the headset's runtime, loaded by the probe, maps its libraries
+	wherever there is room, the Xbox window at 0x80000000 included */
 	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 	{
 		int eye_width, eye_height;
@@ -330,15 +343,6 @@ static void *game_main(void *unused)
 			}
 		}
 	}
-	time_zone(zone, sizeof(zone));
-	environment_set(&environment, "TZ", zone);
-
-	image = SDL_LoadFile("halo_guest.elf", &image_size);
-	if (!image)
-		host_fatal("cannot read the game image from the APK: %s", SDL_GetError());
-	if (host_load_image(image, image_size) != 0)
-		host_fatal("cannot load the game image; see logcat (tag \"halo\") for details");
-	SDL_free(image);
 
 	{
 		char seconds[32];

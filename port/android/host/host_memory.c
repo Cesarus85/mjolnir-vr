@@ -113,6 +113,48 @@ static int reserve(uint64_t address, uint64_t size)
 	return -1;
 }
 
+/* ART's free-list large object space: [anon:dalvik-free list large object
+space], a reservation of dalvik.vm.heapsize in the low 4 GB that ART fills
+from its start. Horizon OS (Quest) makes it 512 MB and places it over the
+Xbox window. Java allocates only a little there in this app (SDL's side),
+so the guest may take over the top of it: only ranges wholly inside it and
+at least ART_BORROW_MARGIN above its start, which ART reaches only with that
+much in large Java objects at once. */
+#define ART_LARGE_OBJECT_SPACE "[anon:dalvik-free list large object space]"
+#define ART_BORROW_MARGIN (96ULL * 1024 * 1024)
+
+static int borrow_from_art(uint64_t address, uint64_t size)
+{
+	FILE *maps = fopen("/proc/self/maps", "r");
+	char line[512];
+	int inside = 0;
+
+	if (!maps)
+		return -1;
+	while (fgets(line, sizeof(line), maps))
+	{
+		unsigned long long start, end;
+
+		if (sscanf(line, "%llx-%llx", &start, &end) == 2 && strstr(line, ART_LARGE_OBJECT_SPACE) &&
+			address >= start + ART_BORROW_MARGIN && address + size <= end)
+		{
+			inside = 1;
+			break;
+		}
+	}
+	fclose(maps);
+	if (!inside)
+		return -1;
+	if (mmap((void *)address, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) !=
+		(void *)address)
+	{
+		return -1;
+	}
+	host_logf(HOST_LOG_WARN, "took %08llx-%08llx from ART's large object space for the guest",
+		(unsigned long long)address, (unsigned long long)(address + size));
+	return 0;
+}
+
 static struct pool *pool_new(void)
 {
 	/* above the image first: ART allocates its own low-4 GB memory from
@@ -153,21 +195,26 @@ int host_memory_initialize(uint32_t base, uint32_t size)
 {
 	window_base = HALO_GUEST_WINDOW_BASE;
 	window_end = window_base + HALO_GUEST_WINDOW_SIZE;
-	if (reserve(window_base, HALO_GUEST_WINDOW_SIZE) != 0)
-	{
-		host_logf(HOST_LOG_ERROR, "cannot reserve the Xbox memory window at %08llx (%s)",
-			(unsigned long long)window_base, strerror(errno));
-		return -1;
-	}
 	image_base = base;
 	image_end = base + round_up(size);
-	if (reserve(image_base, image_end - image_base) != 0)
+	if (reserve(window_base, HALO_GUEST_WINDOW_SIZE) == 0)
 	{
-		host_logf(HOST_LOG_ERROR, "cannot reserve the guest image range at %08llx (%s)",
-			(unsigned long long)image_base, strerror(errno));
-		return -1;
+		if (reserve(image_base, image_end - image_base) != 0)
+		{
+			host_logf(HOST_LOG_ERROR, "cannot reserve the guest image range at %08llx (%s)",
+				(unsigned long long)image_base, strerror(errno));
+			return -1;
+		}
+		return 0;
 	}
-	return 0;
+	/* the window and the image, which follows it, in one piece (taking the
+	window first would split ART's space, and the image's part would then
+	look like the start of it) */
+	if (image_base == window_end && borrow_from_art(window_base, image_end - window_base) == 0)
+		return 0;
+	host_logf(HOST_LOG_ERROR, "cannot reserve the Xbox memory window at %08llx (%s)",
+		(unsigned long long)window_base, strerror(errno));
+	return -1;
 }
 
 /* ---------- page pools */
