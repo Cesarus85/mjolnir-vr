@@ -1110,6 +1110,69 @@ static void vr_rotate_between(
 	v->k = v->k * cosine + turned.k * sine + axis.k * along * (1.f - cosine);
 }
 
+/* turns v about the unit axis by angle (radians) */
+static void vr_rotate_about(
+	real_vector3d const *axis,
+	real angle,
+	real_vector3d *v)
+{
+	real_vector3d turned;
+	real sin_angle = sine(angle);
+	real cos_angle = cosine(angle);
+	real along = dot_product3d(axis, v);
+
+	cross_product3d(axis, v, &turned);
+	v->i = v->i * cos_angle + turned.i * sin_angle + axis->i * along * (1.f - cos_angle);
+	v->j = v->j * cos_angle + turned.j * sin_angle + axis->j * along * (1.f - cos_angle);
+	v->k = v->k * cos_angle + turned.k * sin_angle + axis->k * along * (1.f - cos_angle);
+}
+
+/* A forearm turned only to point at the wrist keeps the animation's twist,
+while the hand may have rolled half a turn from it: the skin between them
+collapses. Twists the forearm about its bone by most of the hand's roll
+from the animation (the hand's turn from old_wrist to new_wrist, applied to
+the animated forearm old_forearm), as a real forearm twists along its
+length. */
+static void vr_twist_forearm(
+	real_matrix4x3 *forearm,
+	real_matrix4x3 const *old_forearm,
+	real_matrix4x3 const *old_wrist,
+	real_matrix4x3 const *new_wrist,
+	real_point3d const *wrist_position)
+{
+	real_vector3d const *old_axes[3];
+	real_vector3d const *new_axes[3];
+	real_vector3d bone, turned_up, up, across;
+	real along, angle;
+	short axis;
+
+	vector_from_points3d(&forearm->position, wrist_position, &bone);
+	if (normalize3d(&bone) < 1e-6f)
+		return;
+	/* the animated forearm's up, turned as the hand turned */
+	old_axes[0] = &old_wrist->forward;
+	old_axes[1] = &old_wrist->left;
+	old_axes[2] = &old_wrist->up;
+	new_axes[0] = &new_wrist->forward;
+	new_axes[1] = &new_wrist->left;
+	new_axes[2] = &new_wrist->up;
+	turned_up.i = turned_up.j = turned_up.k = 0.f;
+	for (axis = 0; axis < 3; axis++)
+		vr_vector_scale_add(&turned_up, new_axes[axis], dot_product3d(&old_forearm->up, old_axes[axis]));
+	/* both ups across the bone, and the angle between them about it */
+	up = forearm->up;
+	vr_vector_scale_add(&up, &bone, -dot_product3d(&up, &bone));
+	vr_vector_scale_add(&turned_up, &bone, -dot_product3d(&turned_up, &bone));
+	if (normalize3d(&up) < 1e-4f || normalize3d(&turned_up) < 1e-4f)
+		return;
+	cross_product3d(&up, &turned_up, &across);
+	along = dot_product3d(&up, &turned_up);
+	angle = arctangent(dot_product3d(&across, &bone), along) * 0.6f;
+	vr_rotate_about(&bone, angle, &forearm->forward);
+	vr_rotate_about(&bone, angle, &forearm->left);
+	vr_rotate_about(&bone, angle, &forearm->up);
+}
+
 /* a node turned so that the bone to its child, from old to new direction */
 static void vr_turn_bone(
 	real_matrix4x3 *node,
@@ -1325,6 +1388,8 @@ static void first_person_weapon_vr_arms(
 	float head[3], body_forward[3];
 	real_vector3d forward, left, weapon_left, weapon_right;
 	real_point3d eye;
+	real_matrix4x3 animated_forearm[2];
+	real_matrix4x3 animated_wrist[2];
 	short side;
 	boolean gripping;
 
@@ -1357,6 +1422,16 @@ static void first_person_weapon_vr_arms(
 	weapon_right.i = -weapon_left.i;
 	weapon_right.j = -weapon_left.j;
 	weapon_right.k = -weapon_left.k;
+
+	/* the animated arms, for the forearms' twist */
+	for (side = 0; side < 2; side++)
+	{
+		if (vr_arm_nodes.fore[side] != NONE && vr_arm_nodes.wrist[side] != NONE)
+		{
+			animated_forearm[side] = node_matrices[vr_arm_nodes.fore[side]];
+			animated_wrist[side] = node_matrices[vr_arm_nodes.wrist[side]];
+		}
+	}
 
 	/* the left hand on the foregrip, or at the controller */
 	gripping = FALSE;
@@ -1405,6 +1480,8 @@ static void first_person_weapon_vr_arms(
 		vr_vector_scale_add(&pole, &forward, -0.3f);
 		vr_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], vr_arm_nodes.wrist[side],
 			shoulder, &node_matrices[vr_arm_nodes.wrist[side]].position, &pole);
+		vr_twist_forearm(&node_matrices[vr_arm_nodes.fore[side]], &animated_forearm[side], &animated_wrist[side],
+			&node_matrices[vr_arm_nodes.wrist[side]], &node_matrices[vr_arm_nodes.wrist[side]].position);
 	}
 }
 
