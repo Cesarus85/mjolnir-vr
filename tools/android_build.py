@@ -211,7 +211,13 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     import json
     config: Dict[str, Any] = json.loads(config_path.read_text(encoding="utf-8"))
 
-    toolchain = ndk / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64"
+    # the NDK ships one prebuilt toolchain per build host (linux-x86_64,
+    # darwin-x86_64, windows-x86_64); use whichever this NDK has
+    prebuilt = ndk / "toolchains" / "llvm" / "prebuilt"
+    host_tag = {"linux": "linux-x86_64", "darwin": "darwin-x86_64"}.get(sys.platform, "linux-x86_64")
+    toolchain = prebuilt / host_tag
+    if not toolchain.is_dir():
+        toolchain = next((p for p in sorted(prebuilt.iterdir()) if p.is_dir()), toolchain)
     sysroot_include = toolchain / "sysroot" / "usr" / "include"
     host_cc = toolchain / "bin" / f"aarch64-linux-android{ANDROID_API}-clang"
     ndk_bin = toolchain / "bin"
