@@ -3686,6 +3686,29 @@ void d3d8_clear_back_buffer(float red, float green, float blue, float alpha)
 	xgpu_gl_state_invalidate();
 }
 
+/* clears part of the back buffer (left, top, right, bottom: 0..1 from its
+top left, whose row 0 is the top of the picture) */
+void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom)
+{
+	struct render_target_entry *back_buffer = device.gl_ready ? render_target_get(&device.back_buffer) : NULL;
+	GLint x, y, width, height;
+
+	if (!back_buffer)
+		return;
+	x = (GLint)(left * back_buffer->target.gl_width);
+	y = (GLint)(top * back_buffer->target.gl_height);
+	width = (GLint)((right - left) * back_buffer->target.gl_width + 0.5f);
+	height = (GLint)((bottom - top) * back_buffer->target.gl_height + 0.5f);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(x, y, width, height);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_SCISSOR_TEST);
+	xgpu_gl_state_invalidate();
+}
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {

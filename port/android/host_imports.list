@@ -53,6 +53,7 @@ host_gl_counters_read
 host_xr_initialize
 host_xr_begin_frame
 host_xr_copy_layer
+host_xr_copy_layer_region
 host_xr_end_frame
 host_xr_haptic
 host_android_path

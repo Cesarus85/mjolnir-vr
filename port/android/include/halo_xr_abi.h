@@ -24,7 +24,8 @@ enum
 	HALO_XR_LAYER_EYE_LEFT = 0,
 	HALO_XR_LAYER_EYE_RIGHT = 1,
 	HALO_XR_LAYER_OVERLAY = 2, /* HUD, menus, cinematics: a flat quad */
-	HALO_XR_LAYER_COUNT = 3,
+	HALO_XR_LAYER_WRIST = 3,   /* the motion tracker, on the left wrist */
+	HALO_XR_LAYER_COUNT = 4,
 
 	HALO_XR_HAND_LEFT = 0,
 	HALO_XR_HAND_RIGHT = 1,
@@ -119,6 +120,15 @@ struct halo_xr_submit
 	float overlay_width;    /* metres; the height follows from 4:3 */
 	/* the screen's placement in LOCAL space (HALO_XR_OVERLAY_SCREEN) */
 	struct halo_xr_pose screen;
+	/* the wrist layer was filled: shown on the back of the left wrist,
+	this wide (metres), while the wrist is turned to the eyes */
+	int wrist;
+	float wrist_size;
+	/* its placement as the wrist turned to the eyes reads it: turned this
+	many degrees clockwise, and moved this far right and down (metres) */
+	float wrist_turn;
+	float wrist_right;
+	float wrist_down;
 };
 
 #endif

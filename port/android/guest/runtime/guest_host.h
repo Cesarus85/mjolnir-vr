@@ -117,6 +117,10 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate);
 int host_xr_begin_frame(struct halo_xr_frame *frame);
 /* copies a render target texture (0: clears) into a layer's image */
 int host_xr_copy_layer(int layer, unsigned int texture, int clear_alpha);
+/* the same for part of the texture: left, top, right, bottom, 0..1 from its
+top left */
+int host_xr_copy_layer_region(int layer, unsigned int texture, int clear_alpha, float left, float top, float right,
+	float bottom);
 /* submits the frame begun by host_xr_begin_frame */
 int host_xr_end_frame(const struct halo_xr_submit *submit);
 void host_xr_haptic(int hand, float amplitude, float seconds);
