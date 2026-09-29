@@ -110,6 +110,11 @@ static struct
 	int melee_grip_down;
 	float melee_strength;    /* 0..1, the last attack's swing */
 	unsigned long long melee_jab_start_us; /* the right grip's attack: the weapon jabs */
+	/* the laser along the barrel, for the frame it was set in */
+	unsigned long frame_number;
+	unsigned long laser_frame;
+	float laser_start[3];
+	float laser_direction[3];
 	float two_hand_reference[3]; /* left wrist from right, in the weapon's forward, right, up */
 	float lean_limit;
 	float crouch_limit;
@@ -445,6 +450,7 @@ void halo_vr_frame_begin(void)
 	vr.frame_start_us = now_us();
 	vr.wait_us += vr.frame_start_us - waited;
 	vr.frame_begun = 1;
+	vr.frame_number++;
 	vr.eyes_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
@@ -769,6 +775,17 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 
 int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 {
+	if (vr.laser && local_player_index == 0 && vr.laser_frame == vr.frame_number)
+	{
+		memcpy(start, vr.laser_start, sizeof(vr.laser_start));
+		memcpy(direction, vr.laser_direction, sizeof(vr.laser_direction));
+		return 1;
+	}
+	return halo_vr_ready_laser(local_player_index, start, direction);
+}
+
+int halo_vr_ready_laser(short local_player_index, float start[3], float direction[3])
+{
 	float up[3], right[3], offset[3];
 	int axis;
 
@@ -901,6 +918,15 @@ int halo_vr_look_delta(float *yaw, float *pitch)
 	return *yaw != 0.0f || *pitch != 0.0f;
 }
 
+void halo_vr_set_laser(short local_player_index, const float start[3], const float direction[3])
+{
+	if (local_player_index != 0)
+		return;
+	memcpy(vr.laser_start, start, sizeof(vr.laser_start));
+	memcpy(vr.laser_direction, direction, sizeof(vr.laser_direction));
+	vr.laser_frame = vr.frame_number;
+}
+
 int halo_vr_hide_crosshair(void)
 {
 	/* the head's crosshair shows where the head looks, not the weapon */
@@ -972,6 +998,15 @@ int halo_vr_left_hand(short local_player_index, float position[3], float forward
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3])
 {
 	(void)local_player_index; (void)foregrip; (void)reference;
+	return 0;
+}
+void halo_vr_set_laser(short local_player_index, const float start[3], const float direction[3])
+{
+	(void)local_player_index; (void)start; (void)direction;
+}
+int halo_vr_ready_laser(short local_player_index, float start[3], float direction[3])
+{
+	(void)local_player_index; (void)start; (void)direction;
 	return 0;
 }
 int halo_vr_hide_crosshair(void) { return 0; }

@@ -83,6 +83,11 @@ int halo_vr_aim_vector(short local_player_index, float vector[3]);
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
+/* the laser for this frame, along the barrel (first_person_weapons.c: while
+an animation turns the weapon, as in a reload), and the laser at the ready,
+where the controller aims */
+void halo_vr_set_laser(short local_player_index, const float start[3], const float direction[3]);
+int halo_vr_ready_laser(short local_player_index, float start[3], float direction[3]);
 /* The arms (interface/first_person_weapons.c):
 - the body: the head's position (world units) and flat heading, from
   which the shoulders hang;

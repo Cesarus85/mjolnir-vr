@@ -1066,6 +1066,7 @@ struct vr_arm_nodes
 	short upper[2];
 	short fore[2];
 	short wrist[2];
+	short gun;
 	/* the left hand's knuckles: index, middle and little finger */
 	short left_index;
 	short left_middle;
@@ -1380,11 +1381,13 @@ static void vr_left_hand_free(
 /* Through a melee attack the skeleton keeps the pose it had before, in the
 hand: the attack's animation swings the gun before the camera and moves
 both hands about it (the right one to the stock, the left one onto the
-barrel), and the swing is the player's own. */
+barrel), and the swing is the player's own. The pose is kept while the
+weapon is held ready (store), and held through the attack (melee). */
 static void vr_hold_pose(
 	real_matrix4x3 *node_matrices,
 	short node_count,
 	struct render_camera const *weapon_camera,
+	boolean store,
 	boolean melee)
 {
 	real_matrix4x3 camera_matrix;
@@ -1395,7 +1398,7 @@ static void vr_hold_pose(
 		return;
 	matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
 		&weapon_camera->up);
-	if (!melee)
+	if (store)
 	{
 		matrix4x3_inverse(&camera_matrix, &inverse);
 		for (node_index = 0; node_index < node_count; node_index++)
@@ -1403,11 +1406,52 @@ static void vr_hold_pose(
 		vr_arm_nodes.idle_pose_count = node_count;
 		vr_arm_nodes.idle_pose_valid = TRUE;
 	}
-	else if (vr_arm_nodes.idle_pose_valid && vr_arm_nodes.idle_pose_count == node_count)
+	else if (melee && vr_arm_nodes.idle_pose_valid && vr_arm_nodes.idle_pose_count == node_count)
 	{
 		for (node_index = 0; node_index < node_count; node_index++)
 			matrix4x3_multiply(&camera_matrix, &vr_arm_nodes.idle_pose[node_index], &node_matrices[node_index]);
 	}
+}
+
+/* While the animation turns the weapon away from where it aims (a reload,
+drawing or putting it away), the laser follows the barrel: the gun node's
+turn from its ready pose, applied to the laser at the ready. */
+static void vr_laser_follows_barrel(
+	short local_player_index,
+	real_matrix4x3 const *node_matrices,
+	struct render_camera const *weapon_camera)
+{
+	real_matrix4x3 camera_matrix, ready_gun, inverse, delta;
+	real_point3d start, moved_start;
+	real_vector3d direction, moved_direction;
+	float laser_start[3], laser_direction[3];
+
+	if (vr_arm_nodes.gun == NONE || !vr_arm_nodes.idle_pose_valid ||
+		!halo_vr_ready_laser(local_player_index, laser_start, laser_direction))
+	{
+		return;
+	}
+	matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
+		&weapon_camera->up);
+	matrix4x3_multiply(&camera_matrix, &vr_arm_nodes.idle_pose[vr_arm_nodes.gun], &ready_gun);
+	matrix4x3_inverse(&ready_gun, &inverse);
+	matrix4x3_multiply(&node_matrices[vr_arm_nodes.gun], &inverse, &delta);
+	start.x = laser_start[0];
+	start.y = laser_start[1];
+	start.z = laser_start[2];
+	direction.i = laser_direction[0];
+	direction.j = laser_direction[1];
+	direction.k = laser_direction[2];
+	matrix4x3_transform_point(&delta, &start, &moved_start);
+	matrix4x3_transform_vector(&delta, &direction, &moved_direction);
+	normalize3d(&moved_direction);
+	laser_start[0] = moved_start.x;
+	laser_start[1] = moved_start.y;
+	laser_start[2] = moved_start.z;
+	laser_direction[0] = moved_direction.i;
+	laser_direction[1] = moved_direction.j;
+	laser_direction[2] = moved_direction.k;
+	halo_vr_set_laser(local_player_index, laser_start, laser_direction);
 }
 
 static void first_person_weapon_vr_arms(
@@ -1416,8 +1460,15 @@ static void first_person_weapon_vr_arms(
 	real_matrix4x3 *node_matrices,
 	short node_count,
 	struct render_camera const *weapon_camera,
-	boolean melee)
+	short state)
 {
+	boolean melee = state==_first_person_weapon_state_melee;
+	/* held ready: firing or not, the gun where it aims */
+	boolean ready = state==_first_person_weapon_state_idle ||
+		state==_first_person_weapon_state_primary_fire ||
+		state==_first_person_weapon_state_secondary_fire ||
+		state==_first_person_weapon_state_primary_misfire ||
+		state==_first_person_weapon_state_secondary_misfire;
 	static char const *const upper_names[2] = { "l upperarm", "r upperarm" };
 	static char const *const fore_names[2] = { "l forearm", "r forearm" };
 	static char const *const wrist_names[2] = { "l wriste", "r wriste" };
@@ -1439,12 +1490,15 @@ static void first_person_weapon_vr_arms(
 			vr_arm_nodes.fore[side] = animation_graph_find_node(graph_index, fore_names[side]);
 			vr_arm_nodes.wrist[side] = animation_graph_find_node(graph_index, wrist_names[side]);
 		}
+		vr_arm_nodes.gun = animation_graph_find_node(graph_index, "gun");
 		vr_arm_nodes.left_index = animation_graph_find_node(graph_index, "l index low");
 		vr_arm_nodes.left_middle = animation_graph_find_node(graph_index, "l middlelow");
 		vr_arm_nodes.left_pinky = animation_graph_find_node(graph_index, "l pinky low");
 		vr_arm_nodes.idle_pose_valid = FALSE;
 	}
-	vr_hold_pose(node_matrices, node_count, weapon_camera, melee);
+	vr_hold_pose(node_matrices, node_count, weapon_camera, ready, melee);
+	if (!ready && !melee)
+		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
 	if (!halo_vr_body_frame(local_player_index, head, body_forward))
 		return;
 	eye.x = head[0];
@@ -1878,7 +1932,7 @@ static void first_person_weapon_build_node_matrices(
 				first_person_weapon->node_matrices,
 				(short)animation_graph->nodes.count,
 				camera,
-				first_person_weapon->state==_first_person_weapon_state_melee);
+				first_person_weapon->state);
 		}
 #endif
 	}
