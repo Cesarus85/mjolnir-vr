@@ -108,6 +108,7 @@ static struct
 	dealt some ticks into the attack, along the unit's aim */
 	unsigned long long melee_aim_until_us;
 	int melee_grip_down;
+	float melee_strength;    /* 0..1, the last attack's swing */
 	float two_hand_reference[3]; /* left wrist from right, in the weapon's forward, right, up */
 	float lean_limit;
 	float crouch_limit;
@@ -340,7 +341,10 @@ static void melee_update(void)
 			(vr.frame.hands[HALO_XR_HAND_RIGHT].buttons & HALO_XR_BUTTON_SQUEEZE);
 
 		if (grip_down && !vr.melee_grip_down)
+		{
 			vr.melee_aim_until_us = now + 700000;
+			vr.melee_strength = 0.75f;
+		}
 		vr.melee_grip_down = grip_down;
 	}
 	quaternion_rotate(vr.frame.head.orientation, look, facing);
@@ -369,6 +373,12 @@ static void melee_update(void)
 				vr.melee_until_us = now + 150000;
 				vr.melee_ready_us = now + 700000;
 				vr.melee_aim_until_us = now + 700000;
+				/* the swing's speed is the blow's weight: half at 2 m/s, full at 4 */
+				vr.melee_strength = forward_speed / 4.0f;
+				if (vr.melee_strength < 0.5f)
+					vr.melee_strength = 0.5f;
+				if (vr.melee_strength > 1.0f)
+					vr.melee_strength = 1.0f;
 				host_xr_haptic(hand, 0.8f, 0.08f);
 				platform_log("VR: melee, %s hand at %.1f m/s", hand ? "right" : "left", forward_speed);
 			}
@@ -381,6 +391,11 @@ static void melee_update(void)
 int halo_vr_melee(void)
 {
 	return vr.active && now_us() < vr.melee_until_us;
+}
+
+float halo_vr_melee_strength(void)
+{
+	return vr.active && now_us() < vr.melee_aim_until_us ? vr.melee_strength : 0.0f;
 }
 
 static void turn_update(void)
@@ -926,6 +941,7 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+float halo_vr_melee_strength(void) { return 0.0f; }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
 {

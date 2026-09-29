@@ -96,6 +96,10 @@ int halo_vr_left_hand(short local_player_index, float position[3], float forward
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
+/* the weight of the melee attack under way, from the swing's speed (0..1;
+0 with none): the game scales melee damage by the player's run instead,
+and in VR a player punches standing (units.c) */
+float halo_vr_melee_strength(void);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);

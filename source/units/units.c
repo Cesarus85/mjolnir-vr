@@ -8824,6 +8824,15 @@ void unit_cause_player_melee_damage(
 		8797,
 		global_current_collision_user_depth > 1);
 	--global_current_collision_user_depth;
+#ifdef HALO_ANDROID
+	if (halo_vr_active())
+	{
+		error(2, "VR melee strikes along %.2f %.2f %.2f with weight %.2f: hit %s, material %d",
+			facing->i, facing->j, facing->k, halo_vr_melee_strength(),
+			best_object_index!=NONE ? tag_get_name(object_get(best_object_index)->definition_index) : "nothing",
+			(int)hit_material_type);
+	}
+#endif
 
 	{
 		short index = unit_get(unit_index)->unit.current_weapon_index;
@@ -8932,6 +8941,16 @@ void unit_cause_player_melee_damage(
 					}
 				}
 
+#ifdef HALO_ANDROID
+				if (unit->unit.player_index!=NONE)
+				{
+					/* VR: the swing's weight, not the run's */
+					real swing = halo_vr_melee_strength();
+
+					if (swing>damage_data.scale)
+						damage_data.scale = swing;
+				}
+#endif
 				if (unit->object.type==_object_type_biped &&
 					biped_get(unit_index)->biped.airborne_ticks>15)
 				{

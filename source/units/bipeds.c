@@ -276,6 +276,10 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -4291,6 +4295,13 @@ boolean biped_update(
 				long weapon_index = unit_inventory_get_weapon(
 					biped_index,
 					unit_get(biped_index)->unit.current_weapon_index);
+#ifdef HALO_ANDROID
+				if (halo_vr_active())
+				{
+					error(2, "VR melee pressed: weapon prevents %d, zoom %d", (int)weapon_prevents_melee_attack(weapon_index),
+						(int)biped->unit.current_zoom_level);
+				}
+#endif
 
 				if (!weapon_prevents_melee_attack(weapon_index) &&
 					biped->unit.current_zoom_level==NONE)
