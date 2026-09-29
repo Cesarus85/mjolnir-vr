@@ -88,6 +88,12 @@ static struct
 	float screen_distance;
 	float screen_width;
 	int positional_tracking;
+	float scope_size;
+	/* the scope this frame: drawn (halo_vr_scope to halo_vr_capture_scope),
+	captured, and where its disc is in LOCAL space */
+	int scope_pass;
+	int scope_captured;
+	struct halo_xr_pose scope_pose;
 	int motion_tracker_on_wrist;
 	float motion_tracker_size;
 	float motion_tracker_turn;
@@ -250,6 +256,7 @@ void halo_vr_initialize(void)
 	vr.screen_width = (float)config_real("vr.screen_width");
 	vr.positional_tracking = config_boolean("vr.positional_tracking");
 	vr.motion_tracker_on_wrist = config_boolean("vr.motion_tracker_on_wrist");
+	vr.scope_size = (float)config_real("vr.scope_size");
 	vr.motion_tracker_size = (float)config_real("vr.motion_tracker_size");
 	vr.motion_tracker_turn = (float)config_real("vr.motion_tracker_turn");
 	vr.motion_tracker_right = (float)config_real("vr.motion_tracker_right");
@@ -472,6 +479,7 @@ void halo_vr_frame_begin(void)
 	vr.frame_begun = 1;
 	vr.frame_number++;
 	vr.eyes_captured = 0;
+	vr.scope_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
 	if (vr.frame.recentred)
@@ -522,7 +530,8 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	if (vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED && vr.motion_tracker_on_wrist && vr.aim_with_controller)
 	{
 		/* the motion tracker to the wrist, and out of the HUD */
-		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, 0, WRIST_REGION_LEFT,
+		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, HALO_XR_COPY_ALPHA,
+			WRIST_REGION_LEFT,
 			WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 		submit.wrist_size = vr.motion_tracker_size;
 		submit.wrist_turn = vr.motion_tracker_turn;
@@ -530,7 +539,14 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.wrist_down = vr.motion_tracker_down;
 		d3d8_clear_back_buffer_region(WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 	}
-	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture, !vr.overlay_blend);
+	if (vr.scope_captured && submit.eyes)
+	{
+		submit.scope = 1;
+		submit.scope_size = vr.scope_size;
+		submit.scope_pose = vr.scope_pose;
+	}
+	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture,
+		vr.overlay_blend ? HALO_XR_COPY_ALPHA : HALO_XR_COPY_OPAQUE);
 	host_xr_end_frame(&submit);
 	vr.last_overlay_mode = vr.overlay_mode;
 	vr.last_frame_stereo = submit.eyes;
@@ -958,6 +974,62 @@ void halo_vr_set_laser(short local_player_index, const float start[3], const flo
 	vr.laser_frame = vr.frame_number;
 }
 
+/* ---------- the scope
+
+Zoomed in, the weapon shows its view on a disc over the barrel, like a
+scope's eyepiece, from a camera there looking along the weapon: the disc
+magnifies what it covers of the player's view by the zoom's magnification.
+The world around it stays as it is (zooming the whole view sickens). */
+
+#define SCOPE_ABOVE_HAND 0.07f
+#define SCOPE_AHEAD_OF_HAND 0.22f
+
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view)
+{
+	static const float local_offset[3] = { 0.0f, SCOPE_ABOVE_HAND, -SCOPE_AHEAD_OF_HAND };
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+	float offset[3], right[3], game_offset[3];
+	float eye_distance = 0.0f;
+	int axis;
+
+	if (magnification <= 1.0f || vr.scope_size <= 0.0f || !weapon_hand_tracked(local_player_index))
+		return 0;
+	/* the disc: above and ahead of the hand, facing back along the aim */
+	quaternion_rotate(hand->aim.orientation, local_offset, offset);
+	for (axis = 0; axis < 3; axis++)
+	{
+		vr.scope_pose.position[axis] = hand->aim.position[axis] + offset[axis];
+		eye_distance += (vr.scope_pose.position[axis] - vr.frame.head.position[axis]) *
+			(vr.scope_pose.position[axis] - vr.frame.head.position[axis]);
+	}
+	memcpy(vr.scope_pose.orientation, hand->aim.orientation, sizeof(vr.scope_pose.orientation));
+	eye_distance = sqrtf(eye_distance);
+	if (eye_distance < 0.05f)
+		eye_distance = 0.05f;
+
+	/* the camera: at the disc, along the weapon */
+	tracked_offset(vr.scope_pose.position, game_offset);
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = vr.game_camera[axis] + game_offset[axis] / METRES_PER_WORLD_UNIT;
+	weapon_axes(forward, up, right);
+	*vertical_field_of_view = 2.0f * atanf(vr.scope_size * 0.5f / eye_distance) / magnification;
+	vr.scope_pass = 1;
+	return 1;
+}
+
+int halo_vr_scope_pass(void)
+{
+	return vr.scope_pass;
+}
+
+void halo_vr_capture_scope(float left, float top, float right, float bottom)
+{
+	vr.scope_pass = 0;
+	vr.scope_captured = host_xr_copy_layer_region(HALO_XR_LAYER_SCOPE, d3d8_back_buffer_texture(), HALO_XR_COPY_DISC,
+		left, top, right, bottom);
+}
+
 int halo_vr_hide_crosshair(void)
 {
 	/* the head's crosshair shows where the head looks, not the weapon */
@@ -1039,6 +1111,18 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
 {
 	(void)local_player_index; (void)start; (void)direction;
 	return 0;
+}
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view)
+{
+	(void)local_player_index; (void)magnification; (void)position; (void)forward; (void)up;
+	(void)vertical_field_of_view;
+	return 0;
+}
+int halo_vr_scope_pass(void) { return 0; }
+void halo_vr_capture_scope(float left, float top, float right, float bottom)
+{
+	(void)left; (void)top; (void)right; (void)bottom;
 }
 int halo_vr_hide_crosshair(void) { return 0; }
 

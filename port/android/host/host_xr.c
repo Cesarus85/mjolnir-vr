@@ -120,6 +120,7 @@ static struct
 	GLuint program;
 	GLint source_uniform;
 	GLint rect_uniform;
+	GLint cut_disc_uniform;
 	GLuint vertex_array;
 	GLuint sampler;
 } xr;
@@ -198,10 +199,12 @@ static const char copy_vertex_shader[] =
 	"#version 300 es\n"
 	"uniform vec4 rect; /* the source's part: left, top, right, bottom; 0..1 from its top left */\n"
 	"out vec2 coordinate;\n"
+	"out vec2 disc;\n"
 	"void main()\n"
 	"{\n"
 	"	vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));\n"
 	"	coordinate = vec2(mix(rect.x, rect.z, corner.x), mix(rect.w, rect.y, corner.y));\n"
+	"	disc = corner * 2.0 - 1.0;\n"
 	"	gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
 	"}\n";
 
@@ -209,7 +212,9 @@ static const char copy_fragment_shader[] =
 	"#version 300 es\n"
 	"precision highp float;\n"
 	"uniform sampler2D source;\n"
+	"uniform float cut_disc;\n"
 	"in vec2 coordinate;\n"
+	"in vec2 disc;\n"
 	"out vec4 color;\n"
 	"vec3 to_linear(vec3 c)\n"
 	"{\n"
@@ -219,6 +224,11 @@ static const char copy_fragment_shader[] =
 	"{\n"
 	"	vec4 texel = texture(source, coordinate);\n"
 	"	color = vec4(to_linear(texel.rgb), texel.a);\n"
+	"	if (cut_disc > 0.5)\n"
+	"	{\n"
+	"		float inside = 1.0 - smoothstep(0.95, 1.0, length(disc));\n"
+	"		color = vec4(color.rgb * inside, inside);\n"
+	"	}\n"
 	"}\n";
 
 static GLuint compile_shader(GLenum type, const char *text)
@@ -263,6 +273,7 @@ static int copy_initialize(void)
 	}
 	xr.source_uniform = glGetUniformLocation(xr.program, "source");
 	xr.rect_uniform = glGetUniformLocation(xr.program, "rect");
+	xr.cut_disc_uniform = glGetUniformLocation(xr.program, "cut_disc");
 	glGenVertexArrays(1, &xr.vertex_array);
 	glGenSamplers(1, &xr.sampler);
 	glSamplerParameteri(xr.sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -933,7 +944,7 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		return 0;
 	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
 	{
-		int size = layer == HALO_XR_LAYER_WRIST ? WRIST_IMAGE_SIZE : 0;
+		int size = layer == HALO_XR_LAYER_WRIST || layer == HALO_XR_LAYER_SCOPE ? WRIST_IMAGE_SIZE : 0;
 
 		if (!swapchain_create(&xr.swapchains[layer], size ? size : xr.eye_width, size ? size : xr.eye_height))
 			return 0;
@@ -1159,6 +1170,7 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		glUseProgram(xr.program);
 		glUniform1i(xr.source_uniform, 0);
 		glUniform4f(xr.rect_uniform, left, top, right, bottom);
+		glUniform1f(xr.cut_disc_uniform, clear_alpha == HALO_XR_COPY_DISC ? 1.0f : 0.0f);
 		glBindVertexArray(xr.vertex_array);
 		glBindTexture(GL_TEXTURE_2D, texture);
 		glBindSampler(0, xr.sampler);
@@ -1169,7 +1181,7 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, swizzle_r);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, swizzle_b);
-		if (clear_alpha)
+		if (clear_alpha == HALO_XR_COPY_OPAQUE)
 		{
 			/* an opaque layer: the game's alpha channel holds other things */
 			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
@@ -1196,7 +1208,8 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	XrCompositionLayerProjectionView projection_views[HALO_XR_EYE_COUNT];
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad wrist = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	const XrCompositionLayerBaseHeader *layers[3];
+	XrCompositionLayerQuad scope = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader *layers[4];
 	uint32_t layer_count = 0;
 	int eye;
 
@@ -1268,6 +1281,21 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		wrist.subImage.imageRect.extent.height = swapchain->height;
 		wrist.size.width = wrist.size.height = submit->wrist_size;
 		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&wrist;
+	}
+
+	if (xr.frame_state.shouldRender && submit->scope && xr.swapchains[HALO_XR_LAYER_SCOPE].filled)
+	{
+		struct xr_swapchain *swapchain = &xr.swapchains[HALO_XR_LAYER_SCOPE];
+
+		scope.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		scope.space = xr.local_space;
+		scope.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		scope.subImage.swapchain = swapchain->handle;
+		scope.subImage.imageRect.extent.width = swapchain->width;
+		scope.subImage.imageRect.extent.height = swapchain->height;
+		scope.size.width = scope.size.height = submit->scope_size;
+		pose_to_xr(&scope.pose, &submit->scope_pose);
+		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&scope;
 	}
 
 	end.displayTime = xr.frame_state.predictedDisplayTime;

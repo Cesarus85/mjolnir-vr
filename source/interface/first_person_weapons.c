@@ -475,6 +475,11 @@ long first_person_weapon_get_local_index(
 void first_person_weapon_draw(
 	void)
 {
+#ifdef HALO_ANDROID
+	/* VR: not in the scope's view, taken from the weapon itself */
+	if (halo_vr_scope_pass())
+		return;
+#endif
 	if (render.local_player_index!=NONE)
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);

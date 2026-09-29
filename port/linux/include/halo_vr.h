@@ -105,6 +105,15 @@ int halo_vr_melee(void);
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
 float halo_vr_melee_strength(void);
+/* The scope (render.c): zoomed in by magnification, the camera for the
+view on a disc over the weapon, in the game's axes; then that view, drawn
+into the given part of the back buffer (left, top, right, bottom, 0..1),
+is taken for the disc. Between the two, the first-person weapon is left
+out (halo_vr_scope_pass). */
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view);
+int halo_vr_scope_pass(void);
+void halo_vr_capture_scope(float left, float top, float right, float bottom);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);

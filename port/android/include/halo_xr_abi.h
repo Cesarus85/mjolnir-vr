@@ -25,7 +25,14 @@ enum
 	HALO_XR_LAYER_EYE_RIGHT = 1,
 	HALO_XR_LAYER_OVERLAY = 2, /* HUD, menus, cinematics: a flat quad */
 	HALO_XR_LAYER_WRIST = 3,   /* the motion tracker, on the left wrist */
-	HALO_XR_LAYER_COUNT = 4,
+	HALO_XR_LAYER_SCOPE = 4,   /* the zoomed view, a disc over the weapon */
+	HALO_XR_LAYER_COUNT = 5,
+
+	/* host_xr_copy_layer's clear_alpha: the source's alpha kept, made
+	opaque, or cut to a disc (premultiplied) */
+	HALO_XR_COPY_ALPHA = 0,
+	HALO_XR_COPY_OPAQUE = 1,
+	HALO_XR_COPY_DISC = 2,
 
 	HALO_XR_HAND_LEFT = 0,
 	HALO_XR_HAND_RIGHT = 1,
@@ -129,6 +136,11 @@ struct halo_xr_submit
 	float wrist_turn;
 	float wrist_right;
 	float wrist_down;
+	/* the scope layer was filled: a disc this wide (metres), here in LOCAL
+	space, facing back along the weapon */
+	int scope;
+	float scope_size;
+	struct halo_xr_pose scope_pose;
 };
 
 #endif

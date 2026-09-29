@@ -133,6 +133,9 @@ static const struct config_setting config_settings[] =
 	{ "vr.motion_tracker_down", _config_real, "0.055", "HALO_VR_MOTION_TRACKER_DOWN", _environment_value,
 		_platform_android,
 		"Moves the motion tracker on the wrist down as you read it, in metres." },
+	{ "vr.scope_size", _config_real, "0.07", "HALO_VR_SCOPE_SIZE", _environment_value, _platform_android,
+		"Zoomed in, the scope's view shows on a disc over the weapon this wide, in\n"
+		"metres; 0 turns it off." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,

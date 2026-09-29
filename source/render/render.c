@@ -84,7 +84,9 @@ symbols in this file:
 #ifdef HALO_ANDROID
 #include "cutscene/cinematics.h"
 #include "game/players.h"
+#include "game/player_control.h"
 #include "physics/collisions.h"
+#include "units/units.h"
 #include "halo_vr.h"
 #endif
 
@@ -144,6 +146,8 @@ static void render_vr_overlay(
 	const struct render_window *window);
 static void render_vr_laser(
 	short local_player_index);
+static void render_vr_scope(
+	struct render_window *window);
 #endif
 
 void structure_get_planar_fog(
@@ -706,7 +710,47 @@ static void render_vr_player_frame(
 		render_vr_eye_pass = FALSE;
 		halo_vr_capture_eye(eye);
 	}
+	render_vr_scope(window);
 	render_vr_overlay(window);
+
+	return;
+}
+
+/* The scope's view (halo_vr_scope): zoomed in, the player's view once more,
+from the weapon along its aim through the zoom's field of view, into a
+small square at the back buffer's top left (a sixteenth of it: the disc
+is a few centimetres across), which becomes the disc over the weapon. */
+#define RENDER_VR_SCOPE_SIZE 120
+
+static void render_vr_scope(
+	struct render_window *window)
+{
+	short zoom_level = player_control_get_zoom_level(window->local_player_index);
+	long player_index = local_player_get_player_index(window->local_player_index);
+	float position[3], forward[3], up[3];
+	float vertical_field_of_view;
+	real magnification;
+	struct render_window scope_window;
+
+	if (zoom_level == NONE || player_index == NONE || player_get(player_index)->unit_index == NONE)
+		return;
+	magnification = unit_get_zoom_magnification(player_get(player_index)->unit_index, zoom_level);
+	if (!halo_vr_scope(window->local_player_index, magnification, position, forward, up, &vertical_field_of_view))
+		return;
+	scope_window = *window;
+	render_vr_camera_set(&scope_window.render_camera, position, forward, up, vertical_field_of_view);
+	render_vr_camera_set(&scope_window.rasterizer_camera, position, forward, up, vertical_field_of_view);
+	scope_window.render_camera.viewport_bounds.x0 = scope_window.render_camera.viewport_bounds.y0 = 0;
+	scope_window.render_camera.viewport_bounds.x1 = scope_window.render_camera.viewport_bounds.y1 = RENDER_VR_SCOPE_SIZE;
+	scope_window.render_camera.window_bounds = scope_window.render_camera.viewport_bounds;
+	scope_window.rasterizer_camera.viewport_bounds = scope_window.render_camera.viewport_bounds;
+	scope_window.rasterizer_camera.window_bounds = scope_window.render_camera.viewport_bounds;
+
+	render_vr_eye_pass = TRUE;
+	render_player_frame(&scope_window, NULL);
+	render_vr_eye_pass = FALSE;
+	halo_vr_capture_scope(0.f, 0.f, (float)RENDER_VR_SCOPE_SIZE / RASTERIZER_TARGET_RENDER_PRIMARY_WIDTH,
+		(float)RENDER_VR_SCOPE_SIZE / RASTERIZER_TARGET_RENDER_PRIMARY_HEIGHT);
 
 	return;
 }
