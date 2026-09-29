@@ -692,12 +692,13 @@ static void refresh_rate_choose(float wanted)
 
 On the back of the left wrist, like a watch: behind the palm, where the
 grip pose is, and out of the back of the hand. In the left grip pose -Z
-runs to the fingers and -X out of the back of the hand; the layer faces
--X with its top towards the fingers. Shown only while the wrist is turned
-towards the eyes. */
+runs to the fingers, +Y up the handle and -X out of the back of the hand;
+the layer faces -X with its top towards the elbow, as the wrist turned to
+the eyes reads it. Shown only while it is. */
 
 #define WRIST_IMAGE_SIZE 512
-#define WRIST_BEHIND_PALM 0.08f
+#define WRIST_BEHIND_PALM 0.05f
+#define WRIST_DOWN_HANDLE 0.02f
 #define WRIST_ABOVE_HAND 0.04f
 #define WRIST_FACING_EYES 0.35f
 
@@ -725,9 +726,9 @@ static void quaternion_rotate_vector(const XrQuaternionf *q, const XrVector3f *v
 
 static int wrist_pose(XrPosef *pose)
 {
-	/* the layer's axes in the grip's: x = +Y, y = -Z, z = -X */
-	static const XrQuaternionf layer_in_grip = { -0.5f, -0.5f, 0.5f, 0.5f };
-	const XrVector3f offset = { -WRIST_ABOVE_HAND, 0.0f, WRIST_BEHIND_PALM };
+	/* the layer's axes in the grip's: x = -Y, y = +Z, z = -X */
+	static const XrQuaternionf layer_in_grip = { 0.5f, -0.5f, -0.5f, 0.5f };
+	const XrVector3f offset = { -WRIST_ABOVE_HAND, -WRIST_DOWN_HANDLE, WRIST_BEHIND_PALM };
 	const XrVector3f layer_normal = { 0.0f, 0.0f, 1.0f };
 	XrVector3f moved, normal, to_eyes;
 	float distance;
