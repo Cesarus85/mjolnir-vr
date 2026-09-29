@@ -130,11 +130,12 @@ void d3d8_clear_back_buffer_region(float left, float top, float right, float bot
 
 /* The motion tracker, the HUD's one element at its bottom left, moves from
 the HUD to the left wrist (host_xr.c draws it there): this part of the
-640x480 HUD (left, top, right, bottom), square as the HUD shows it. */
-#define WRIST_REGION_LEFT (10.0f / 640.0f)
-#define WRIST_REGION_TOP (280.0f / 480.0f)
-#define WRIST_REGION_RIGHT (210.0f / 640.0f)
-#define WRIST_REGION_BOTTOM (480.0f / 480.0f)
+640x480 HUD (left, top, right, bottom), square as the HUD shows it, around
+its disc (x 49-131, y 362-444) and its range below. */
+#define WRIST_REGION_LEFT (38.0f / 640.0f)
+#define WRIST_REGION_TOP (352.0f / 480.0f)
+#define WRIST_REGION_RIGHT (142.0f / 640.0f)
+#define WRIST_REGION_BOTTOM (456.0f / 480.0f)
 
 /* ---------- math */
 

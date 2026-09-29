@@ -68,6 +68,10 @@ symbols in this file:
 #include "text_group.h"
 #include "font_group.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -214,6 +218,12 @@ void terminal_draw(
 
 	long font_tag_index = interface_get_tag_index(_interface_font_terminal);
 
+#ifdef HALO_ANDROID
+	/* VR: the log's lines would hang before the eyes; the console, when
+	open, still shows */
+	if (halo_vr_active() && !terminal_globals.input_state)
+		return;
+#endif
 	if (terminal_globals.initialized)
 	{
 		struct font_header *font = font_definition_get(font_tag_index);
