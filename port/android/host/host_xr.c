@@ -105,6 +105,11 @@ static struct
 	XrAction haptic;
 	struct xr_hand_actions hands[HALO_XR_HAND_COUNT];
 
+	/* where the head and the left hand are this frame (the wrist layer) */
+	XrPosef head;
+	XrPosef left_grip;
+	int left_grip_valid;
+
 	int has_performance_settings;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
@@ -114,7 +119,7 @@ static struct
 	/* the copy's GL objects */
 	GLuint program;
 	GLint source_uniform;
-	GLint flip_uniform;
+	GLint rect_uniform;
 	GLuint vertex_array;
 	GLuint sampler;
 } xr;
@@ -191,12 +196,12 @@ static int flags_from_location(XrSpaceLocationFlags flags)
 
 static const char copy_vertex_shader[] =
 	"#version 300 es\n"
-	"uniform float flip;\n"
+	"uniform vec4 rect; /* the source's part: left, top, right, bottom; 0..1 from its top left */\n"
 	"out vec2 coordinate;\n"
 	"void main()\n"
 	"{\n"
 	"	vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));\n"
-	"	coordinate = vec2(corner.x, flip > 0.5 ? 1.0 - corner.y : corner.y);\n"
+	"	coordinate = vec2(mix(rect.x, rect.z, corner.x), mix(rect.w, rect.y, corner.y));\n"
 	"	gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
 	"}\n";
 
@@ -257,7 +262,7 @@ static int copy_initialize(void)
 		return 0;
 	}
 	xr.source_uniform = glGetUniformLocation(xr.program, "source");
-	xr.flip_uniform = glGetUniformLocation(xr.program, "flip");
+	xr.rect_uniform = glGetUniformLocation(xr.program, "rect");
 	glGenVertexArrays(1, &xr.vertex_array);
 	glGenSamplers(1, &xr.sampler);
 	glSamplerParameteri(xr.sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -629,6 +634,11 @@ static void hands_read(struct halo_xr_frame *frame)
 		{
 			out->flags = flags_from_location(location.locationFlags);
 			pose_from_xr(&out->grip, &location.pose);
+			if (hand == HALO_XR_HAND_LEFT)
+			{
+				xr.left_grip = location.pose;
+				xr.left_grip_valid = (out->flags & HALO_XR_POSE_VALID) != 0;
+			}
 		}
 		location.locationFlags = 0;
 		if (XR_SUCCEEDED(xrLocateSpace(xr.hands[hand].aim_space, xr.local_space,
@@ -676,6 +686,67 @@ static void refresh_rate_choose(float wanted)
 	}
 	if (best > 0.0f && XR_SUCCEEDED(xr.request_refresh_rate(xr.session, best)))
 		host_logf(HOST_LOG_INFO, "xr: display refresh rate %.0f Hz", best);
+}
+
+/* ---------- the wrist layer (the motion tracker)
+
+On the back of the left wrist, like a watch: behind the palm, where the
+grip pose is, and out of the back of the hand. In the left grip pose -Z
+runs to the fingers and -X out of the back of the hand; the layer faces
+-X with its top towards the fingers. Shown only while the wrist is turned
+towards the eyes. */
+
+#define WRIST_IMAGE_SIZE 512
+#define WRIST_BEHIND_PALM 0.08f
+#define WRIST_ABOVE_HAND 0.04f
+#define WRIST_FACING_EYES 0.35f
+
+static void quaternion_multiply(const XrQuaternionf *a, const XrQuaternionf *b, XrQuaternionf *out)
+{
+	XrQuaternionf result;
+
+	result.w = a->w * b->w - a->x * b->x - a->y * b->y - a->z * b->z;
+	result.x = a->w * b->x + a->x * b->w + a->y * b->z - a->z * b->y;
+	result.y = a->w * b->y - a->x * b->z + a->y * b->w + a->z * b->x;
+	result.z = a->w * b->z + a->x * b->y - a->y * b->x + a->z * b->w;
+	*out = result;
+}
+
+static void quaternion_rotate_vector(const XrQuaternionf *q, const XrVector3f *v, XrVector3f *out)
+{
+	float tx = 2.0f * (q->y * v->z - q->z * v->y);
+	float ty = 2.0f * (q->z * v->x - q->x * v->z);
+	float tz = 2.0f * (q->x * v->y - q->y * v->x);
+
+	out->x = v->x + q->w * tx + (q->y * tz - q->z * ty);
+	out->y = v->y + q->w * ty + (q->z * tx - q->x * tz);
+	out->z = v->z + q->w * tz + (q->x * ty - q->y * tx);
+}
+
+static int wrist_pose(XrPosef *pose)
+{
+	/* the layer's axes in the grip's: x = +Y, y = -Z, z = -X */
+	static const XrQuaternionf layer_in_grip = { -0.5f, -0.5f, 0.5f, 0.5f };
+	const XrVector3f offset = { -WRIST_ABOVE_HAND, 0.0f, WRIST_BEHIND_PALM };
+	const XrVector3f layer_normal = { 0.0f, 0.0f, 1.0f };
+	XrVector3f moved, normal, to_eyes;
+	float distance;
+
+	if (!xr.left_grip_valid)
+		return 0;
+	quaternion_rotate_vector(&xr.left_grip.orientation, &offset, &moved);
+	pose->position.x = xr.left_grip.position.x + moved.x;
+	pose->position.y = xr.left_grip.position.y + moved.y;
+	pose->position.z = xr.left_grip.position.z + moved.z;
+	quaternion_multiply(&xr.left_grip.orientation, &layer_in_grip, &pose->orientation);
+
+	quaternion_rotate_vector(&pose->orientation, &layer_normal, &normal);
+	to_eyes.x = xr.head.position.x - pose->position.x;
+	to_eyes.y = xr.head.position.y - pose->position.y;
+	to_eyes.z = xr.head.position.z - pose->position.z;
+	distance = sqrtf(to_eyes.x * to_eyes.x + to_eyes.y * to_eyes.y + to_eyes.z * to_eyes.z);
+	return distance > 0.0f &&
+		(normal.x * to_eyes.x + normal.y * to_eyes.y + normal.z * to_eyes.z) / distance > WRIST_FACING_EYES;
 }
 
 /* ---------- public code */
@@ -853,7 +924,9 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		return 0;
 	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
 	{
-		if (!swapchain_create(&xr.swapchains[layer], xr.eye_width, xr.eye_height))
+		int size = layer == HALO_XR_LAYER_WRIST ? WRIST_IMAGE_SIZE : 0;
+
+		if (!swapchain_create(&xr.swapchains[layer], size ? size : xr.eye_width, size ? size : xr.eye_height))
 			return 0;
 	}
 	if (!copy_initialize() || !actions_initialize())
@@ -1023,13 +1096,23 @@ int host_xr_begin_frame(struct halo_xr_frame *frame)
 	{
 		frame->head_flags = flags_from_location(head.locationFlags);
 		pose_from_xr(&frame->head, &head.pose);
+		xr.head = head.pose;
 	}
+	xr.left_grip_valid = 0;
 	if (xr.focused)
 		hands_read(frame);
 	return 1;
 }
 
 int host_xr_copy_layer(int layer, uint32_t texture, int clear_alpha)
+{
+	return host_xr_copy_layer_region(layer, texture, clear_alpha, 0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+/* copies part of a render target (left, top, right, bottom, 0..1 from its
+top left) into a layer's image */
+int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
+	float bottom)
 {
 	struct xr_swapchain *swapchain;
 	XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
@@ -1066,7 +1149,7 @@ int host_xr_copy_layer(int layer, uint32_t texture, int clear_alpha)
 
 		glUseProgram(xr.program);
 		glUniform1i(xr.source_uniform, 0);
-		glUniform1f(xr.flip_uniform, 1.0f);
+		glUniform4f(xr.rect_uniform, left, top, right, bottom);
 		glBindVertexArray(xr.vertex_array);
 		glBindTexture(GL_TEXTURE_2D, texture);
 		glBindSampler(0, xr.sampler);
@@ -1103,7 +1186,8 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	XrCompositionLayerProjection projection = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
 	XrCompositionLayerProjectionView projection_views[HALO_XR_EYE_COUNT];
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	const XrCompositionLayerBaseHeader *layers[2];
+	XrCompositionLayerQuad wrist = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader *layers[3];
 	uint32_t layer_count = 0;
 	int eye;
 
@@ -1160,6 +1244,21 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 			pose_to_xr(&quad.pose, &submit->screen);
 		}
 		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&quad;
+	}
+
+	if (xr.frame_state.shouldRender && submit->wrist && xr.swapchains[HALO_XR_LAYER_WRIST].filled &&
+		wrist_pose(&wrist.pose))
+	{
+		struct xr_swapchain *swapchain = &xr.swapchains[HALO_XR_LAYER_WRIST];
+
+		wrist.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		wrist.space = xr.local_space;
+		wrist.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		wrist.subImage.swapchain = swapchain->handle;
+		wrist.subImage.imageRect.extent.width = swapchain->width;
+		wrist.subImage.imageRect.extent.height = swapchain->height;
+		wrist.size.width = wrist.size.height = submit->wrist_size;
+		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&wrist;
 	}
 
 	end.displayTime = xr.frame_state.predictedDisplayTime;

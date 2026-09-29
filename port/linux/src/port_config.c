@@ -119,6 +119,12 @@ static const struct config_setting config_settings[] =
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
 		"melee attack (the right grip is too); 0 turns it off." },
+	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
+		_platform_android,
+		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"
+		"it towards you to read it), instead of in the HUD." },
+	{ "vr.motion_tracker_size", _config_real, "0.11", "HALO_VR_MOTION_TRACKER_SIZE", _environment_value, _platform_android,
+		"How wide the motion tracker on the wrist is, in metres." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,
