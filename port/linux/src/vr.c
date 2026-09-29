@@ -109,6 +109,7 @@ static struct
 	unsigned long long melee_aim_until_us;
 	int melee_grip_down;
 	float melee_strength;    /* 0..1, the last attack's swing */
+	unsigned long long melee_jab_start_us; /* the right grip's attack: the weapon jabs */
 	float two_hand_reference[3]; /* left wrist from right, in the weapon's forward, right, up */
 	float lean_limit;
 	float crouch_limit;
@@ -344,6 +345,7 @@ static void melee_update(void)
 		{
 			vr.melee_aim_until_us = now + 700000;
 			vr.melee_strength = 0.75f;
+			vr.melee_jab_start_us = now;
 		}
 		vr.melee_grip_down = grip_down;
 	}
@@ -740,6 +742,20 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 		return 0;
 	weapon_axes(forward, up, right);
 	hand_offset(hand);
+	{
+		/* the right grip's melee attack, which the hand does not swing: the
+		weapon jabs forward and back (the game's own animation is held
+		off, first_person_weapons.c) */
+		float seconds = vr.melee_jab_start_us ? (float)(now_us() - vr.melee_jab_start_us) * 1e-6f : 1.0f;
+
+		if (seconds < 0.33f)
+		{
+			float jab = sinf(seconds / 0.33f * PI) * 0.25f / METRES_PER_WORLD_UNIT;
+
+			for (axis = 0; axis < 3; axis++)
+				hand[axis] += forward[axis] * jab;
+		}
+	}
 	/* the first-person model hangs from a camera: put that camera where the
 	model's grip lands in the hand */
 	for (axis = 0; axis < 3; axis++)
