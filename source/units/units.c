@@ -8824,15 +8824,6 @@ void unit_cause_player_melee_damage(
 		8797,
 		global_current_collision_user_depth > 1);
 	--global_current_collision_user_depth;
-#ifdef HALO_ANDROID
-	if (halo_vr_active())
-	{
-		error(2, "VR melee strikes along %.2f %.2f %.2f with weight %.2f: hit %s, material %d",
-			facing->i, facing->j, facing->k, halo_vr_melee_strength(),
-			best_object_index!=NONE ? tag_get_name(object_get(best_object_index)->definition_index) : "nothing",
-			(int)hit_material_type);
-	}
-#endif
 
 	{
 		short index = unit_get(unit_index)->unit.current_weapon_index;
