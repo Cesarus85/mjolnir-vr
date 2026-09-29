@@ -124,6 +124,11 @@ struct halo_xr_submit
 	this wide (metres), while the wrist is turned to the eyes */
 	int wrist;
 	float wrist_size;
+	/* its placement as the wrist turned to the eyes reads it: turned this
+	many degrees clockwise, and moved this far right and down (metres) */
+	float wrist_turn;
+	float wrist_right;
+	float wrist_down;
 };
 
 #endif

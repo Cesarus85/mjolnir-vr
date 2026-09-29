@@ -700,6 +700,7 @@ the eyes reads it. Shown only while it is. */
 #define WRIST_BEHIND_PALM 0.05f
 #define WRIST_DOWN_HANDLE 0.02f
 #define WRIST_ABOVE_HAND 0.04f
+#define WRIST_PI 3.14159265f
 #define WRIST_FACING_EYES 0.35f
 
 static void quaternion_multiply(const XrQuaternionf *a, const XrQuaternionf *b, XrQuaternionf *out)
@@ -724,12 +725,18 @@ static void quaternion_rotate_vector(const XrQuaternionf *q, const XrVector3f *v
 	out->z = v->z + q->w * tz + (q->x * ty - q->y * tx);
 }
 
-static int wrist_pose(XrPosef *pose)
+static int wrist_pose(const struct halo_xr_submit *submit, XrPosef *pose)
 {
-	/* the layer's axes in the grip's: x = -Y, y = +Z, z = -X */
+	/* the layer's axes in the grip's: x = -Y, y = +Z, z = -X, so the
+	layer's right and down, as it is read, are the grip's -Y and -Z */
 	static const XrQuaternionf layer_in_grip = { 0.5f, -0.5f, -0.5f, 0.5f };
-	const XrVector3f offset = { -WRIST_ABOVE_HAND, -WRIST_DOWN_HANDLE, WRIST_BEHIND_PALM };
+	const XrVector3f offset = { -WRIST_ABOVE_HAND, -WRIST_DOWN_HANDLE - submit->wrist_right,
+		WRIST_BEHIND_PALM - submit->wrist_down };
 	const XrVector3f layer_normal = { 0.0f, 0.0f, 1.0f };
+	/* clockwise as read: about the layer's normal, negatively */
+	float half_turn = -submit->wrist_turn * WRIST_PI / 360.0f;
+	XrQuaternionf turn = { 0.0f, 0.0f, sinf(half_turn), cosf(half_turn) };
+	XrQuaternionf unturned;
 	XrVector3f moved, normal, to_eyes;
 	float distance;
 
@@ -739,7 +746,8 @@ static int wrist_pose(XrPosef *pose)
 	pose->position.x = xr.left_grip.position.x + moved.x;
 	pose->position.y = xr.left_grip.position.y + moved.y;
 	pose->position.z = xr.left_grip.position.z + moved.z;
-	quaternion_multiply(&xr.left_grip.orientation, &layer_in_grip, &pose->orientation);
+	quaternion_multiply(&xr.left_grip.orientation, &layer_in_grip, &unturned);
+	quaternion_multiply(&unturned, &turn, &pose->orientation);
 
 	quaternion_rotate_vector(&pose->orientation, &layer_normal, &normal);
 	to_eyes.x = xr.head.position.x - pose->position.x;
@@ -1248,7 +1256,7 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	}
 
 	if (xr.frame_state.shouldRender && submit->wrist && xr.swapchains[HALO_XR_LAYER_WRIST].filled &&
-		wrist_pose(&wrist.pose))
+		wrist_pose(submit, &wrist.pose))
 	{
 		struct xr_swapchain *swapchain = &xr.swapchains[HALO_XR_LAYER_WRIST];
 

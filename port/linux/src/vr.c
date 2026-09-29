@@ -90,6 +90,9 @@ static struct
 	int positional_tracking;
 	int motion_tracker_on_wrist;
 	float motion_tracker_size;
+	float motion_tracker_turn;
+	float motion_tracker_right;
+	float motion_tracker_down;
 	int aim_with_controller;
 	int laser;
 	float weapon_offset[3];  /* forward, right, down, metres: the weapon model's camera from the hand */
@@ -248,6 +251,9 @@ void halo_vr_initialize(void)
 	vr.positional_tracking = config_boolean("vr.positional_tracking");
 	vr.motion_tracker_on_wrist = config_boolean("vr.motion_tracker_on_wrist");
 	vr.motion_tracker_size = (float)config_real("vr.motion_tracker_size");
+	vr.motion_tracker_turn = (float)config_real("vr.motion_tracker_turn");
+	vr.motion_tracker_right = (float)config_real("vr.motion_tracker_right");
+	vr.motion_tracker_down = (float)config_real("vr.motion_tracker_down");
 	vr.lean_limit = (float)config_real("vr.lean_limit");
 	vr.crouch_limit = (float)config_real("vr.crouch_limit");
 	vr.rise_limit = 0.25f;
@@ -519,6 +525,9 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, 0, WRIST_REGION_LEFT,
 			WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 		submit.wrist_size = vr.motion_tracker_size;
+		submit.wrist_turn = vr.motion_tracker_turn;
+		submit.wrist_right = vr.motion_tracker_right;
+		submit.wrist_down = vr.motion_tracker_down;
 		d3d8_clear_back_buffer_region(WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 	}
 	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture, !vr.overlay_blend);
