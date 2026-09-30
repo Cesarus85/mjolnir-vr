@@ -809,6 +809,10 @@ static void render_vr_laser(
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index != NONE)
 		unit_index = player_get(player_index)->unit_index;
+	/* seated, the aim passes through the player's own vehicle (a gun's
+	barrel and shield are in front of the hand) */
+	if (unit_index != NONE && object_get(unit_index)->object.parent_object_index != NONE)
+		unit_index = object_get(unit_index)->object.parent_object_index;
 	render_vr_ray_end(start, direction, unit_index, &origin, &end);
 	halo_vr_set_aim_distance(distance3d(&origin, &end));
 
