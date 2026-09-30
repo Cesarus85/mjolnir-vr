@@ -689,6 +689,17 @@ static void render_vr_player_frame(
 	game_position[0] = window->render_camera.position.x;
 	game_position[1] = window->render_camera.position.y;
 	game_position[2] = window->render_camera.position.z;
+	{
+		/* seated, the vehicle's heading as this frame draws it (between
+		ticks): the view turns with it smoothly */
+		long player_index = local_player_get_player_index(window->local_player_index);
+		long unit_index = player_index == NONE ? NONE : player_get(player_index)->unit_index;
+		long vehicle_index = unit_index == NONE ? NONE : object_get(unit_index)->object.parent_object_index;
+		real_matrix4x3 *nodes = vehicle_index == NONE ? NULL : render_interpolation_object_node_matrices(vehicle_index);
+
+		if (nodes)
+			halo_vr_set_seat_frame(window->local_player_index, (float)atan2(nodes[0].forward.j, nodes[0].forward.i));
+	}
 	for (eye = 0; eye < 2; eye++)
 	{
 		struct render_window eye_window = *window;

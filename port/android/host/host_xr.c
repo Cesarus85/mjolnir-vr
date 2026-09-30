@@ -121,6 +121,9 @@ static struct
 	GLint source_uniform;
 	GLint rect_uniform;
 	GLint cut_disc_uniform;
+	GLint vignette_uniform;
+	GLint tangents_uniform;
+	float vignette;
 	GLuint vertex_array;
 	GLuint sampler;
 } xr;
@@ -213,6 +216,8 @@ static const char copy_fragment_shader[] =
 	"precision highp float;\n"
 	"uniform sampler2D source;\n"
 	"uniform float cut_disc;\n"
+	"uniform float vignette; /* 0..1: the eye images darken from their edges */\n"
+	"uniform vec4 tangents; /* the eye's edges: left, right, down, up */\n"
 	"in vec2 coordinate;\n"
 	"in vec2 disc;\n"
 	"out vec4 color;\n"
@@ -232,6 +237,14 @@ static const char copy_fragment_shader[] =
 	"		float line = (away.x < 0.008 || away.y < 0.008) && max(away.x, away.y) > 0.06 ? 0.85 : 0.0;\n"
 	"		color.rgb *= 1.0 - line;\n"
 	"		color = vec4(color.rgb * inside, inside);\n"
+	"	}\n"
+	"	if (vignette > 0.0)\n"
+	"	{\n"
+	"		/* by the angle off straight ahead (tangents), not the image's centre */\n"
+	"		vec2 corner = disc * 0.5 + 0.5;\n"
+	"		vec2 away = vec2(mix(tangents.x, tangents.y, corner.x), mix(tangents.z, tangents.w, corner.y));\n"
+	"		float edge = mix(1.8, 0.45, vignette);\n"
+	"		color.rgb *= 1.0 - smoothstep(edge - 0.3, edge, length(away));\n"
 	"	}\n"
 	"}\n";
 
@@ -278,6 +291,8 @@ static int copy_initialize(void)
 	xr.source_uniform = glGetUniformLocation(xr.program, "source");
 	xr.rect_uniform = glGetUniformLocation(xr.program, "rect");
 	xr.cut_disc_uniform = glGetUniformLocation(xr.program, "cut_disc");
+	xr.vignette_uniform = glGetUniformLocation(xr.program, "vignette");
+	xr.tangents_uniform = glGetUniformLocation(xr.program, "tangents");
 	glGenVertexArrays(1, &xr.vertex_array);
 	glGenSamplers(1, &xr.sampler);
 	glSamplerParameteri(xr.sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1177,6 +1192,18 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		glUniform1i(xr.source_uniform, 0);
 		glUniform4f(xr.rect_uniform, left, top, right, bottom);
 		glUniform1f(xr.cut_disc_uniform, clear_alpha == HALO_XR_COPY_DISC ? 1.0f : 0.0f);
+		if ((layer == HALO_XR_LAYER_EYE_LEFT || layer == HALO_XR_LAYER_EYE_RIGHT) && xr.vignette > 0.001f)
+		{
+			const XrFovf *fov = &xr.views[layer - HALO_XR_LAYER_EYE_LEFT].fov;
+
+			glUniform1f(xr.vignette_uniform, xr.vignette);
+			glUniform4f(xr.tangents_uniform, tanf(fov->angleLeft), tanf(fov->angleRight), tanf(fov->angleDown),
+				tanf(fov->angleUp));
+		}
+		else
+		{
+			glUniform1f(xr.vignette_uniform, 0.0f);
+		}
 		glBindVertexArray(xr.vertex_array);
 		glBindTexture(GL_TEXTURE_2D, texture);
 		glBindSampler(0, xr.sampler);
@@ -1325,6 +1352,11 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	end.layerCount = layer_count;
 	end.layers = layers;
 	return xr_ok(xrEndFrame(xr.session, &end), "xrEndFrame");
+}
+
+void host_xr_set_vignette(float strength)
+{
+	xr.vignette = strength < 0.0f ? 0.0f : strength > 1.0f ? 1.0f : strength;
 }
 
 void host_xr_haptic(int hand, float amplitude, float seconds)

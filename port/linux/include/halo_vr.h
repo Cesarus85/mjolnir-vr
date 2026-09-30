@@ -143,6 +143,22 @@ it, drawn alone on the cleared back buffer, which is cleared again */
 int halo_vr_crosshair_apart(void);
 void halo_vr_capture_crosshair(void);
 
+/* Vehicles (player_control.c, each tick): the seat the player sits in and
+its vehicle's heading (yaw, radians). Seated, the body turns with the
+vehicle; a driver who steers by facing (HALO_VR_SEAT_STEER) steers with the
+right stick, else the right controller aims (HALO_VR_SEAT_AIM). And each
+frame (render.c) the heading as drawn, between ticks. */
+enum
+{
+	HALO_VR_SEAT_NONE = 0,
+	HALO_VR_SEAT_STEER = 1,
+	HALO_VR_SEAT_AIM = 2,
+};
+void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw);
+void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
+/* whether a seated player's view stays in first person (director.c) */
+int halo_vr_vehicle_first_person(void);
+
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);
 void halo_vr_frame_begin(void);

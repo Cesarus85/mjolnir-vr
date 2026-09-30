@@ -858,6 +858,28 @@ done:
 	return !no_vehicles_moving;
 }
 
+#ifdef HALO_ANDROID
+boolean vehicle_vr_steered_by_facing(
+	long vehicle_index)
+{
+	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
+	struct vehicle_definition *definition = vehicle_specific_definition_get(
+		vehicle->definition_index);
+
+	switch (definition->vehicle_type)
+	{
+		case _vehicle_type_human_jeep:
+		case _vehicle_type_human_boat:
+		case _vehicle_type_human_plane:
+		case _vehicle_type_alien_scout:
+		case _vehicle_type_alien_fighter:
+			return TRUE;
+		default:
+			return FALSE;
+	}
+}
+
+#endif
 long vehicle_find_pathfinding_surface_index(
 	long vehicle_index,
 	real_point3d *position)

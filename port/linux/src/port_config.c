@@ -138,6 +138,19 @@ static const struct config_setting config_settings[] =
 		"down the drawn hand's knuckles, from the index finger to the little one,", },
 	{ "vr.grenade_back", _config_real, "0.02", "HALO_VR_GRENADE_BACK", _environment_value, _platform_android,
 		"and back along its fingers, towards the wrist." },
+	{ "vr.vehicle_first_person", _config_boolean, "true", "HALO_VR_VEHICLE_FIRST_PERSON", _environment_value,
+		_platform_android,
+		"In a vehicle, the view stays behind the player's own eyes, and turns\n"
+		"with the vehicle (false: the game's camera behind it, as on a screen)." },
+	{ "vr.vehicle_steer_degrees", _config_real, "60", "HALO_VR_VEHICLE_STEER", _environment_value, _platform_android,
+		"Driving, the right stick pushed fully aside steers this many degrees off\n"
+		"the vehicle's heading (the game turns the vehicle towards it)." },
+	{ "vr.vehicle_pitch_degrees", _config_real, "45", "HALO_VR_VEHICLE_PITCH", _environment_value, _platform_android,
+		"Driving, the right stick pushed fully up or down aims this many degrees\n"
+		"above or below the horizon (a Banshee climbs or dives)." },
+	{ "vr.comfort_vignette", _config_real, "0.7", "HALO_VR_COMFORT_VIGNETTE", _environment_value, _platform_android,
+		"How far the view darkens from its edges while a vehicle turns you\n"
+		"(0 never, 1 to a small window)." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"

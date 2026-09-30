@@ -678,6 +678,36 @@ static void handle_one_player_input(
 				player->zoom_level);
 		}
 
+#ifdef HALO_ANDROID
+		{
+			/* VR: the seat the player sits in, and its vehicle's heading
+			(vr.c: the body turns with it, and the right stick steers or the
+			right controller aims) */
+			int vr_seat = HALO_VR_SEAT_NONE;
+			real vr_vehicle_yaw = 0.f;
+			struct unit_datum *vr_vehicle = unit->object.parent_object_index == NONE ?
+				NULL :
+				vehicle_try_and_get(unit->object.parent_object_index);
+
+			if (vr_vehicle)
+			{
+				struct unit_seat *seat = TAG_BLOCK_GET_ELEMENT(
+					&vehicle_definition_get(vr_vehicle->definition_index)->unit.seats,
+					unit->unit.parent_seat_index,
+					struct unit_seat);
+				real_vector3d vehicle_forward;
+				real_vector3d vehicle_up;
+
+				object_get_orientation(unit->object.parent_object_index, &vehicle_forward, &vehicle_up);
+				vr_vehicle_yaw = (real)atan2(vehicle_forward.j, vehicle_forward.i);
+				vr_seat = TEST_FLAG(seat->flags, _unit_seat_driver_bit) &&
+					vehicle_vr_steered_by_facing(unit->object.parent_object_index) ?
+					HALO_VR_SEAT_STEER :
+					HALO_VR_SEAT_AIM;
+			}
+			halo_vr_set_seat(local_player_index, vr_seat, vr_vehicle_yaw);
+		}
+#endif
 		if (!director_inhibited_facing(local_player_index))
 		{
 #ifdef HALO_LINUX

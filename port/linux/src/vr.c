@@ -76,6 +76,25 @@ static struct
 	float body_yaw;
 	int aim_synced;
 	float last_yaw;
+	float last_pitch;
+	/* Seated (halo_vr_set_seat): the seat's kind, its vehicle's heading as
+	the game has it (each tick) and as drawn (each frame), and the body's
+	turn from that heading; the body turns with the vehicle. */
+	int seat_mode;
+	float seat_yaw;
+	float seat_frame_yaw;
+	int seat_frame_valid;
+	float seat_turn;
+	int vehicle_first_person;
+	float vehicle_steer_angle;  /* radians */
+	float vehicle_pitch_angle;
+	/* the comfort vignette: how strong at most, now, and the heading it
+	last saw */
+	float comfort_vignette;
+	float vignette;
+	float vignette_last_yaw;
+	int vignette_yaw_valid;
+	unsigned long long vignette_last_us;
 	int snap_latched;
 	unsigned long long last_frame_ms;
 
@@ -195,6 +214,9 @@ the target), keeping the size it has in the HUD: this part of the HUD. */
 static void cross3(const float a[3], const float b[3], float out[3]);
 static float normalize3(float v[3]);
 static int crosshair_pose(struct halo_xr_pose *pose, float *size);
+static int weapon_hand_tracked(short local_player_index);
+static void controller_axes(float forward[3], float up[3], float right[3]);
+static void hand_offset(float out[3]);
 
 static void quaternion_rotate(const float q[4], const float v[3], float out[3])
 {
@@ -241,8 +263,32 @@ static void head_angles(float *yaw, float *pitch)
 	*pitch = atan2f(direction[1], sqrtf(direction[0] * direction[0] + direction[2] * direction[2]));
 }
 
+/* seated, the vehicle's heading as last drawn (else as the game has it),
+and the body turned with it */
+static float seat_heading(void)
+{
+	return vr.seat_frame_valid ? vr.seat_frame_yaw : vr.seat_yaw;
+}
+
+static void seat_body(void)
+{
+	if (vr.seat_mode != HALO_VR_SEAT_NONE)
+		vr.body_yaw = wrap_angle(seat_heading() + vr.seat_turn);
+}
+
+/* seated, the way the head looks now is the vehicle's forward */
+static void seat_face_forward(void)
+{
+	float head_yaw, head_pitch;
+
+	head_angles(&head_yaw, &head_pitch);
+	vr.seat_turn = -head_yaw;
+	seat_body();
+}
+
 /* makes the head's position the game camera's, and the way it looks the
-game's facing (halo_vr_aim syncs the body's yaw again) */
+game's facing (halo_vr_aim syncs the body's yaw again), or seated, the
+vehicle's forward */
 static void vr_recentre(void)
 {
 	if (!(vr.frame.head_flags & HALO_XR_POSE_VALID))
@@ -250,6 +296,8 @@ static void vr_recentre(void)
 	memcpy(vr.origin, vr.frame.head.position, sizeof(vr.origin));
 	vr.origin_valid = 1;
 	vr.aim_synced = 0;
+	if (vr.seat_mode != HALO_VR_SEAT_NONE)
+		seat_face_forward();
 }
 
 /* the offset of a tracked point (an eye, a hand) from the game's camera, in
@@ -359,6 +407,10 @@ void halo_vr_initialize(void)
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
+	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
+	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
+	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
+	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
 	vr.grenade_scale = (float)config_real("vr.grenade_scale");
 	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
 	vr.grenade_offset[1] = 0.0f;
@@ -694,21 +746,137 @@ static void turn_update(void)
 		vr.snap_latched = 1;
 		return;
 	}
-	if (vr.smooth_turn)
+	/* driving, the stick steers instead (halo_vr_aim) */
+	if (vr.seat_mode == HALO_VR_SEAT_STEER)
 	{
-		if (fabsf(x) > 0.15f)
-			vr.body_yaw -= x * vr.smooth_turn_degrees_per_second * PI / 180.0f * seconds;
-	}
-	else if (!vr.snap_latched && fabsf(x) > 0.7f)
-	{
-		vr.body_yaw -= (x > 0.0f ? 1.0f : -1.0f) * vr.snap_turn_degrees * PI / 180.0f;
 		vr.snap_latched = 1;
+		seat_body();
+		return;
 	}
-	else if (fabsf(x) < 0.3f)
 	{
-		vr.snap_latched = 0;
+		/* seated, the body turns in the seat */
+		float *turned = vr.seat_mode != HALO_VR_SEAT_NONE ? &vr.seat_turn : &vr.body_yaw;
+
+		if (vr.smooth_turn)
+		{
+			if (fabsf(x) > 0.15f)
+				*turned -= x * vr.smooth_turn_degrees_per_second * PI / 180.0f * seconds;
+		}
+		else if (!vr.snap_latched && fabsf(x) > 0.7f)
+		{
+			*turned -= (x > 0.0f ? 1.0f : -1.0f) * vr.snap_turn_degrees * PI / 180.0f;
+			vr.snap_latched = 1;
+		}
+		else if (fabsf(x) < 0.3f)
+		{
+			vr.snap_latched = 0;
+		}
+		*turned = wrap_angle(*turned);
 	}
-	vr.body_yaw = wrap_angle(vr.body_yaw);
+	seat_body();
+}
+
+/* The comfort vignette: while a vehicle turns the player (from 15 degrees a
+second, fully at 60), the eye images darken from their edges; it comes in
+quickly and goes slowly. */
+static void vignette_update(void)
+{
+	unsigned long long now = now_us();
+	float seconds = vr.vignette_last_us ? (float)(now - vr.vignette_last_us) * 1e-6f : 0.0f;
+	float target = 0.0f, rate;
+
+	vr.vignette_last_us = now;
+	if (seconds > 0.1f)
+		seconds = 0.1f;
+	if (vr.seat_mode != HALO_VR_SEAT_NONE && vr.comfort_vignette > 0.0f)
+	{
+		float yaw = seat_heading();
+
+		if (vr.vignette_yaw_valid && seconds > 0.0f)
+		{
+			float turning = fabsf(wrap_angle(yaw - vr.vignette_last_yaw)) / seconds;
+
+			target = (turning - 15.0f * PI / 180.0f) / (45.0f * PI / 180.0f);
+			if (target < 0.0f)
+				target = 0.0f;
+			if (target > 1.0f)
+				target = 1.0f;
+			target *= vr.comfort_vignette;
+		}
+		vr.vignette_last_yaw = yaw;
+		vr.vignette_yaw_valid = 1;
+	}
+	else
+	{
+		vr.vignette_yaw_valid = 0;
+	}
+	rate = (target > vr.vignette ? 6.0f : 1.5f) * seconds;
+	if (vr.vignette < target)
+		vr.vignette = vr.vignette + rate < target ? vr.vignette + rate : target;
+	else
+		vr.vignette = vr.vignette - rate > target ? vr.vignette - rate : target;
+	host_xr_set_vignette(vr.vignette);
+}
+
+void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw)
+{
+	if (!vr.active || local_player_index != 0)
+		return;
+	if (!vr.vehicle_first_person)
+		seat = HALO_VR_SEAT_NONE;
+	vr.seat_yaw = vehicle_yaw;
+	if (seat == vr.seat_mode)
+		return;
+	platform_log("VR: seat %d (was %d)", seat, vr.seat_mode);
+	if (vr.seat_mode == HALO_VR_SEAT_NONE)
+	{
+		/* sat down: facing the vehicle's forward where the head looks */
+		vr.seat_mode = seat;
+		vr.seat_frame_valid = 0;
+		seat_face_forward();
+		return;
+	}
+	vr.seat_mode = seat;
+	seat_body();
+}
+
+void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
+{
+	if (!vr.active || local_player_index != 0 || vr.seat_mode == HALO_VR_SEAT_NONE)
+		return;
+	vr.seat_frame_yaw = vehicle_yaw;
+	vr.seat_frame_valid = 1;
+	seat_body();
+}
+
+int halo_vr_vehicle_first_person(void)
+{
+	return vr.active && vr.vehicle_first_person;
+}
+
+/* seated, where the aim runs from (world units) and along: from the right
+hand where it points, or driving, from the eyes the way the stick steers */
+static int seat_aim(float start[3], float direction[3])
+{
+	int axis;
+
+	if (vr.seat_mode == HALO_VR_SEAT_NONE)
+		return 0;
+	if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(0))
+	{
+		float up[3], right[3], hand[3];
+
+		controller_axes(direction, up, right);
+		hand_offset(hand);
+		for (axis = 0; axis < 3; axis++)
+			start[axis] = vr.game_camera[axis] + hand[axis];
+		return 1;
+	}
+	direction[0] = cosf(vr.last_pitch) * cosf(vr.last_yaw);
+	direction[1] = cosf(vr.last_pitch) * sinf(vr.last_yaw);
+	direction[2] = sinf(vr.last_pitch);
+	memcpy(start, vr.game_camera, 3 * sizeof(float));
+	return 1;
 }
 
 void halo_vr_frame_begin(void)
@@ -741,6 +909,7 @@ void halo_vr_frame_begin(void)
 		vr_recentre();
 	}
 	turn_update();
+	vignette_update();
 	look_update();
 	grenade_update();
 	melee_update();
@@ -892,21 +1061,56 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 		return 0;
 	}
 	head_angles(&head_yaw, &head_pitch);
-	if (!vr.aim_synced)
+	if (vr.seat_mode == HALO_VR_SEAT_STEER)
 	{
-		/* keep the way the game faces: the body turns to match the head */
-		vr.body_yaw = wrap_angle(current_yaw - head_yaw);
+		/* driving: the right stick steers off the vehicle's heading, and
+		aims above or below the horizon (the body turns with the vehicle) */
+		const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+		float x = hand->active && vr.frame.focused ? hand->thumbstick[0] : 0.0f;
+		float y = hand->active && vr.frame.focused ? hand->thumbstick[1] : 0.0f;
+
+		if (fabsf(x) < 0.15f)
+			x = 0.0f;
+		if (fabsf(y) < 0.15f)
+			y = 0.0f;
+		*yaw = wrap_angle(vr.seat_yaw - x * vr.vehicle_steer_angle);
+		*pitch = y * vr.vehicle_pitch_angle;
 		vr.aim_synced = 1;
 	}
-	else if (fabsf(wrap_angle(current_yaw - vr.last_yaw)) > FACING_JUMP)
+	else if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(local_player_index))
 	{
-		vr.body_yaw = wrap_angle(vr.body_yaw + wrap_angle(current_yaw - vr.last_yaw));
+		/* a gunner or passenger: where the right controller points */
+		float forward[3], up[3], right[3];
+
+		controller_axes(forward, up, right);
+		*yaw = atan2f(forward[1], forward[0]);
+		*pitch = asinf(forward[2] > 1.0f ? 1.0f : forward[2] < -1.0f ? -1.0f : forward[2]);
+		vr.aim_synced = 1;
 	}
-	*yaw = wrap_angle(vr.body_yaw + head_yaw);
+	else
+	{
+		if (vr.seat_mode != HALO_VR_SEAT_NONE)
+		{
+			/* seated: the body is the vehicle's */
+			vr.aim_synced = 1;
+		}
+		else if (!vr.aim_synced)
+		{
+			/* keep the way the game faces: the body turns to match the head */
+			vr.body_yaw = wrap_angle(current_yaw - head_yaw);
+			vr.aim_synced = 1;
+		}
+		else if (fabsf(wrap_angle(current_yaw - vr.last_yaw)) > FACING_JUMP)
+		{
+			vr.body_yaw = wrap_angle(vr.body_yaw + wrap_angle(current_yaw - vr.last_yaw));
+		}
+		*yaw = wrap_angle(vr.body_yaw + head_yaw);
+		*pitch = head_pitch;
+	}
 	if (*yaw < 0.0f)
 		*yaw += 2.0f * PI;
-	*pitch = head_pitch;
 	vr.last_yaw = *yaw;
+	vr.last_pitch = *pitch;
 	return 1;
 }
 
@@ -1197,6 +1401,10 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
 	float up[3], right[3], offset[3];
 	int axis;
 
+	/* seated, the vehicle's aim (and the crosshair's distance along it) */
+	if (local_player_index == 0 && vr.active && seat_aim(start, direction))
+		return 1;
+
 	if (!halo_vr_weapon_origin_offset(local_player_index, offset))
 		return 0;
 	weapon_axes(direction, up, right);
@@ -1398,16 +1606,20 @@ static int crosshair_pose(struct halo_xr_pose *pose, float *size)
 	float angle;
 	int axis;
 
-	/* along the weapon's aim from its muzzle, as its shots go */
-	if (!halo_vr_weapon_origin_offset(0, offset))
-		return 0;
 	if (distance > CROSSHAIR_FARTHEST)
 		distance = CROSSHAIR_FARTHEST;
 	if (distance < CROSSHAIR_NEAREST)
 		distance = CROSSHAIR_NEAREST;
-	weapon_axes(forward, up, right);
-	for (axis = 0; axis < 3; axis++)
-		start_world[axis] = vr.game_camera[axis] + offset[axis];
+	/* seated, along the vehicle's aim; else along the weapon's aim from its
+	muzzle, as its shots go */
+	if (!seat_aim(start_world, forward))
+	{
+		if (!halo_vr_weapon_origin_offset(0, offset))
+			return 0;
+		weapon_axes(forward, up, right);
+		for (axis = 0; axis < 3; axis++)
+			start_world[axis] = vr.game_camera[axis] + offset[axis];
+	}
 	world_to_local(start_world, start);
 	game_to_local(forward, direction);
 	for (axis = 0; axis < 3; axis++)
@@ -1577,6 +1789,15 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw)
+{
+	(void)local_player_index; (void)seat; (void)vehicle_yaw;
+}
+void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
+{
+	(void)local_player_index; (void)vehicle_yaw;
+}
+int halo_vr_vehicle_first_person(void) { return 0; }
 int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
 int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
 	float *scale)
