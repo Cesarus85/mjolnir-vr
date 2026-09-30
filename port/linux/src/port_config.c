@@ -149,7 +149,7 @@ static const struct config_setting config_settings[] =
 	{ "vr.ghost_eye_raise", _config_real, "0.45", "HALO_VR_GHOST_EYE_RAISE", _environment_value, _platform_android,
 		"In a Ghost, whose hood arches over its rider, the eyes this many metres\n"
 		"above his head," },
-	{ "vr.banshee_eye_raise", _config_real, "0.8", "HALO_VR_BANSHEE_EYE_RAISE", _environment_value,
+	{ "vr.banshee_eye_raise", _config_real, "1.0", "HALO_VR_BANSHEE_EYE_RAISE", _environment_value,
 		_platform_android,
 		"in a Banshee, whose pilot lies in it, this many," },
 	{ "vr.turret_eye_raise", _config_real, "0.5", "HALO_VR_TURRET_EYE_RAISE", _environment_value,
