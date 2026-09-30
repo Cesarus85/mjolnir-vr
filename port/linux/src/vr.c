@@ -99,6 +99,10 @@ static struct
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_pitch_angle;
+	float vehicle_steer_curve;  /* the stick's deflection to this power */
+	float vehicle_steer_smoothing; /* seconds */
+	float steer[2];             /* the steering as smoothed: aside, up (-1..1) */
+	unsigned long long steer_last_us;
 	/* the comfort vignette: how strong at most, now, and the heading it
 	last saw */
 	float comfort_vignette;
@@ -430,6 +434,8 @@ void halo_vr_initialize(void)
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
+	vr.vehicle_steer_curve = (float)config_real("vr.vehicle_steer_curve");
+	vr.vehicle_steer_smoothing = (float)config_real("vr.vehicle_steer_smoothing");
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
 	vr.grenade_scale = (float)config_real("vr.grenade_scale");
 	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
@@ -1153,15 +1159,31 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 		/* driving: the right stick steers off the vehicle's heading, and
 		aims above or below the horizon (the body turns with the vehicle) */
 		const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
-		float x = hand->active && vr.frame.focused ? hand->thumbstick[0] : 0.0f;
-		float y = hand->active && vr.frame.focused ? hand->thumbstick[1] : 0.0f;
+		float stick[2];
+		unsigned long long now = now_us();
+		float seconds = vr.steer_last_us ? (float)(now - vr.steer_last_us) * 1e-6f : 0.0f;
+		float blend;
+		int axis;
 
-		if (fabsf(x) < 0.15f)
-			x = 0.0f;
-		if (fabsf(y) < 0.15f)
-			y = 0.0f;
-		*yaw = wrap_angle(vr.seat_yaw - x * vr.vehicle_steer_angle);
-		*pitch = y * vr.vehicle_pitch_angle;
+		vr.steer_last_us = now;
+		stick[0] = hand->active && vr.frame.focused ? hand->thumbstick[0] : 0.0f;
+		stick[1] = hand->active && vr.frame.focused ? hand->thumbstick[1] : 0.0f;
+		/* past the dead zone, along a curve (fine aim near the middle, all
+		of it at the end), eased in (vr.vehicle_steer_curve, _smoothing) */
+		blend = vr.vehicle_steer_smoothing > 0.0f && seconds < 0.2f ?
+			1.0f - expf(-seconds / vr.vehicle_steer_smoothing) :
+			1.0f;
+		for (axis = 0; axis < 2; axis++)
+		{
+			float amount = (fabsf(stick[axis]) - 0.15f) / 0.85f;
+
+			amount = amount > 0.0f ? powf(amount > 1.0f ? 1.0f : amount, vr.vehicle_steer_curve) : 0.0f;
+			if (stick[axis] < 0.0f)
+				amount = -amount;
+			vr.steer[axis] += (amount - vr.steer[axis]) * blend;
+		}
+		*yaw = wrap_angle(vr.seat_yaw - vr.steer[0] * vr.vehicle_steer_angle);
+		*pitch = vr.steer[1] * vr.vehicle_pitch_angle;
 		vr.aim_synced = 1;
 	}
 	else if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(local_player_index))
