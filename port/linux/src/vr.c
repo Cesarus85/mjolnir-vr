@@ -207,6 +207,7 @@ unsigned int d3d8_back_buffer_texture(void);
 int d3d8_multiview_supported(void);
 int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4]);
 void d3d8_multiview_rows(const float rows[4][4]);
+void d3d8_multiview_depth(float a, float b);
 unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
@@ -1261,6 +1262,13 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 	}
 }
 
+/* the shared camera's projection's depth (render.c: its [2][2] and [3][2]):
+what the game projects itself carries z = -[2][2] + [3][2] / depth */
+void halo_vr_multiview_projection(float projection_22, float projection_32)
+{
+	d3d8_multiview_depth(-projection_22, projection_32);
+}
+
 /* the sky is being drawn (render.c): as though infinitely far */
 void halo_vr_multiview_sky(int sky)
 {
@@ -2039,6 +2047,10 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 }
 void halo_vr_capture_multiview(void) {}
 void halo_vr_multiview_sky(int sky) { (void)sky; }
+void halo_vr_multiview_projection(float projection_22, float projection_32)
+{
+	(void)projection_22; (void)projection_32;
+}
 void halo_vr_begin_overlay(int menus_active) { (void)menus_active; }
 int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch, float *yaw, float *pitch)
 {

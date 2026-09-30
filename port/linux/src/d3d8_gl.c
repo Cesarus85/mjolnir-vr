@@ -226,9 +226,12 @@ struct program_entry
 	GLint texture_lod_bias;
 	GLint screen_offset;
 	/* multiview: each view's correction (nv2a_vsh.c), and multiview.serial
-	when it was last uploaded */
+	when it was last uploaded; the projection's depth, and whether the draw
+	tests depth (what the uniform holds) */
 	GLint mv_rows;
 	unsigned long mv_serial;
+	GLint mv_depth;
+	float mv_depth_value[4];
 
 	/* the vertex constants c[0..constant_count) the program uses; with
 	consecutive locations, a changed range is uploaded by itself */
@@ -888,10 +891,15 @@ static struct
 	/* where each eye's picture lies in the shared camera's: left, top,
 	right, bottom, 0..1 from its top left */
 	float resolve_rect[2][4];
+	/* the shared camera's projection's depth, as the game projects a point
+	itself (rasterizer_widget_project_billboard): z = [0] + [1] / depth */
+	float projection_depth[2];
 } multiview;
 
 /* the bound targets are the layers */
 static BOOL targets_multiview;
+
+static struct vertex_shader_object *current_program(void);
 
 static GLuint framebuffer_get(GLuint color, GLuint depth);
 
@@ -987,6 +995,14 @@ int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 	return TRUE;
 }
 
+/* the projection's depth for what the game projects itself: z = a + b /
+depth for a point that far along the view */
+void d3d8_multiview_depth(float a, float b)
+{
+	multiview.projection_depth[0] = a;
+	multiview.projection_depth[1] = b;
+}
+
 /* new rows for the draws that follow (the sky's, vr.c) */
 void d3d8_multiview_rows(const float rows[4][4])
 {
@@ -1034,6 +1050,26 @@ static BOOL bind_targets(BOOL *has_depth)
 	/* VR: the back buffer, while both eyes are drawn at once, is their
 	layers (d3d8_multiview_begin), with a depth buffer of their own */
 	targets_multiview = multiview.active && color == multiview.back_buffer;
+	if (multiview.active && !targets_multiview)
+	{
+		/* (diagnostics: what else a draw into both eyes' pass draws into) */
+		static unsigned long logged[16][2];
+		unsigned long color_data = color ? color->target.data : 0;
+		unsigned long depth_data = depth ? depth->target.data : 0;
+		int slot, known = FALSE;
+
+		for (slot = 0; slot < 16 && (logged[slot][0] || logged[slot][1]); slot++)
+			known |= logged[slot][0] == color_data && logged[slot][1] == depth_data;
+		if (!known && slot < 16)
+		{
+			logged[slot][0] = color_data;
+			logged[slot][1] = depth_data;
+			platform_log("multiview: the pass also draws into %08lx (%lux%lu) with depth %08lx%s, vertex program %lu",
+				color_data, color ? color->target.width : 0, color ? color->target.height : 0, depth_data,
+				depth_data && depth_data == device.depth_buffer.Data ? " (the screen's depth buffer)" : "",
+				current_program() ? current_program()->id : 0);
+		}
+	}
 	if (targets_multiview)
 	{
 		multiview.drawn = TRUE;
@@ -2184,6 +2220,8 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	entry->texture_lod_bias = glGetUniformLocation(entry->program, "texture_lod_bias");
 	entry->screen_offset = glGetUniformLocation(entry->program, "screen_offset");
 	entry->mv_rows = glGetUniformLocation(entry->program, "mv_rows");
+	entry->mv_depth = glGetUniformLocation(entry->program, "mv_depth");
+	entry->mv_depth_value[0] = entry->mv_depth_value[1] = -1.0e30f;
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		char name[8];
@@ -2751,6 +2789,16 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	{
 		glUniform4fv(entry->mv_rows, 4, &multiview.rows[0][0]);
 		entry->mv_serial = multiview.serial;
+	}
+	if (targets_multiview && entry->mv_depth >= 0)
+	{
+		float depth[4];
+
+		depth[0] = multiview.projection_depth[0];
+		depth[1] = multiview.projection_depth[1];
+		depth[2] = has_depth && D3D__RenderState[D3DRS_ZENABLE] ? 1.0f : 0.0f;
+		depth[3] = 0.0f;
+		uniform_vec4(entry->mv_depth, entry->mv_depth_value, depth, 1);
 	}
 	if (key.count_samples)
 		glBindBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, device.visibility_counters,

@@ -721,6 +721,13 @@ static void render_vr_player_frame(
 		frustum_bounds.x1 = bounds[1];
 		frustum_bounds.y0 = bounds[2];
 		frustum_bounds.y1 = bounds[3];
+		{
+			/* the depth of what the game projects itself (its sprites) */
+			struct render_frustum frustum;
+
+			render_camera_build_frustum(&eye_window.rasterizer_camera, &frustum_bounds, &frustum, TRUE);
+			halo_vr_multiview_projection(frustum.projection_matrix[2][2], frustum.projection_matrix[3][2]);
+		}
 		render_vr_eye_pass = TRUE;
 		render_vr_frustum_bounds = &frustum_bounds;
 		render_player_frame(&eye_window, NULL);
