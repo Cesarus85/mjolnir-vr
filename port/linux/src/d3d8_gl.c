@@ -869,8 +869,9 @@ Between d3d8_multiview_begin and _end, what the game draws into the back
 buffer goes into two layers at once, one per eye: every vertex program is
 compiled for two views (nv2a_vsh.c) and moves each view's positions to its
 eye (rows, from vr.c). The game draws the scene once, from between the eyes.
-A texture read of the back buffer meanwhile (a screen effect) gets the left
-eye's picture. */
+A texture read of the back buffer meanwhile (a screen effect: the sun's
+glow measures the picture about the sun) gets the left eye's picture, laid
+where it lies in the shared camera's (resolve_rect). */
 
 static struct
 {
@@ -883,6 +884,9 @@ static struct
 	unsigned long width, height;
 	float rows[4][4];
 	unsigned long serial;
+	/* where the left eye's picture lies in the shared camera's: left, top,
+	right, bottom, 0..1 from its top left */
+	float resolve_rect[4];
 } multiview;
 
 /* the bound targets are the layers */
@@ -907,8 +911,12 @@ static void multiview_resolve(void)
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer_get(multiview.back_buffer->target.texture, 0));
 	if (scissor)
 		glDisable(GL_SCISSOR_TEST);
-	glBlitFramebuffer(0, 0, (GLint)multiview.width, (GLint)multiview.height, 0, 0, (GLint)multiview.width,
-		(GLint)multiview.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	/* (rows from the top in both: GL's y 0 is the picture's top) */
+	glBlitFramebuffer(0, 0, (GLint)multiview.width, (GLint)multiview.height,
+		(GLint)(multiview.resolve_rect[0] * multiview.width + 0.5f),
+		(GLint)(multiview.resolve_rect[1] * multiview.height + 0.5f),
+		(GLint)(multiview.resolve_rect[2] * multiview.width + 0.5f),
+		(GLint)(multiview.resolve_rect[3] * multiview.height + 0.5f), GL_COLOR_BUFFER_BIT, GL_LINEAR);
 	if (scissor)
 		glEnable(GL_SCISSOR_TEST);
 	glBindFramebuffer(GL_FRAMEBUFFER, gl_state.framebuffer != (GLuint)-1 ? gl_state.framebuffer : 0);
@@ -919,8 +927,9 @@ int d3d8_multiview_supported(void)
 	return device.gl_ready && xgpu_capabilities.multiview;
 }
 
-/* rows: per view, the correction of x and of y (nv2a_vsh.c) */
-int d3d8_multiview_begin(const float rows[4][4])
+/* rows: per view, the correction of x and of y (nv2a_vsh.c); resolve_rect:
+where the left eye's picture lies in the shared camera's */
+int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[4])
 {
 	struct render_target_entry *back_buffer;
 
@@ -964,6 +973,7 @@ int d3d8_multiview_begin(const float rows[4][4])
 		}
 	}
 	memcpy(multiview.rows, rows, sizeof(multiview.rows));
+	memcpy(multiview.resolve_rect, resolve_rect, sizeof(multiview.resolve_rect));
 	multiview.serial++;
 	multiview.back_buffer = back_buffer;
 	multiview.drawn = FALSE;
@@ -2394,6 +2404,24 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 #ifdef HALO_ANDROID
 				if (multiview.active && multiview.back_buffer && target == &multiview.back_buffer->target)
 					multiview_resolve();
+				if (multiview.active)
+				{
+					/* (diagnostics: what a draw into both eyes reads) */
+					static unsigned long logged[16];
+					int slot, known = FALSE;
+
+					for (slot = 0; slot < 16 && logged[slot]; slot++)
+						known |= logged[slot] == target->data;
+					if (!known && slot < 16)
+					{
+						logged[slot] = target->data;
+						platform_log("multiview: a draw reads render target %08lx (%lux%lu%s%s), vertex program %lu",
+							target->data, target->width, target->height, target->depth ? ", depth" : "",
+							target == &multiview.back_buffer->target ? ", the back buffer" :
+							target->data == device.depth_buffer.Data ? ", the depth buffer" : "",
+							current_program() ? current_program()->id : 0);
+					}
+				}
 #endif
 				xgpu_texture_describe(texture->Format, texture->Size, &description);
 				gl_texture = target->texture;
