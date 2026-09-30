@@ -302,12 +302,4 @@ real weapon_estimate_time_to_target(
 
 /* ---------- public code */
 
-#ifdef HALO_ANDROID
-/* VR: the line the gun of the vehicle the unit mans fires along */
-boolean weapon_vr_manned_gun_line(
-	long unit_index,
-	union real_point3d *origin,
-	union real_vector3d *forward);
-#endif
-
 #endif // __WEAPONS_H

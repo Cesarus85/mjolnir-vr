@@ -86,7 +86,6 @@ symbols in this file:
 #include "game/players.h"
 #include "game/player_control.h"
 #include "interface/hud.h"
-#include "items/weapons.h"
 #include "physics/collisions.h"
 #include "units/units.h"
 #include "halo_vr.h"
@@ -808,25 +807,6 @@ static void render_vr_laser(
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index != NONE)
 		unit_index = player_get(player_index)->unit_index;
-	if (unit_index != NONE)
-	{
-		/* manning a vehicle's gun, the crosshair on the line it fires along */
-		real_point3d gun_origin;
-		real_vector3d gun_forward;
-
-		if (weapon_vr_manned_gun_line(unit_index, &gun_origin, &gun_forward))
-		{
-			float gun_start[3], gun_direction[3];
-
-			gun_start[0] = gun_origin.x;
-			gun_start[1] = gun_origin.y;
-			gun_start[2] = gun_origin.z;
-			gun_direction[0] = gun_forward.i;
-			gun_direction[1] = gun_forward.j;
-			gun_direction[2] = gun_forward.k;
-			halo_vr_set_seat_gun(local_player_index, gun_start, gun_direction);
-		}
-	}
 	if (!halo_vr_ready_laser(local_player_index, start, direction))
 		return;
 	/* seated, the aim passes through the player's own vehicle (a gun's

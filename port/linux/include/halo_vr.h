@@ -169,9 +169,6 @@ int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks
 for a vehicle; nonzero once per ask (player_control.c spawns it) */
 int halo_vr_take_vehicle_spawn(short local_player_index);
-/* manning a vehicle's gun, the line it fires along this frame (render.c,
-world units): the crosshair floats on it */
-void halo_vr_set_seat_gun(short local_player_index, const float start[3], const float direction[3]);
 /* how far a gunner's view is moved back from the gun (world units) */
 float halo_vr_gunner_camera_back(void);
 /* how far forward an open vehicle's driver's view is moved (world units) */
