@@ -2157,6 +2157,38 @@ static void projectile_distribute(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* VR: the line the gun of the vehicle the unit mans fires along, as
+trigger_create_projectiles has it (the crosshair floats on it): from its
+primary trigger, along its barrel, onto the vehicle's camera line if it
+fires from its camera */
+boolean weapon_vr_manned_gun_line(
+	long unit_index,
+	real_point3d *origin,
+	real_vector3d *forward)
+{
+	long vehicle_index= object_get(unit_index)->object.parent_object_index;
+	struct unit_datum *vehicle= vehicle_index==NONE ? NULL : unit_try_and_get(vehicle_index);
+	struct object_marker marker;
+	long weapon_index;
+	real velocity;
+
+	if (!vehicle || vehicle->unit.gunner_object_index!=unit_index)
+		return FALSE;
+	weapon_index= unit_inventory_get_weapon(vehicle_index, vehicle->unit.current_weapon_index);
+	if (weapon_index==NONE ||
+		!object_get_marker_by_name(weapon_get_effect_object_index(weapon_index), "primary trigger", &marker, 1))
+	{
+		return FALSE;
+	}
+	*origin= marker.matrix.position;
+	*forward= marker.matrix.forward;
+	unit_adjust_projectile_ray(vehicle_index, origin, forward, &velocity,
+		TEST_FLAG(unit_definition_get(vehicle->definition_index)->unit.flags, _unit_fires_from_camera_bit), FALSE);
+	return TRUE;
+}
+
+#endif
 static void trigger_create_projectiles(
 	long weapon_index,
 	short trigger_index)

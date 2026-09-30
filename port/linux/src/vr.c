@@ -82,6 +82,9 @@ static struct
 	turn from that heading; the body turns with the vehicle. */
 	int seat_mode;
 	int seat_armed;
+	float seat_gun_start[3];
+	float seat_gun_direction[3];
+	unsigned long seat_gun_frame;
 	float seat_yaw;
 	float seat_frame_yaw;
 	int seat_frame_valid;
@@ -864,6 +867,15 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 	seat_body();
 }
 
+void halo_vr_set_seat_gun(short local_player_index, const float start[3], const float direction[3])
+{
+	if (!vr.active || local_player_index != 0)
+		return;
+	memcpy(vr.seat_gun_start, start, sizeof(vr.seat_gun_start));
+	memcpy(vr.seat_gun_direction, direction, sizeof(vr.seat_gun_direction));
+	vr.seat_gun_frame = vr.frame_number;
+}
+
 int halo_vr_vehicle_first_person(void)
 {
 	return vr.active && vr.vehicle_first_person;
@@ -909,6 +921,13 @@ static int seat_aim(float start[3], float direction[3])
 
 	if (vr.seat_mode == HALO_VR_SEAT_NONE)
 		return 0;
+	if (vr.seat_gun_frame == vr.frame_number)
+	{
+		/* a manned gun's own line, as it fires */
+		memcpy(start, vr.seat_gun_start, sizeof(vr.seat_gun_start));
+		memcpy(direction, vr.seat_gun_direction, sizeof(vr.seat_gun_direction));
+		return 1;
+	}
 	if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(0))
 	{
 		float hand[3];
@@ -1848,6 +1867,10 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 	(void)local_player_index; (void)vehicle_yaw;
 }
 int halo_vr_vehicle_first_person(void) { return 0; }
+void halo_vr_set_seat_gun(short local_player_index, const float start[3], const float direction[3])
+{
+	(void)local_player_index; (void)start; (void)direction;
+}
 float halo_vr_gunner_camera_back(void) { return 0.0f; }
 float halo_vr_driver_camera_forward(void) { return 0.0f; }
 float halo_vr_enclosed_seat_raise(int hull) { (void)hull; return 0.0f; }
