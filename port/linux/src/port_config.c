@@ -161,6 +161,10 @@ static const struct config_setting config_settings[] =
 		"at a Covenant gun, whose shield is at the eyes, this many," },
 	{ "vr.tank_eye_raise", _config_real, "0.5", "HALO_VR_TANK_EYE_RAISE", _environment_value, _platform_android,
 		"and driving a Scorpion, whose driver sits in the hull, this many." },
+	{ "vr.driver_camera_forward", _config_real, "0.15", "HALO_VR_DRIVER_CAMERA_FORWARD", _environment_value,
+		_platform_android,
+		"At an open vehicle's wheel (a Warthog's), the view this many metres forward\n"
+		"of the driver's head, nearer the windscreen." },
 	{ "vr.gunner_camera_back", _config_real, "0.15", "HALO_VR_GUNNER_CAMERA_BACK", _environment_value,
 		_platform_android,
 		"At a vehicle's gun, the view this many metres back from where the\n"

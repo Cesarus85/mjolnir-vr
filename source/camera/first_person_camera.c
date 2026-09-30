@@ -315,6 +315,22 @@ static void first_person_camera_for_unit_and_vector(
 						if (normalize3d(&back) > 0.f)
 							point_from_line3d(&result->position, &back, -halo_vr_gunner_camera_back(), &result->position);
 					}
+					if (seated_in && TEST_FLAG(seat_flags, _unit_seat_driver_bit) &&
+						!vehicle_vr_encloses_riders(unit->object.parent_object_index))
+					{
+						/* at an open wheel (a Warthog's), nearer the windscreen
+						(vr.driver_camera_forward) */
+						real_vector3d vehicle_forward;
+						real_vector3d vehicle_up;
+
+						object_get_orientation(unit->object.parent_object_index, &vehicle_forward, &vehicle_up);
+						vehicle_forward.k = 0.f;
+						if (normalize3d(&vehicle_forward) > 0.f)
+						{
+							point_from_line3d(&result->position, &vehicle_forward, halo_vr_driver_camera_forward(),
+								&result->position);
+						}
+					}
 					/* (the riders on a tank's back sit on it, not in it) */
 					if (seated_in && vehicle_vr_encloses_riders(unit->object.parent_object_index) &&
 						(TEST_FLAG(seat_flags, _unit_seat_driver_bit) || TEST_FLAG(seat_flags, _unit_seat_gunner_bit)))
