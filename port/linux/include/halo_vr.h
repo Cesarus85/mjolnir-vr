@@ -143,6 +143,50 @@ it, drawn alone on the cleared back buffer, which is cleared again */
 int halo_vr_crosshair_apart(void);
 void halo_vr_capture_crosshair(void);
 
+/* Vehicles (player_control.c, each tick): the seat the player sits in and
+its vehicle's heading (yaw, radians). Seated, the body turns with the
+vehicle; a driver who steers by facing (HALO_VR_SEAT_STEER) steers with the
+right stick, else the right controller aims (HALO_VR_SEAT_AIM). And each
+frame (render.c) the heading as drawn, between ticks. */
+enum
+{
+	HALO_VR_SEAT_NONE = 0,
+	HALO_VR_SEAT_STEER = 1,
+	HALO_VR_SEAT_AIM = 2,
+};
+/* (armed: HALO_VR_SEAT_ARMED if the seat fires the vehicle's gun, as a
+Ghost's driver does, and HALO_VR_SEAT_TURRET too if all it does is man the
+gun, as the Warthog's gunner) */
+enum
+{
+	HALO_VR_SEAT_ARMED = 1,
+	HALO_VR_SEAT_TURRET = 2,
+};
+void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw);
+void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
+/* whether a seated player's view stays in first person (director.c) */
+int halo_vr_vehicle_first_person(void);
+/* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks
+for a vehicle; nonzero once per ask (player_control.c spawns it) */
+int halo_vr_take_vehicle_spawn(short local_player_index);
+/* how far a gunner's view is moved back from the gun (world units) */
+float halo_vr_gunner_camera_back(void);
+/* how far forward an open vehicle's driver's view is moved (world units) */
+float halo_vr_driver_camera_forward(void);
+/* how far the eyes of a rider who sits down in the hull rise above his
+head (world units), by the kind of hull */
+enum
+{
+	HALO_VR_HULL_OPEN = 0,
+	HALO_VR_HULL_SCOUT,    /* a Ghost: its hood arches over the rider */
+	HALO_VR_HULL_FIGHTER,  /* a Banshee: the pilot lies in it */
+	HALO_VR_HULL_TURRET,   /* a Shade: its shield is at the eyes */
+	HALO_VR_HULL_TANK,     /* a Scorpion: its driver sits in the hull */
+};
+float halo_vr_enclosed_seat_raise(int hull);
+/* how strongly glass tints and reflects (1 as the game has it) */
+float halo_vr_glass_strength(void);
+
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);
 void halo_vr_frame_begin(void);

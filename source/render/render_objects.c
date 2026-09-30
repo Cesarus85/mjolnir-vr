@@ -108,6 +108,12 @@ symbols in this file:
 #include "cutscene/cinematics.h"
 #include "tag_files/tag_files.h"
 #include "saved games/game_state.h"
+#ifdef HALO_ANDROID
+#include "models/model_definitions.h"
+#include "units/unit_definitions.h"
+#include "units/vehicles.h"
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -507,6 +513,73 @@ static real object_get_level_of_detail_pixels(
 	return render_frustum_sphere_diameter_in_pixels(&render.frustum, &center, radius);
 }
 
+#ifdef HALO_ANDROID
+/* VR: seated at a wheel or a gun, the player's own body is drawn, its hands
+on the wheel or the gun's handles as the seat's animation has them, but for
+its head, where the eyes are; not in a Ghost, a Banshee or a Covenant gun,
+whose rider bends down into it (the eyes would be in his shoulders) */
+boolean render_object_vr_at_controls(
+	long object_index)
+{
+	struct object_datum *object;
+	struct object_datum *parent;
+	struct unit_datum *unit;
+	struct unit_seat *seat;
+
+	if (!halo_vr_vehicle_first_person() || render.camera.mirrored)
+		return FALSE;
+	object = object_get(object_index);
+	if (!TEST_FLAG(_object_mask_unit, object->object.type) || object->object.parent_object_index == NONE)
+		return FALSE;
+	unit = unit_get(object_index);
+	parent = object_get(object->object.parent_object_index);
+	if (!TEST_FLAG(_object_mask_unit, parent->object.type) || unit->unit.parent_seat_index == NONE)
+		return FALSE;
+	seat = TAG_BLOCK_GET_ELEMENT(
+		&unit_definition_get(parent->definition_index)->unit.seats,
+		unit->unit.parent_seat_index,
+		struct unit_seat);
+	return TEST_FLAG(seat->flags, _unit_seat_driver_bit) || TEST_FLAG(seat->flags, _unit_seat_gunner_bit);
+}
+
+boolean render_object_vr_seated_body(
+	long object_index)
+{
+	struct object_datum *object;
+
+	if (!render_object_vr_at_controls(object_index))
+		return FALSE;
+	object = object_get(object_index);
+	return !(TEST_FLAG(_object_mask_vehicle, object_get(object->object.parent_object_index)->object.type) &&
+		vehicle_vr_encloses_riders(object->object.parent_object_index));
+}
+
+/* its node matrices with the head's shrunk to nothing, which takes the
+helmet out of the eyes' way */
+static real_matrix4x3 *object_vr_headless_node_matrices(
+	long object_index)
+{
+	static real_matrix4x3 nodes[MAXIMUM_NODES_PER_MODEL];
+	struct object_definition *definition = object_definition_get(object_get(object_index)->definition_index);
+	struct model *model = model_definition_get(definition->object.model.index);
+	real_matrix4x3 *matrices = object_get_node_matrices(object_index);
+	short node_index;
+
+	if (model->nodes.count > MAXIMUM_NODES_PER_MODEL)
+		return matrices;
+	memcpy(nodes, matrices, model->nodes.count * sizeof(real_matrix4x3));
+	for (node_index = 0; node_index < model->nodes.count; node_index++)
+	{
+		struct model_node *node = TAG_BLOCK_GET_ELEMENT(&model->nodes, node_index, struct model_node);
+		size_t length = strlen(node->name);
+
+		if (length >= 4 && !strcmp(node->name + length - 4, "head"))
+			nodes[node_index].scale = 0.f;
+	}
+	return nodes;
+}
+
+#endif
 static void render_object_list(
 	struct object_render_data *data,
 	struct render_model_effect const *parent_model_effect,
@@ -516,7 +589,11 @@ static void render_object_list(
 	{
 		struct object_datum *object = object_get(object_index);
 
-		if (!object_is_first_person_camera(object_index) || render.camera.mirrored)
+		if (!object_is_first_person_camera(object_index) || render.camera.mirrored
+#ifdef HALO_ANDROID
+			|| (!data->shadow && render_object_vr_seated_body(object_index))
+#endif
+			)
 		{
 			struct render_model_effect model_effect;
 
@@ -550,6 +627,12 @@ static void render_object_list(
 				struct object_definition *definition =
 					object_definition_get(object->definition_index);
 				real level_of_detail_pixels = object_get_level_of_detail_pixels(object_index);
+				real_matrix4x3 *node_matrices = object_get_node_matrices(object_index);
+
+#ifdef HALO_ANDROID
+				if (object_is_first_person_camera(object_index) && !render.camera.mirrored)
+					node_matrices = object_vr_headless_node_matrices(object_index);
+#endif
 
 				match_assert(
 					"c:\\halo\\SOURCE\\render\\render_objects.c",
@@ -647,7 +730,7 @@ static void render_object_list(
 					render_model(
 						definition->object.model.index,
 						level_of_detail_pixels,
-						object_get_node_matrices(object_index),
+						node_matrices,
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
 						object->object.outgoing_function_values,
@@ -669,7 +752,7 @@ static void render_object_list(
 					render_model(
 						definition->object.model.index,
 						level_of_detail_pixels * 0.3f,
-						object_get_node_matrices(object_index),
+						node_matrices,
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
 						object->object.outgoing_function_values,

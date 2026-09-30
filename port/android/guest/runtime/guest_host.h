@@ -124,6 +124,8 @@ int host_xr_copy_layer_region(int layer, unsigned int texture, int clear_alpha, 
 /* submits the frame begun by host_xr_begin_frame */
 int host_xr_end_frame(const struct halo_xr_submit *submit);
 void host_xr_haptic(int hand, float amplitude, float seconds);
+/* darkens the eye images from their edges, strength 0..1 (0: off) */
+void host_xr_set_vignette(float strength);
 
 /* ---------- Android */
 

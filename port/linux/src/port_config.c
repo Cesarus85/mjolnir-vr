@@ -138,6 +138,55 @@ static const struct config_setting config_settings[] =
 		"down the drawn hand's knuckles, from the index finger to the little one,", },
 	{ "vr.grenade_back", _config_real, "0.02", "HALO_VR_GRENADE_BACK", _environment_value, _platform_android,
 		"and back along its fingers, towards the wrist." },
+	{ "vr.vehicle_first_person", _config_boolean, "true", "HALO_VR_VEHICLE_FIRST_PERSON", _environment_value,
+		_platform_android,
+		"In a vehicle, the view stays behind the player's own eyes, and turns\n"
+		"with the vehicle (false: the game's camera behind it, as on a screen)." },
+	{ "vr.turret_handles", _config_boolean, "true", "HALO_VR_TURRET_HANDLES", _environment_value,
+		_platform_android,
+		"At a vehicle's gun, the right controller works it as by its handles: tipped\n"
+		"down, the barrel rises (false: the barrel points where the controller does)." },
+	{ "vr.ghost_eye_raise", _config_real, "0.45", "HALO_VR_GHOST_EYE_RAISE", _environment_value, _platform_android,
+		"In a Ghost, whose hood arches over its rider, the eyes this many metres\n"
+		"above his head," },
+	{ "vr.banshee_eye_raise", _config_real, "1.0", "HALO_VR_BANSHEE_EYE_RAISE", _environment_value,
+		_platform_android,
+		"in a Banshee, whose pilot lies in it, this many," },
+	{ "vr.turret_eye_raise", _config_real, "0.5", "HALO_VR_TURRET_EYE_RAISE", _environment_value,
+		_platform_android,
+		"at a Covenant gun, whose shield is at the eyes, this many," },
+	{ "vr.tank_eye_raise", _config_real, "0.5", "HALO_VR_TANK_EYE_RAISE", _environment_value, _platform_android,
+		"and driving a Scorpion, whose driver sits in the hull, this many." },
+	{ "vr.driver_camera_forward", _config_real, "0.15", "HALO_VR_DRIVER_CAMERA_FORWARD", _environment_value,
+		_platform_android,
+		"At an open vehicle's wheel (a Warthog's), the view this many metres forward\n"
+		"of the driver's head, nearer the windscreen." },
+	{ "vr.gunner_camera_back", _config_real, "0.15", "HALO_VR_GUNNER_CAMERA_BACK", _environment_value,
+		_platform_android,
+		"At a vehicle's gun, the view this many metres back from where the\n"
+		"gunner's head leans into its sights." },
+	{ "vr.glass_strength", _config_real, "0.5", "HALO_VR_GLASS_STRENGTH", _environment_value, _platform_android,
+		"How strongly glass tints and reflects (1 as the game has it): up close, as\n"
+		"through a vehicle's windscreen, it hides the view." },
+	{ "vr.vehicle_steer_degrees", _config_real, "60", "HALO_VR_VEHICLE_STEER", _environment_value, _platform_android,
+		"Driving, the right stick pushed fully aside steers this many degrees off\n"
+		"the vehicle's heading (the game turns the vehicle towards it)." },
+	{ "vr.vehicle_gun_steer_degrees", _config_real, "40", "HALO_VR_VEHICLE_GUN_STEER", _environment_value,
+		_platform_android,
+		"The same for a vehicle whose steering aims its guns too (a Ghost, a Banshee)." },
+	{ "vr.vehicle_steer_curve", _config_real, "2.0", "HALO_VR_VEHICLE_STEER_CURVE", _environment_value,
+		_platform_android,
+		"Driving, the right stick's deflection to this power steers (1 evenly;\n"
+		"above it, finely near the middle, fully at the end)," },
+	{ "vr.vehicle_steer_smoothing", _config_real, "0.12", "HALO_VR_VEHICLE_STEER_SMOOTHING", _environment_value,
+		_platform_android,
+		"eased in over about this many seconds (0: at once)." },
+	{ "vr.vehicle_pitch_degrees", _config_real, "45", "HALO_VR_VEHICLE_PITCH", _environment_value, _platform_android,
+		"Driving, the right stick pushed fully up or down aims this many degrees\n"
+		"above or below the horizon (a Banshee climbs or dives)." },
+	{ "vr.comfort_vignette", _config_real, "0.7", "HALO_VR_COMFORT_VIGNETTE", _environment_value, _platform_android,
+		"How far the view darkens from its edges while a vehicle turns you\n"
+		"(0 never, 1 to a small window)." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"
@@ -262,6 +311,9 @@ static const struct config_setting config_settings[] =
 		"Log texture uploads." },
 	{ "debug.texture_no_cache", _config_boolean, "false", "HALO_TEXTURE_NO_CACHE", _environment_set_is_true, _platform_all,
 		"Upload textures again every time they are used." },
+	{ "debug.vehicle_spawn", _config_boolean, "true", "HALO_VEHICLE_SPAWN", _environment_value, _platform_android,
+		"A test aid in VR: both thumbsticks held in for a second and a half put\n"
+		"the map's next vehicle a few metres ahead." },
 	{ "debug.audio_log", _config_boolean, "false", "HALO_AUDIO_LOG", _environment_set_is_true, _platform_all,
 		"Log the level of the mixed sound every five seconds." },
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,

@@ -165,6 +165,10 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/vehicle_definitions.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -858,6 +862,56 @@ done:
 	return !no_vehicles_moving;
 }
 
+#ifdef HALO_ANDROID
+boolean vehicle_vr_steered_by_facing(
+	long vehicle_index)
+{
+	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
+	struct vehicle_definition *definition = vehicle_specific_definition_get(
+		vehicle->definition_index);
+
+	switch (definition->vehicle_type)
+	{
+		case _vehicle_type_human_jeep:
+		case _vehicle_type_human_boat:
+		case _vehicle_type_human_plane:
+		case _vehicle_type_alien_scout:
+		case _vehicle_type_alien_fighter:
+			return TRUE;
+		default:
+			return FALSE;
+	}
+}
+
+boolean vehicle_vr_encloses_riders(
+	long vehicle_index)
+{
+	return vehicle_vr_hull(vehicle_index) != HALO_VR_HULL_OPEN;
+}
+
+short vehicle_vr_hull(
+	long vehicle_index)
+{
+	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
+	struct vehicle_definition *definition = vehicle_specific_definition_get(
+		vehicle->definition_index);
+
+	switch (definition->vehicle_type)
+	{
+		case _vehicle_type_alien_scout:
+			return HALO_VR_HULL_SCOUT;
+		case _vehicle_type_alien_fighter:
+			return HALO_VR_HULL_FIGHTER;
+		case _vehicle_type_turret:
+			return HALO_VR_HULL_TURRET;
+		case _vehicle_type_human_tank:
+			return HALO_VR_HULL_TANK;
+		default:
+			return HALO_VR_HULL_OPEN;
+	}
+}
+
+#endif
 long vehicle_find_pathfinding_surface_index(
 	long vehicle_index,
 	real_point3d *position)

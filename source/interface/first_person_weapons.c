@@ -569,7 +569,12 @@ void first_person_weapon_draw(
 			if (unit_index!=NONE &&
 				first_person_weapon->visible &&
 				first_person_weapon->unit_index!=NONE &&
-				first_person_weapon->weapon_index!=NONE)
+				first_person_weapon->weapon_index!=NONE
+#ifdef HALO_ANDROID
+				/* VR: at a wheel or a gun the body's own hands hold them */
+				&& !(halo_vr_active() && render_object_vr_at_controls(unit_index))
+#endif
+				)
 			{
 				struct unit_datum *unit= unit_get(unit_index);
 				struct weapon_datum *weapon= weapon_get(first_person_weapon->weapon_index);

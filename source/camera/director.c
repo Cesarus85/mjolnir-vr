@@ -138,6 +138,10 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 /* ---------- macros */
@@ -368,6 +372,11 @@ short director_desired_perspective(
 		if (*perspective == 1 || *perspective == 3)
 			following = TRUE;
 	}
+#ifdef HALO_ANDROID
+	/* VR: seated, the player stays behind his own eyes (vr.vehicle_first_person) */
+	if (halo_vr_vehicle_first_person())
+		following = FALSE;
+#endif
 
 	return following;
 }

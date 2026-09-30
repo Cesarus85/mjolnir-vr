@@ -32,6 +32,10 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 /* ---------- macros */
@@ -163,6 +167,20 @@ void first_person_camera_update(
 
 /* ---------- private code */
 
+#ifdef HALO_ANDROID
+/* VR: a rider who sits down in the hull (a Ghost, a Banshee, a Covenant
+gun, a Scorpion's driver) sees out over it: the eyes rise by a height set
+for the kind of hull (vr.ghost_eye_raise and the like). Not by the hull's
+collision model: it leaves out the Ghost's hood and the Shade's shield, and
+has the Scorpion's turret, which swings over the driver. */
+static void first_person_camera_vr_over_hull(
+	long vehicle_index,
+	real_point3d *eyes)
+{
+	eyes->z += halo_vr_enclosed_seat_raise(vehicle_vr_hull(vehicle_index));
+}
+
+#endif
 static void first_person_camera_for_unit_and_vector(
 	long unit_index,
 	real_vector3d const *forward,
@@ -233,6 +251,58 @@ static void first_person_camera_for_unit_and_vector(
 					matrix4x3_transform_normal(&matrix, &result->up, &result->up);
 				}
 			}
+#ifdef HALO_ANDROID
+			if (halo_vr_vehicle_first_person())
+			{
+				/* VR: seated, behind the rider's own eyes, not at the point
+				the seat's camera turns about (the vehicle's middle) */
+				struct object_marker marker;
+				struct unit_datum *seated_in = vehicle_try_and_get(unit->object.parent_object_index);
+				unsigned long seat_flags = seated_in ?
+					TAG_BLOCK_GET_ELEMENT(
+						&vehicle_definition_get(seated_in->definition_index)->unit.seats,
+						unit->unit.parent_seat_index,
+						struct unit_seat)->flags :
+					0;
+
+				if (object_get_marker_by_name(unit_index, "head", &marker, 1))
+				{
+					result->position = marker.matrix.position;
+					if (TEST_FLAG(seat_flags, _unit_seat_gunner_bit))
+					{
+						/* a gunner leans into the gun's sights: back from them
+						(vr.gunner_camera_back) */
+						real_vector3d back = unit->unit.aiming_vector;
+
+						back.k = 0.f;
+						if (normalize3d(&back) > 0.f)
+							point_from_line3d(&result->position, &back, -halo_vr_gunner_camera_back(), &result->position);
+					}
+					if (seated_in && TEST_FLAG(seat_flags, _unit_seat_driver_bit) &&
+						!vehicle_vr_encloses_riders(unit->object.parent_object_index))
+					{
+						/* at an open wheel (a Warthog's), nearer the windscreen
+						(vr.driver_camera_forward) */
+						real_vector3d vehicle_forward;
+						real_vector3d vehicle_up;
+
+						object_get_orientation(unit->object.parent_object_index, &vehicle_forward, &vehicle_up);
+						vehicle_forward.k = 0.f;
+						if (normalize3d(&vehicle_forward) > 0.f)
+						{
+							point_from_line3d(&result->position, &vehicle_forward, halo_vr_driver_camera_forward(),
+								&result->position);
+						}
+					}
+					/* (the riders on a tank's back sit on it, not in it) */
+					if (seated_in && vehicle_vr_encloses_riders(unit->object.parent_object_index) &&
+						(TEST_FLAG(seat_flags, _unit_seat_driver_bit) || TEST_FLAG(seat_flags, _unit_seat_gunner_bit)))
+					{
+						first_person_camera_vr_over_hull(unit->object.parent_object_index, &result->position);
+					}
+				}
+			}
+#endif
 		}
 
 		result->flags = FLAG(0);

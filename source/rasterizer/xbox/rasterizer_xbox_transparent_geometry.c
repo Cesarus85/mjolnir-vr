@@ -164,6 +164,10 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_water.h"
 #include "rasterizer/xbox/shader_transparent_chicago_preprocessor.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -2893,8 +2897,22 @@ void rasterizer_transparent_geometry_group_draw(
 								csmemset(&pixel_shader, 0, sizeof(pixel_shader));
 								pixel_shader.texture_modes = 1;
 								pixel_shader.combiner_count = 1;
+#ifdef HALO_ANDROID
+								{
+									/* VR: glass tints less (vr.glass_strength): up
+									close, as through a windscreen, it hides the view */
+									real strength = halo_vr_glass_strength();
+									real_rgb_color tint;
+
+									tint.red = 1.0f - (1.0f - glass->tint_color.red) * strength;
+									tint.green = 1.0f - (1.0f - glass->tint_color.green) * strength;
+									tint.blue = 1.0f - (1.0f - glass->tint_color.blue) * strength;
+									pixel_shader.constant_0[0] = real_rgb_color_to_pixel32(&tint);
+								}
+#else
 								pixel_shader.constant_0[0] =
 									real_rgb_color_to_pixel32(&glass->tint_color);
+#endif
 								pixel_shader.rgb_inputs[0] = 0x08010000;
 								pixel_shader.rgb_outputs[0] = 0xC0;
 								if (group->effect_type ==
@@ -3095,10 +3113,30 @@ void rasterizer_transparent_geometry_group_draw(
 								}
 								pixel_shader.rgb_inputs[2] = 0x0C0C0D0D;
 								pixel_shader.rgb_outputs[2] = 0xD;
+#ifdef HALO_ANDROID
+								{
+									/* VR: and reflects less */
+									real strength = halo_vr_glass_strength();
+									real_argb_color perpendicular = glass->reflection_view_perpendicular_color;
+									real_argb_color parallel = glass->reflection_view_parallel_color;
+
+									perpendicular.alpha *= strength;
+									perpendicular.red *= strength;
+									perpendicular.green *= strength;
+									perpendicular.blue *= strength;
+									parallel.alpha *= strength;
+									parallel.red *= strength;
+									parallel.green *= strength;
+									parallel.blue *= strength;
+									pixel_shader.constant_0[3] = real_argb_color_to_pixel32(&perpendicular);
+									pixel_shader.constant_1[3] = real_argb_color_to_pixel32(&parallel);
+								}
+#else
 								pixel_shader.constant_0[3] = real_argb_color_to_pixel32(
 									&glass->reflection_view_perpendicular_color);
 								pixel_shader.constant_1[3] = real_argb_color_to_pixel32(
 									&glass->reflection_view_parallel_color);
+#endif
 								pixel_shader.alpha_outputs[3] = 0xC00;
 								pixel_shader.rgb_outputs[3] = 0xC00;
 								pixel_shader.rgb_outputs[4] = 0xC00;
