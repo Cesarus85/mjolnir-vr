@@ -185,6 +185,10 @@ static void first_person_camera_vr_over_hull(
 	real_vector3d up;
 	real top = -FLT_MAX;
 	short sample;
+
+	/* by the kind of hull (its collision model leaves out the Ghost's hood
+	and the Shade's shield) */
+	eyes->z += halo_vr_enclosed_seat_raise(vehicle_vr_hull(vehicle_index));
 	if (!collision_model_instance_new(&instance, vehicle_index))
 		return;
 	object_get_orientation(vehicle_index, &forward, &up);
