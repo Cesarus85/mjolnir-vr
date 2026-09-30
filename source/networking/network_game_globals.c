@@ -175,6 +175,9 @@ struct client_game_update_message
 	short __unknown4;
 	short local_player_count;
 	byte update[0x80];
+#ifdef HALO_LINUX
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_LOCAL_PLAYERS)
+#endif
 };
 
 struct network_machine
@@ -606,6 +609,26 @@ boolean network_game_client_end_frame(
 
 			csmemcpy(message.update, &update, sizeof(update));
 			message.local_player_count = local_player_count();
+#ifdef HALO_LINUX
+			{
+				/* the local players' VR blocks (game/players.h) */
+				struct player_action_vr vr[MAXIMUM_LOCAL_PLAYERS];
+				short slot;
+
+				update_client_build_client_vr(vr);
+				message.vr_count = 0;
+				message.vr_pad = 0;
+				for (slot = 0; slot < MAXIMUM_LOCAL_PLAYERS; slot++)
+				{
+					if (vr[slot].flags)
+					{
+						message.vr_entries[message.vr_count].player = slot;
+						message.vr_entries[message.vr_count].vr = vr[slot];
+						message.vr_count++;
+					}
+				}
+			}
+#endif
 			encoded_message = create_network_game_message(
 				_message_client_game_update,
 				&message,

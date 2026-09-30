@@ -3486,31 +3486,24 @@ void players_update_before_game(
 						&action->desired_facing);
 					control_data.facing_vector =
 						control_data.looking_vector = control_data.aiming_vector;
-#ifdef HALO_ANDROID
-					if (unit->object.parent_object_index == NONE)
+#ifdef HALO_LINUX
+					if (unit->object.parent_object_index == NONE && player_action_vr_get(iterator.datum_index))
 					{
 						/* VR: on foot, the weapon aims where the right controller
 						points, while the body and the view keep facing where the
-						head looks (port/linux/src/vr.c) */
-						real vr_aim[3];
-						real vr_look[3];
+						head looks (port/linux/src/vr.c; the player's input carries
+						both, game/players.h); and it looks where the head looks,
+						whether or not the game lets the player turn now (scripts
+						test it: unit_can_see_point) */
+						struct player_action_vr const *vr_action = player_action_vr_get(iterator.datum_index);
 
-						/* and it looks where the head looks, whether or not the
-						game lets the player turn now (scripts test it:
-						unit_can_see_point) */
-						if (halo_vr_look_vector(player->local_player_index, vr_look))
-						{
-							control_data.looking_vector.i = vr_look[0];
-							control_data.looking_vector.j = vr_look[1];
-							control_data.looking_vector.k = vr_look[2];
-						}
-						if (halo_vr_aim_vector(player->local_player_index, vr_aim))
-						{
-							control_data.aiming_vector.i = vr_aim[0];
-							control_data.aiming_vector.j = vr_aim[1];
-							control_data.aiming_vector.k = vr_aim[2];
-						}
+						if (TEST_FLAG(vr_action->flags, _player_action_vr_look_bit))
+							player_action_vr_get_direction(vr_action->look, &control_data.looking_vector);
+						if (TEST_FLAG(vr_action->flags, _player_action_vr_aim_bit))
+							player_action_vr_get_direction(vr_action->aim, &control_data.aiming_vector);
 					}
+#endif
+#ifdef HALO_ANDROID
 					{
 						real unit_look[3];
 

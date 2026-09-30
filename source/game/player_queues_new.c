@@ -257,6 +257,16 @@ static struct update *update_client_get_update(
 
 static struct update_server_globals update_server_globals = { 0 };
 static struct update_client_globals update_client_globals = { 0 };
+#ifdef HALO_LINUX
+/* VR (players.h): each step's VR blocks, beside its actions. A grenade the
+hand threw between two ticks stays thrown until a tick has run. */
+static struct player_action_vr update_client_pending_vr[MAXIMUM_LOCAL_PLAYERS];
+static struct player_action_vr update_client_saved_vr[MAXIMUM_LOCAL_PLAYERS];
+static struct player_action_vr update_server_queue_vr[MAXIMUM_NUMBER_OF_PLAYERS];
+static struct player_action_vr update_server_updates_vr[MAXIMUM_SERVER_UPDATES][MAXIMUM_NUMBER_OF_PLAYERS];
+static struct player_action_vr update_client_updates_vr[MAXIMUM_CLIENT_UPDATES][MAXIMUM_NUMBER_OF_PLAYERS];
+static struct player_action_vr update_client_current_vr[MAXIMUM_NUMBER_OF_PLAYERS];
+#endif
 
 /* ---------- public code */
 
@@ -376,6 +386,13 @@ void update_server_next_update(
 		update->update.action_count += 1;
 	}
 	update_client_handle_server_update(&update->update, update_number);
+#ifdef HALO_LINUX
+	csmemcpy(
+		update_server_updates_vr[update - update_server_globals.updates],
+		update_server_queue_vr,
+		sizeof(update_server_queue_vr));
+	update_client_handle_server_vr(update_server_updates_vr[update - update_server_globals.updates], update_number);
+#endif
 
 	return;
 }
@@ -516,6 +533,7 @@ static unsigned long update_client_pending_control_flags[MAXIMUM_LOCAL_PLAYERS];
 static real update_client_pending_primary_triggers[MAXIMUM_LOCAL_PLAYERS];
 static long update_client_pending_game_time = NONE;
 
+
 #endif
 void update_client_queue(
 	struct player_action const *action)
@@ -543,6 +561,35 @@ void update_client_queue(
 	return;
 }
 
+#ifdef HALO_LINUX
+/* the VR block of the action just queued (update_client_queue) */
+void update_client_queue_vr(
+	struct player_action_vr const *vr)
+{
+	long local_player = update_client_globals.current_local_player - 1;
+
+	if (local_player >= 0 && local_player < MAXIMUM_LOCAL_PLAYERS)
+	{
+		struct player_action_vr *pending = &update_client_pending_vr[local_player];
+		struct player_action_vr thrown = *pending;
+		short held_thrown = pending->flags & FLAG(_player_action_vr_grenade_thrown_bit);
+
+		*pending = *vr;
+		if (held_thrown && !(vr->flags & FLAG(_player_action_vr_grenade_thrown_bit)))
+		{
+			/* thrown on an earlier frame of this tick */
+			pending->flags |= held_thrown;
+			csmemcpy(pending->grenade_offset, thrown.grenade_offset, sizeof(pending->grenade_offset));
+			csmemcpy(pending->grenade_direction, thrown.grenade_direction, sizeof(pending->grenade_direction));
+			pending->grenade_strength = thrown.grenade_strength;
+		}
+		update_client_saved_vr[local_player] = *pending;
+	}
+
+	return;
+}
+
+#endif
 void update_client_queue_push(
 	void)
 {
@@ -552,6 +599,7 @@ void update_client_queue_push(
 		game_time_get_paused())
 	{
 		update_client_pending_game_time = game_time_get();
+		csmemset(update_client_pending_vr, 0, sizeof(update_client_pending_vr));
 		csmemset(
 			update_client_pending_control_flags,
 			0,
@@ -567,6 +615,9 @@ void update_client_queue_push(
 		&update_client_globals.saved_action_collection,
 		0,
 		sizeof(update_client_globals.saved_action_collection));
+#ifdef HALO_LINUX
+	csmemset(update_client_saved_vr, 0, sizeof(update_client_saved_vr));
+#endif
 
 	return;
 }
@@ -644,6 +695,12 @@ boolean update_client_dequeue(
 			0x1E8,
 			(NONE == actions[queue_index].desired_zoom_level) || (actions[queue_index].desired_zoom_level>=0));
 	}
+#ifdef HALO_LINUX
+	csmemcpy(
+		update_client_current_vr,
+		update_client_updates_vr[update - update_client_globals.updates],
+		sizeof(update_client_current_vr));
+#endif
 	update_client_globals.next_update_number_to_dequeue += 1;
 
 	return TRUE;
@@ -691,6 +748,14 @@ void update_client_local_ticks(
 		game_connection()==_game_connection_local);
 	update_client_build_client_update(&action_collection);
 	update_server_handle_client_update(machine_index, action_collection.actions);
+#ifdef HALO_LINUX
+	{
+		struct player_action_vr vr[MAXIMUM_LOCAL_PLAYERS];
+
+		update_client_build_client_vr(vr);
+		update_server_handle_client_vr(machine_index, vr);
+	}
+#endif
 	while (ticks-->0)
 	{
 		update_server_next_update();
@@ -792,6 +857,118 @@ void update_client_handle_server_update(
 	return;
 }
 
+#ifdef HALO_LINUX
+void update_client_build_client_vr(
+	struct player_action_vr *vr)
+{
+	csmemcpy(vr, update_client_saved_vr, sizeof(update_client_saved_vr));
+
+	return;
+}
+
+/* as update_server_handle_client_update: the machine's players, in order */
+void update_server_handle_client_vr(
+	long machine_index,
+	struct player_action_vr const *vr)
+{
+	long *player_list = machine_get_player_list(machine_index);
+	long action_index = 0;
+	long player_index;
+
+	for (player_index = 0; player_index<MAXIMUM_LOCAL_PLAYERS; ++player_index)
+	{
+		if (player_list[player_index]!=NONE)
+		{
+			long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_list[player_index]);
+
+			if (absolute_index<MAXIMUM_NUMBER_OF_PLAYERS)
+				update_server_queue_vr[absolute_index] = vr[action_index];
+			action_index++;
+		}
+	}
+
+	return;
+}
+
+/* the VR blocks of an update the host built (update_server_build_server_update) */
+struct player_action_vr const *update_server_get_update_vr(
+	long update_number)
+{
+	struct update *update = update_server_get_update(update_number);
+
+	return update ? update_server_updates_vr[update - update_server_globals.updates] : NULL;
+}
+
+/* as update_client_handle_server_update, for its VR blocks */
+void update_client_handle_server_vr(
+	struct player_action_vr const *vr,
+	long update_number)
+{
+	struct update *client_update = update_client_get_update(update_number);
+
+	if (client_update)
+	{
+		csmemcpy(
+			update_client_updates_vr[client_update - update_client_globals.updates],
+			vr,
+			sizeof(update_client_updates_vr[0]));
+	}
+
+	return;
+}
+
+struct player_action_vr const *player_action_vr_get(
+	long player_index)
+{
+	long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+
+	if (player_index==NONE || absolute_index<0 || absolute_index>=MAXIMUM_NUMBER_OF_PLAYERS ||
+		!update_client_current_vr[absolute_index].flags)
+	{
+		return NULL;
+	}
+	return &update_client_current_vr[absolute_index];
+}
+
+short player_action_vr_quantize_direction(
+	real value)
+{
+	return (short)PIN((long)(value * 32767.0f + (value < 0.0f ? -0.5f : 0.5f)), -32767, 32767);
+}
+
+real player_action_vr_direction(
+	short value)
+{
+	return value * (1.0f / 32767.0f);
+}
+
+short player_action_vr_quantize_offset(
+	real value)
+{
+	return (short)PIN((long)(value * 4096.0f + (value < 0.0f ? -0.5f : 0.5f)), -32767, 32767);
+}
+
+real player_action_vr_offset(
+	short value)
+{
+	return value * (1.0f / 4096.0f);
+}
+
+/* a direction, made whole again (every machine rounds the same) */
+void player_action_vr_get_direction(
+	short const quantized[3],
+	real_vector3d *direction)
+{
+	direction->i = player_action_vr_direction(quantized[0]);
+	direction->j = player_action_vr_direction(quantized[1]);
+	direction->k = player_action_vr_direction(quantized[2]);
+	if (normalize3d(direction) == 0.0f)
+		*direction = *global_forward3d;
+
+	return;
+}
+
+#endif
 void update_queues_reset_and_fill_with_lies(
 	void)
 {
@@ -811,6 +988,13 @@ void update_queues_reset_and_fill_with_lies(
 			&update_client_globals.saved_action_collection,
 			0,
 			sizeof(update_client_globals.saved_action_collection));
+#ifdef HALO_LINUX
+		csmemset(update_client_updates_vr, 0, sizeof(update_client_updates_vr));
+		csmemset(update_client_current_vr, 0, sizeof(update_client_current_vr));
+		csmemset(update_client_saved_vr, 0, sizeof(update_client_saved_vr));
+		csmemset(update_server_queue_vr, 0, sizeof(update_server_queue_vr));
+		csmemset(update_server_updates_vr, 0, sizeof(update_server_updates_vr));
+#endif
 		update_client_globals.latest_update_number_received = NONE;
 		update_client_globals.next_update_number_to_dequeue = 0;
 		game_time = game_time_get();

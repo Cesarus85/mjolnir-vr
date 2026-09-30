@@ -390,6 +390,81 @@ static void player_control_vr_spawn_vehicle(
 }
 
 #endif
+#ifdef HALO_ANDROID
+/* VR: what the headset adds to the local player's input this tick (game/
+players.h), in the whole numbers every machine in a game works with; the
+simulation reads it from the input, never from the headset */
+static void player_control_vr_quantize_direction(
+	const float direction[3],
+	short quantized[3])
+{
+	short axis;
+
+	for (axis = 0; axis < 3; axis++)
+		quantized[axis] = player_action_vr_quantize_direction(direction[axis]);
+}
+
+static void player_control_vr_quantize_offset(
+	const float point[3],
+	real_point3d const *camera,
+	short quantized[3])
+{
+	quantized[0] = player_action_vr_quantize_offset(point[0] - camera->x);
+	quantized[1] = player_action_vr_quantize_offset(point[1] - camera->y);
+	quantized[2] = player_action_vr_quantize_offset(point[2] - camera->z);
+}
+
+static void player_control_vr_sample(
+	short local_player_index,
+	struct player_datum *player,
+	struct player_action_vr *vr)
+{
+	float vector[3], point[3], strength;
+	real_point3d camera;
+	boolean has_unit = player->unit_index != NONE;
+
+	if (!halo_vr_active() || local_player_index != 0)
+		return;
+	if (has_unit)
+		unit_get_camera_position(player->unit_index, &camera);
+	if (halo_vr_aim_vector(local_player_index, vector))
+	{
+		vr->flags |= FLAG(_player_action_vr_aim_bit);
+		player_control_vr_quantize_direction(vector, vr->aim);
+	}
+	if (halo_vr_look_vector(local_player_index, vector))
+	{
+		vr->flags |= FLAG(_player_action_vr_look_bit);
+		player_control_vr_quantize_direction(vector, vr->look);
+	}
+	if (has_unit && halo_vr_weapon_origin(local_player_index, point))
+	{
+		vr->flags |= FLAG(_player_action_vr_muzzle_bit);
+		player_control_vr_quantize_offset(point, &camera, vr->muzzle);
+	}
+	if (has_unit && halo_vr_body_frame(local_player_index, point, vector))
+	{
+		vr->flags |= FLAG(_player_action_vr_eyes_bit);
+		player_control_vr_quantize_offset(point, &camera, vr->eyes);
+	}
+	if (halo_vr_grenade_held(local_player_index))
+		vr->flags |= FLAG(_player_action_vr_grenade_held_bit);
+	if (has_unit && halo_vr_grenade_throw(local_player_index, point, vector, &strength))
+	{
+		vr->flags |= FLAG(_player_action_vr_grenade_thrown_bit);
+		player_control_vr_quantize_offset(point, &camera, vr->grenade_offset);
+		player_control_vr_quantize_direction(vector, vr->grenade_direction);
+		vr->grenade_strength = player_action_vr_quantize_direction(strength);
+	}
+	strength = halo_vr_melee_strength();
+	if (strength > 0.f)
+	{
+		vr->flags |= FLAG(_player_action_vr_melee_bit);
+		vr->melee_strength = player_action_vr_quantize_direction(strength);
+	}
+}
+
+#endif
 /* ---------- public code */
 
 short unit_get_local_player_index(
@@ -879,6 +954,20 @@ static void handle_one_player_input(
 			0x36A,
 			action.desired_facing.yaw);
 		update_client_queue(&action);
+#ifdef HALO_LINUX
+		{
+			/* and what the headset adds to it (game/players.h), for every
+			local player so their slots stay in step */
+			struct player_action_vr vr;
+
+			csmemset(&vr, 0, sizeof(vr));
+#ifdef HALO_ANDROID
+			player_control_vr_sample(local_player_index,
+				player_get(local_player_get_player_index(local_player_index)), &vr);
+#endif
+			update_client_queue_vr(&vr);
+		}
+#endif
 	}
 
 	return;

@@ -628,6 +628,9 @@ struct message_client_game_update
 	short unknown04;
 	short player_count;
 	struct player_action actions[MAXIMUM_PLAYERS_PER_MACHINE];
+#ifdef HALO_LINUX
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_PLAYERS_PER_MACHINE)
+#endif
 };
 
 struct server_update
@@ -645,6 +648,9 @@ struct message_server_game_update
 	word unknown0C;
 	word player_count;
 	byte player_updates[MAXIMUM_NETWORK_PLAYER_COUNT * PLAYER_UPDATE_SIZE];
+#ifdef HALO_LINUX
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_VR_PLAYERS_PER_UPDATE)
+#endif
 };
 
 struct network_machine
@@ -1706,6 +1712,23 @@ void network_game_server_handle_client_update_packet(
 		}
 
 		update_server_handle_client_update(machine->machine_index, actions);
+#ifdef HALO_LINUX
+		{
+			/* its players' VR blocks (game/players.h) */
+			struct player_action_vr vr[MAXIMUM_PLAYERS_PER_MACHINE];
+			short entry;
+
+			csmemset(vr, 0, sizeof(vr));
+			for (entry = 0; entry < message_packet->vr_count && entry < MAXIMUM_PLAYERS_PER_MACHINE; entry++)
+			{
+				short slot = message_packet->vr_entries[entry].player;
+
+				if (slot >= 0 && slot < message_packet->player_count)
+					vr[slot] = message_packet->vr_entries[entry].vr;
+			}
+			update_server_handle_client_vr(machine->machine_index, vr);
+		}
+#endif
 
 		machine->last_received_update_sequence_number =
 			message_packet->update_number & CLIENT_UPDATE_SEQUENCE_NUMBER_MASK;
@@ -1798,6 +1821,25 @@ void network_game_server_update_ticks(
 					game_update.player_updates,
 					update.player_updates,
 					update.player_count * PLAYER_UPDATE_SIZE);
+#ifdef HALO_LINUX
+				{
+					/* the VR players' blocks (game/players.h) */
+					struct player_action_vr const *vr = update_server_get_update_vr(update_number);
+					short player_index;
+
+					game_update.vr_count = 0;
+					game_update.vr_pad = 0;
+					for (player_index = 0; vr && player_index < (short)update.player_count; player_index++)
+					{
+						if (vr[player_index].flags && game_update.vr_count < MAXIMUM_VR_PLAYERS_PER_UPDATE)
+						{
+							game_update.vr_entries[game_update.vr_count].player = player_index;
+							game_update.vr_entries[game_update.vr_count].vr = vr[player_index];
+							game_update.vr_count++;
+						}
+					}
+				}
+#endif
 
 				message = create_network_game_message(
 					_message_server_game_update,

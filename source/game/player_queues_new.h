@@ -58,6 +58,25 @@ void update_client_handle_server_update(
 	struct server_update *update,
 	long update_number);
 
+#ifdef HALO_LINUX
+/* VR (players.h, struct player_action_vr): each step of an action's way has
+its VR block's beside it */
+struct player_action_vr;
+
+void update_client_queue_vr(
+	struct player_action_vr const *vr);
+void update_client_build_client_vr(
+	struct player_action_vr *vr);
+void update_server_handle_client_vr(
+	long machine_index,
+	struct player_action_vr const *vr);
+struct player_action_vr const *update_server_get_update_vr(
+	long update_number);
+void update_client_handle_server_vr(
+	struct player_action_vr const *vr,
+	long update_number);
+#endif
+
 void update_queues_reset_and_fill_with_lies(
 	void);
 long player_new_queue(

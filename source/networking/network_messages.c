@@ -239,7 +239,12 @@ struct network_game_message_packet_definitions
 	struct data_packet_definition client_graceful_game_exit_pregame;
 	struct data_packet_field client_map_is_precached_pregame_fields[2];
 	struct data_packet_definition client_map_is_precached_pregame;
+#ifdef HALO_LINUX
+	/* ...and the VR players' blocks (game/players.h) */
+	struct data_packet_field server_game_update_fields[12];
+#else
 	struct data_packet_field server_game_update_fields[8];
+#endif
 	struct data_packet_definition server_game_update;
 	struct data_packet_field server_add_player_ingame_fields[4];
 	struct data_packet_definition server_add_player_ingame;
@@ -249,7 +254,11 @@ struct network_game_message_packet_definitions
 	struct data_packet_definition server_game_over;
 	struct data_packet_field client_loaded_fields[2];
 	struct data_packet_definition client_loaded;
+#ifdef HALO_LINUX
+	struct data_packet_field client_game_update_fields[12];
+#else
 	struct data_packet_field client_game_update_fields[8];
+#endif
 	struct data_packet_definition client_game_update;
 	struct data_packet_field client_add_player_request_ingame_fields[4];
 	struct data_packet_definition client_add_player_request_ingame;
@@ -308,8 +317,8 @@ DEFINE_NETWORK_GAME_MESSAGE(message_client_game_start_request, 0x02);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_graceful_game_exit_pregame, 0x04);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_map_is_precached_pregame, 0x100);
 #ifdef HALO_LINUX
-/* one 0x20-byte action per player */
-DEFINE_NETWORK_GAME_MESSAGE(message_server_game_update, 0x10 + HALO_PORT_MAXIMUM_NETWORK_PLAYERS * 0x20);
+/* one 0x20-byte action per player, and the VR players' 44-byte blocks */
+DEFINE_NETWORK_GAME_MESSAGE(message_server_game_update, 0x10 + HALO_PORT_MAXIMUM_NETWORK_PLAYERS * 0x20 + 2 + 16 * 44 + 2);
 #else
 DEFINE_NETWORK_GAME_MESSAGE(message_server_game_update, 0x210);
 #endif
@@ -317,7 +326,11 @@ DEFINE_NETWORK_GAME_MESSAGE(message_server_add_player_ingame, 0x20);
 DEFINE_NETWORK_GAME_MESSAGE(message_server_remove_player_ingame, 0x24);
 DEFINE_NETWORK_GAME_MESSAGE(message_server_game_over, 0x04);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_loaded, 0x04);
+#ifdef HALO_LINUX
+DEFINE_NETWORK_GAME_MESSAGE(message_client_game_update, 0x88 + 2 + 4 * 44 + 2);
+#else
 DEFINE_NETWORK_GAME_MESSAGE(message_client_game_update, 0x88);
+#endif
 DEFINE_NETWORK_GAME_MESSAGE(message_client_add_player_request_ingame, 0x20);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_remove_player_request_ingame, 0x20);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_host_crashed_cry_for_help, 0x10);
@@ -469,6 +482,12 @@ struct network_game_message_packet_definitions data_0030aa68 =
 		DATA_PACKET_FIELD(_data_packet_field_shorts, 3),
 		DATA_PACKET_FIELD(_data_packet_field_pad, 2),
 		DATA_PACKET_FIELD_END,
+#ifdef HALO_LINUX
+		DATA_PACKET_FIELD(_data_packet_field_array, 16),
+		DATA_PACKET_FIELD(_data_packet_field_shorts, 22),
+		DATA_PACKET_FIELD_END,
+		DATA_PACKET_FIELD(_data_packet_field_pad, 2),
+#endif
 		DATA_PACKET_FIELD_END,
 	},
 	NETWORK_GAME_MESSAGE_DEFINITION(server_game_update, "message_server_game_update_packet", message_server_game_update),
@@ -505,6 +524,12 @@ struct network_game_message_packet_definitions data_0030aa68 =
 		DATA_PACKET_FIELD(_data_packet_field_shorts, 3),
 		DATA_PACKET_FIELD(_data_packet_field_pad, 2),
 		DATA_PACKET_FIELD_END,
+#ifdef HALO_LINUX
+		DATA_PACKET_FIELD(_data_packet_field_array, 4),
+		DATA_PACKET_FIELD(_data_packet_field_shorts, 22),
+		DATA_PACKET_FIELD_END,
+		DATA_PACKET_FIELD(_data_packet_field_pad, 2),
+#endif
 		DATA_PACKET_FIELD_END,
 	},
 	NETWORK_GAME_MESSAGE_DEFINITION(client_game_update, "message_client_game_update_packet", message_client_game_update),

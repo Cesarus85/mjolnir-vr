@@ -587,22 +587,23 @@ long player_aim_projectile(
 		real autoaim_level;
 
 		director_camera_deterministic(player->unit_index, &camera_position, &camera_direction);
-#ifdef HALO_ANDROID
-		if (halo_vr_active() && player->local_player_index==0)
+#ifdef HALO_LINUX
+		if (player_action_vr_get(player_index))
 		{
+			struct player_action_vr const *vr_action= player_action_vr_get(player_index);
 			struct unit_datum *vr_unit= unit_get(player->unit_index);
-			float vr_eyes[3], vr_heading[3];
 
 			if (vr_unit->object.parent_object_index!=NONE &&
-				halo_vr_body_frame(player->local_player_index, vr_eyes, vr_heading))
+				TEST_FLAG(vr_action->flags, _player_action_vr_eyes_bit))
 			{
 				/* VR, seated: as the game aims a vehicle's gun, at what lies
 				along the player's aim, from the eyes (vr.c draws the crosshair
 				there); its barrel alone points elsewhere (a Banshee's nose
 				rises as it hovers, a tank's turret lags) */
-				camera_position.x= vr_eyes[0];
-				camera_position.y= vr_eyes[1];
-				camera_position.z= vr_eyes[2];
+				unit_get_camera_position(player->unit_index, &camera_position);
+				camera_position.x+= player_action_vr_offset(vr_action->eyes[0]);
+				camera_position.y+= player_action_vr_offset(vr_action->eyes[1]);
+				camera_position.z+= player_action_vr_offset(vr_action->eyes[2]);
 				camera_direction= vr_unit->unit.aiming_vector;
 			}
 			else

@@ -2254,19 +2254,21 @@ static void trigger_create_projectiles(
 					&up,
 					trigger_definition->first_person_weapon_offset.z,
 					&origin);
-#ifdef HALO_ANDROID
+#ifdef HALO_LINUX
 				if (unit->object.parent_object_index == NONE && unit->unit.gunner_object_index == NONE)
 				{
-					/* VR: from the muzzle of the weapon in the right hand; the
-					projectile is kept inside the level from the camera below,
-					so a hand through a wall does not fire through it */
-					real vr_origin[3];
+					/* VR: from the muzzle of the weapon in the right hand (the
+					player's input carries it, game/players.h); the projectile is
+					kept inside the level from the camera below, so a hand
+					through a wall does not fire through it */
+					struct player_action_vr const *vr_action = player_action_vr_get(player_index);
 
-					if (halo_vr_weapon_origin(player_get(player_index)->local_player_index, vr_origin))
+					if (vr_action && TEST_FLAG(vr_action->flags, _player_action_vr_muzzle_bit))
 					{
-						origin.x = vr_origin[0];
-						origin.y = vr_origin[1];
-						origin.z = vr_origin[2];
+						unit_get_camera_position(owner_object_index, &origin);
+						origin.x += player_action_vr_offset(vr_action->muzzle[0]);
+						origin.y += player_action_vr_offset(vr_action->muzzle[1]);
+						origin.z += player_action_vr_offset(vr_action->muzzle[2]);
 					}
 				}
 #endif

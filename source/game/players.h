@@ -62,6 +62,80 @@ struct player_action
 
 typedef char player_action_size_assert[
 	sizeof(struct player_action) == 0x20 ? 1 : -1];
+
+#ifdef HALO_LINUX
+/* VR (port/linux/src/vr.c): what a player's headset adds to his input each
+tick, in whole numbers so that every machine in a game, the host too, works
+with exactly the same (player_queues_new.c carries it beside the action, and
+the network messages as a list of the players who have one). Directions are
+unit vectors in 1/32767ths, offsets from the unit's camera in 1/4096 world
+units, strengths 0..1 in 1/32767ths. */
+enum
+{
+	_player_action_vr_aim_bit = 0,    /* the weapon aims along aim */
+	_player_action_vr_look_bit,       /* the head looks along look */
+	_player_action_vr_muzzle_bit,     /* shots start at muzzle */
+	_player_action_vr_eyes_bit,       /* seated, a gun aims from the eyes */
+	_player_action_vr_grenade_held_bit, /* the left trigger holds the grenade */
+	_player_action_vr_grenade_thrown_bit, /* the hand threw it this tick */
+	_player_action_vr_melee_bit,      /* a swing's melee strength */
+};
+
+struct player_action_vr
+{
+	short flags;
+	short aim[3];
+	short look[3];
+	short muzzle[3];
+	short eyes[3];
+	short grenade_offset[3];
+	short grenade_direction[3];
+	short grenade_strength;
+	short melee_strength;
+};
+
+typedef char player_action_vr_size_assert[
+	sizeof(struct player_action_vr) == 42 ? 1 : -1];
+
+/* on the wire, after a game update's actions: the players who have a VR
+block (their index in the update, or the machine's local player), up to
+this many in a host's update */
+enum
+{
+	MAXIMUM_VR_PLAYERS_PER_UPDATE = 16,
+};
+
+struct player_action_vr_entry
+{
+	short player;
+	struct player_action_vr vr;
+};
+
+typedef char player_action_vr_entry_size_assert[
+	sizeof(struct player_action_vr_entry) == 44 ? 1 : -1];
+
+#define PLAYER_ACTION_VR_TAIL(maximum) \
+	short vr_count; \
+	struct player_action_vr_entry vr_entries[maximum]; \
+	short vr_pad;
+
+/* the VR block of a player's input this tick (players_update_before_game),
+or NULL if his input has none */
+struct player_action_vr const *player_action_vr_get(
+	long player_index);
+/* the conversions both ways */
+short player_action_vr_quantize_direction(
+	real value);
+real player_action_vr_direction(
+	short value);
+short player_action_vr_quantize_offset(
+	real value);
+real player_action_vr_offset(
+	short value);
+void player_action_vr_get_direction(
+	short const quantized[3],
+	real_vector3d *direction);
+#endif
 typedef char player_action_desired_facing_yaw_offset_assert[
 	offsetof(struct player_action, desired_facing.yaw) == 0x4 ? 1 : -1];
 typedef char player_action_desired_facing_pitch_offset_assert[

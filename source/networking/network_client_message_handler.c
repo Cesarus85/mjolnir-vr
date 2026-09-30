@@ -392,6 +392,9 @@ struct message_server_game_update
 	byte padding0C[2];
 	short local_player_count;
 	struct player_action player_actions[MAXIMUM_NUMBER_OF_PLAYERS];
+#ifdef HALO_LINUX
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_VR_PLAYERS_PER_UPDATE)
+#endif
 };
 
 struct message_server_remove_player_ingame

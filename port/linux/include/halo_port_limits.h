@@ -57,15 +57,17 @@ The native builds' messages differ from the Xbox game's (longer arrays, the
 game settings record in fragments), so they search for games with their own
 protocol version and never see the Xbox game's, or it theirs. */
 
-#define HALO_PORT_NETWORK_GAME_MESSAGE_VERSION 2
+/* 3: game updates carry the VR players' blocks (game/players.h) */
+#define HALO_PORT_NETWORK_GAME_MESSAGE_VERSION 3
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */
 #define HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE 0x1000
 
 /* the packet codec's limit on a decoded or encoded packet; the per-tick
-update of 128 players decodes to 0x1010 bytes */
-#define HALO_PORT_NETWORK_PACKET_SIZE 0x1100
+update of 128 players decodes to 0x12D4 bytes, 16 VR players' blocks
+(game/players.h) included */
+#define HALO_PORT_NETWORK_PACKET_SIZE 0x1400
 
 /* the game settings record (HALO_PORT_NETWORK_GAME_SIZE, 13,092 bytes at 128
 machines and players) does not fit one message; it is sent in pieces of

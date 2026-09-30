@@ -619,6 +619,9 @@ struct message_server_game_update
 	byte __unknown0C[2];
 	short local_player_count;
 	struct player_action player_actions[MAXIMUM_NUMBER_OF_PLAYERS];
+#ifdef HALO_LINUX
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_VR_PLAYERS_PER_UPDATE)
+#endif
 };
 
 struct server_update
@@ -720,8 +723,10 @@ typedef char player_profile_size_assert[
 #ifdef HALO_LINUX
 /* the update and settings layouts follow the session limits
 (port/linux/include/halo_port_limits.h) */
+/* (and the VR players' blocks, game/players.h) */
 typedef char message_server_game_update_size_assert[
-	sizeof(struct message_server_game_update) == 0x10 + MAXIMUM_NUMBER_OF_PLAYERS * 0x20 ? 1 : -1];
+	sizeof(struct message_server_game_update) ==
+		0x10 + MAXIMUM_NUMBER_OF_PLAYERS * 0x20 + 2 + MAXIMUM_VR_PLAYERS_PER_UPDATE * 44 + 2 ? 1 : -1];
 typedef char server_update_size_assert[
 	sizeof(struct server_update) == 4 + MAXIMUM_NUMBER_OF_PLAYERS * 0x20 ? 1 : -1];
 #else
@@ -1768,6 +1773,23 @@ boolean network_game_client_handle_game_update(
 		update.local_player_count * sizeof(struct player_action));
 
 	update_client_handle_server_update(&update, message_packet->update_number);
+#ifdef HALO_LINUX
+	{
+		/* the VR players' blocks (game/players.h) */
+		static struct player_action_vr vr[MAXIMUM_NUMBER_OF_PLAYERS];
+		short entry;
+
+		csmemset(vr, 0, sizeof(vr));
+		for (entry = 0; entry < message_packet->vr_count && entry < MAXIMUM_VR_PLAYERS_PER_UPDATE; entry++)
+		{
+			short player = message_packet->vr_entries[entry].player;
+
+			if (player >= 0 && player < MAXIMUM_NUMBER_OF_PLAYERS)
+				vr[player] = message_packet->vr_entries[entry].vr;
+		}
+		update_client_handle_server_vr(vr, message_packet->update_number);
+	}
+#endif
 
 	client->next_update_number++;
 	client->last_update_time = system_milliseconds();

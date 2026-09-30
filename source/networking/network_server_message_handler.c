@@ -424,6 +424,7 @@ struct message_client_game_update
 #ifdef HALO_LINUX
 	/* a machine's players, which 16 players / 4 machines only happened to give */
 	struct player_action actions[MAXIMUM_LOCAL_PLAYERS];
+	PLAYER_ACTION_VR_TAIL(MAXIMUM_LOCAL_PLAYERS)
 #else
 	struct player_action actions[MAXIMUM_NUMBER_OF_PLAYERS / MAXIMUM_NETWORK_MACHINE_COUNT];
 #endif
