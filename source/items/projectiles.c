@@ -645,6 +645,42 @@ boolean projectile_new(
 	return TRUE;
 }
 
+#ifdef HALO_ANDROID
+/* VR: the last grenades thrown by the hand (salted indices); the game
+brings a projectile slower than its final velocity up to it, which would
+make every throw as far */
+static long projectile_thrown_by_hand[4] = { NONE, NONE, NONE, NONE };
+static short projectile_thrown_by_hand_next;
+
+void platform_log(const char *format, ...);
+
+void projectile_set_thrown_by_hand(
+	long projectile_index)
+{
+	struct projectile_runtime_datum *projectile = projectile_runtime_get(projectile_index);
+	struct projectile_definition *definition = projectile_definition_get(projectile->definition_index);
+
+	projectile_thrown_by_hand[projectile_thrown_by_hand_next] = projectile_index;
+	projectile_thrown_by_hand_next = (projectile_thrown_by_hand_next + 1) % 4;
+	platform_log("VR: grenade speed %.2f (initial %.2f, final %.2f, deceleration %.3f), world units per tick",
+		magnitude3d(&projectile->object.translational_velocity), definition->projectile.initial_velocity,
+		definition->projectile.final_velocity, projectile->projectile.deceleration);
+}
+
+static boolean projectile_is_thrown_by_hand(
+	long projectile_index)
+{
+	short index;
+
+	for (index = 0; index < 4; index++)
+	{
+		if (projectile_thrown_by_hand[index] == projectile_index)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+#endif
 void projectile_accelerate(
 	long projectile_index,
 	real_vector3d const *acceleration)
@@ -891,7 +927,11 @@ boolean projectile_update(
 			{
 				projectile_set_action(projectile_index, _projectile_action_disappear);
 			}
-			else if (speed < definition->projectile.final_velocity && speed > 0.0f)
+			else if (speed < definition->projectile.final_velocity && speed > 0.0f
+#ifdef HALO_ANDROID
+				&& !projectile_is_thrown_by_hand(projectile_index)
+#endif
+				)
 			{
 				scale_vector3d(
 					&new_velocity,

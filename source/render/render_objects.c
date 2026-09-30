@@ -529,7 +529,7 @@ static void render_vr_held_grenade(
 	real_matrix4x3 hand, inverse, delta;
 	real_point3d position;
 	real_vector3d forward, up;
-	float hand_position[3], hand_forward[3], hand_up[3];
+	float hand_position[3], hand_forward[3], hand_up[3], scale;
 	short node_index;
 
 	if (data->shadow || !parent_model_effect ||
@@ -540,7 +540,7 @@ static void render_vr_held_grenade(
 	unit = unit_get(unit_index);
 	if (unit->unit.grenade_object_index == NONE ||
 		unit->unit.grenade_throw_state != _unit_grenade_throw_in_hand ||
-		!halo_vr_left_hand(render.local_player_index, hand_position, hand_forward, hand_up))
+		!halo_vr_grenade_in_hand(render.local_player_index, hand_position, hand_forward, hand_up, &scale))
 	{
 		return;
 	}
@@ -565,6 +565,7 @@ static void render_vr_held_grenade(
 	up.j = hand_up[1];
 	up.k = hand_up[2];
 	matrix4x3_from_point_and_vectors(&hand, &position, &forward, &up);
+	hand.scale = scale;
 	matrix4x3_inverse(&node_matrices[0], &inverse);
 	matrix4x3_multiply(&hand, &inverse, &delta);
 	for (node_index = 0; node_index < model->nodes.count; node_index++)
@@ -591,7 +592,7 @@ static void render_vr_held_grenade(
 		grenade->object.outgoing_function_values,
 		data->lighting,
 		&position,
-		grenade->object.bounding_sphere_radius,
+		grenade->object.bounding_sphere_radius * scale,
 		&model_effect,
 		unit->unit.grenade_object_index,
 		grenade->object.forced_shader_permutation_index,

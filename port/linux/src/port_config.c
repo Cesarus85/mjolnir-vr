@@ -127,6 +127,15 @@ static const struct config_setting config_settings[] =
 		"along the hand's throw, when the hand moved faster than this (metres per\n"
 		"second; full strength at 4), else as the game throws it. 0 turns the\n"
 		"hand's throw off." },
+	{ "vr.grenade_scale", _config_real, "0.55", "HALO_VR_GRENADE_SCALE", _environment_value, _platform_android,
+		"The size the grenade held in the left hand is drawn at (1 as in the game)." },
+	{ "vr.grenade_right", _config_real, "0.045", "HALO_VR_GRENADE_RIGHT", _environment_value, _platform_android,
+		"Where the held grenade is drawn, in metres from the left controller's\n"
+		"grip: towards the palm (right),", },
+	{ "vr.grenade_forward", _config_real, "0.03", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
+		"forward,", },
+	{ "vr.grenade_up", _config_real, "0.0", "HALO_VR_GRENADE_UP", _environment_value, _platform_android,
+		"and up." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"

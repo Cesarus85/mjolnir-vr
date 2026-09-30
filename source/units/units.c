@@ -11237,6 +11237,10 @@ static void unit_throw_grenade_release(
 
 				subtract_vectors3d(&initial_velocity, &grenade->object.translational_velocity, &initial_velocity);
 				projectile_accelerate(grenade_index, &initial_velocity);
+#ifdef HALO_ANDROID
+				if (vr_thrown)
+					projectile_set_thrown_by_hand(grenade_index);
+#endif
 			}
 			
 			unit->unit.grenade_throw_state = _unit_grenade_throw_ending;

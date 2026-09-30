@@ -127,6 +127,8 @@ static struct
 	the left trigger held, the hand's last positions (LOCAL), and the throw
 	as it let go */
 	float grenade_throw_speed;
+	float grenade_scale;
+	float grenade_offset[3];  /* in the grip's axes: right, up, back (metres) */
 	int grenade_held;
 	float grenade_sample[GRENADE_SAMPLES][3];
 	unsigned long long grenade_sample_us[GRENADE_SAMPLES];
@@ -355,6 +357,10 @@ void halo_vr_initialize(void)
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
+	vr.grenade_scale = (float)config_real("vr.grenade_scale");
+	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
+	vr.grenade_offset[1] = (float)config_real("vr.grenade_up");
+	vr.grenade_offset[2] = -(float)config_real("vr.grenade_forward");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -517,10 +523,10 @@ static void grenade_update(void)
 			memcpy(vr.grenade_hand, vr.grenade_sample[count - 1], sizeof(vr.grenade_hand));
 			for (axis = 0; axis < 3; axis++)
 				vr.grenade_direction[axis] = best_velocity[axis] / best_speed;
-			/* the throw's speed is its strength: full at 4 m/s */
-			vr.grenade_strength = best_speed / 4.0f;
-			if (vr.grenade_strength < 0.35f)
-				vr.grenade_strength = 0.35f;
+			/* the throw's speed is its strength: full at 5 m/s */
+			vr.grenade_strength = best_speed / 5.0f;
+			if (vr.grenade_strength < 0.25f)
+				vr.grenade_strength = 0.25f;
 			if (vr.grenade_strength > 1.0f)
 				vr.grenade_strength = 1.0f;
 			host_xr_haptic(HALO_XR_HAND_LEFT, 0.6f, 0.06f);
@@ -534,6 +540,35 @@ static void grenade_update(void)
 int halo_vr_grenade_held(short local_player_index)
 {
 	return vr.active && vr.aim_with_controller && local_player_index == 0 && vr.grenade_held;
+}
+
+int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
+	float *scale)
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	float held[3], offset[3], direction[3];
+	int axis;
+
+	if (!vr.aim_with_controller || local_player_index != 0 || !halo_vr_stereo_frame() || !hand->active ||
+		!(hand->flags & HALO_XR_POSE_VALID))
+	{
+		return 0;
+	}
+	/* the grip's +x faces out of the left palm */
+	quaternion_rotate(hand->grip.orientation, vr.grenade_offset, held);
+	for (axis = 0; axis < 3; axis++)
+		held[axis] += hand->grip.position[axis];
+	tracked_offset(held, offset);
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	quaternion_rotate(hand->grip.orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(hand->grip.orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	*scale = vr.grenade_scale;
+	return 1;
 }
 
 int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength)
@@ -1532,6 +1567,12 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 }
 int halo_vr_melee(void) { return 0; }
 int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
+int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
+	float *scale)
+{
+	(void)local_player_index; (void)position; (void)forward; (void)up; (void)scale;
+	return 0;
+}
 int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength)
 {
 	(void)local_player_index; (void)origin; (void)direction; (void)strength;
