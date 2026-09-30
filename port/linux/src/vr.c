@@ -81,6 +81,7 @@ static struct
 	the game has it (each tick) and as drawn (each frame), and the body's
 	turn from that heading; the body turns with the vehicle. */
 	int seat_mode;
+	int seat_armed;
 	float seat_yaw;
 	float seat_frame_yaw;
 	int seat_frame_valid;
@@ -822,13 +823,14 @@ static void vignette_update(void)
 	host_xr_set_vignette(vr.vignette);
 }
 
-void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw)
+void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw)
 {
 	if (!vr.active || local_player_index != 0)
 		return;
 	if (!vr.vehicle_first_person)
 		seat = HALO_VR_SEAT_NONE;
 	vr.seat_yaw = vehicle_yaw;
+	vr.seat_armed = armed;
 	if (seat == vr.seat_mode)
 		return;
 	platform_log("VR: seat %d (was %d)", seat, vr.seat_mode);
@@ -1624,6 +1626,9 @@ static int crosshair_pose(struct halo_xr_pose *pose, float *size)
 		distance = CROSSHAIR_FARTHEST;
 	if (distance < CROSSHAIR_NEAREST)
 		distance = CROSSHAIR_NEAREST;
+	/* driving with no gun to aim, none */
+	if (vr.seat_mode == HALO_VR_SEAT_STEER && !vr.seat_armed)
+		return 0;
 	/* seated, along the vehicle's aim; else along the weapon's aim from its
 	muzzle, as its shots go */
 	if (!seat_aim(start_world, forward))
@@ -1803,9 +1808,9 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
-void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw)
+void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw)
 {
-	(void)local_player_index; (void)seat; (void)vehicle_yaw;
+	(void)local_player_index; (void)seat; (void)armed; (void)vehicle_yaw;
 }
 void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 {

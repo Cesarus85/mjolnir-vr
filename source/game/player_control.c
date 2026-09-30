@@ -684,6 +684,7 @@ static void handle_one_player_input(
 			(vr.c: the body turns with it, and the right stick steers or the
 			right controller aims) */
 			int vr_seat = HALO_VR_SEAT_NONE;
+			int vr_armed = FALSE;
 			real vr_vehicle_yaw = 0.f;
 			struct unit_datum *vr_vehicle = unit->object.parent_object_index == NONE ?
 				NULL :
@@ -700,12 +701,13 @@ static void handle_one_player_input(
 
 				object_get_orientation(unit->object.parent_object_index, &vehicle_forward, &vehicle_up);
 				vr_vehicle_yaw = (real)atan2(vehicle_forward.j, vehicle_forward.i);
+				vr_armed = TEST_FLAG(seat->flags, _unit_seat_gunner_bit);
 				vr_seat = TEST_FLAG(seat->flags, _unit_seat_driver_bit) &&
 					vehicle_vr_steered_by_facing(unit->object.parent_object_index) ?
 					HALO_VR_SEAT_STEER :
 					HALO_VR_SEAT_AIM;
 			}
-			halo_vr_set_seat(local_player_index, vr_seat, vr_vehicle_yaw);
+			halo_vr_set_seat(local_player_index, vr_seat, vr_armed, vr_vehicle_yaw);
 		}
 #endif
 		if (!director_inhibited_facing(local_player_index))

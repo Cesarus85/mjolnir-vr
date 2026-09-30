@@ -154,7 +154,8 @@ enum
 	HALO_VR_SEAT_STEER = 1,
 	HALO_VR_SEAT_AIM = 2,
 };
-void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw);
+/* (armed: the seat fires the vehicle's gun, as a Ghost's driver does) */
+void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw);
 void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
