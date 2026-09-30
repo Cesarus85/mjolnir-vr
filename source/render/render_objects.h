@@ -37,6 +37,9 @@ void render_object_shadows(
 first-person weapon is not, then) */
 boolean render_object_vr_seated_body(
 	long object_index);
+/* - and whether it sits at a wheel or a gun at all */
+boolean render_object_vr_at_controls(
+	long object_index);
 #endif
 
 #endif // __RENDER_OBJECTS_H

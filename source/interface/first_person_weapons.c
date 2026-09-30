@@ -572,7 +572,7 @@ void first_person_weapon_draw(
 				first_person_weapon->weapon_index!=NONE
 #ifdef HALO_ANDROID
 				/* VR: at a wheel or a gun the body's own hands hold them */
-				&& !(halo_vr_active() && render_object_vr_seated_body(unit_index))
+				&& !(halo_vr_active() && render_object_vr_at_controls(unit_index))
 #endif
 				)
 			{

@@ -518,7 +518,7 @@ static real object_get_level_of_detail_pixels(
 on the wheel or the gun's handles as the seat's animation has them, but for
 its head, where the eyes are; not in a Ghost, a Banshee or a Covenant gun,
 whose rider bends down into it (the eyes would be in his shoulders) */
-boolean render_object_vr_seated_body(
+boolean render_object_vr_at_controls(
 	long object_index)
 {
 	struct object_datum *object;
@@ -535,13 +535,23 @@ boolean render_object_vr_seated_body(
 	parent = object_get(object->object.parent_object_index);
 	if (!TEST_FLAG(_object_mask_unit, parent->object.type) || unit->unit.parent_seat_index == NONE)
 		return FALSE;
-	if (TEST_FLAG(_object_mask_vehicle, parent->object.type) && vehicle_vr_encloses_riders(object->object.parent_object_index))
-		return FALSE;
 	seat = TAG_BLOCK_GET_ELEMENT(
 		&unit_definition_get(parent->definition_index)->unit.seats,
 		unit->unit.parent_seat_index,
 		struct unit_seat);
 	return TEST_FLAG(seat->flags, _unit_seat_driver_bit) || TEST_FLAG(seat->flags, _unit_seat_gunner_bit);
+}
+
+boolean render_object_vr_seated_body(
+	long object_index)
+{
+	struct object_datum *object;
+
+	if (!render_object_vr_at_controls(object_index))
+		return FALSE;
+	object = object_get(object_index);
+	return !(TEST_FLAG(_object_mask_vehicle, object_get(object->object.parent_object_index)->object.type) &&
+		vehicle_vr_encloses_riders(object->object.parent_object_index));
 }
 
 /* its node matrices with the head's shrunk to nothing, which takes the
