@@ -80,6 +80,11 @@ static struct
 	/* Seated (halo_vr_set_seat): the seat's kind, its vehicle's heading as
 	the game has it (each tick) and as drawn (each frame), and the body's
 	turn from that heading; the body turns with the vehicle. */
+	/* the test aid's ask (vehicle_spawn_update) */
+	int vehicle_spawn;
+	int vehicle_spawn_asked;
+	int vehicle_spawn_latched;
+	unsigned long long vehicle_spawn_held_us;
 	int seat_mode;
 	int seat_armed;
 	float seat_gun_start[3];
@@ -417,6 +422,7 @@ void halo_vr_initialize(void)
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
+	vr.vehicle_spawn = config_boolean("debug.vehicle_spawn");
 	vr.turret_handles = config_boolean("vr.turret_handles");
 	vr.gunner_camera_back = (float)config_real("vr.gunner_camera_back");
 	vr.driver_camera_forward = (float)config_real("vr.driver_camera_forward");
@@ -876,6 +882,39 @@ void halo_vr_set_seat_gun(short local_player_index, const float start[3], const 
 	vr.seat_gun_frame = vr.frame_number;
 }
 
+/* both sticks held in for a second and a half: a vehicle, once */
+static void vehicle_spawn_update(void)
+{
+	int held = vr.vehicle_spawn && vr.frame.focused && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN &&
+		(vr.frame.hands[HALO_XR_HAND_LEFT].buttons & HALO_XR_BUTTON_THUMBSTICK) &&
+		(vr.frame.hands[HALO_XR_HAND_RIGHT].buttons & HALO_XR_BUTTON_THUMBSTICK);
+	unsigned long long now = now_us();
+
+	if (!held)
+	{
+		vr.vehicle_spawn_held_us = 0;
+		vr.vehicle_spawn_latched = 0;
+		return;
+	}
+	if (!vr.vehicle_spawn_held_us)
+		vr.vehicle_spawn_held_us = now;
+	if (!vr.vehicle_spawn_latched && now - vr.vehicle_spawn_held_us > 1500000)
+	{
+		vr.vehicle_spawn_asked = 1;
+		vr.vehicle_spawn_latched = 1;
+		host_xr_haptic(HALO_XR_HAND_LEFT, 0.5f, 0.1f);
+		host_xr_haptic(HALO_XR_HAND_RIGHT, 0.5f, 0.1f);
+	}
+}
+
+int halo_vr_take_vehicle_spawn(short local_player_index)
+{
+	if (!vr.active || local_player_index != 0 || !vr.vehicle_spawn_asked)
+		return 0;
+	vr.vehicle_spawn_asked = 0;
+	return 1;
+}
+
 int halo_vr_vehicle_first_person(void)
 {
 	return vr.active && vr.vehicle_first_person;
@@ -976,6 +1015,7 @@ void halo_vr_frame_begin(void)
 	}
 	turn_update();
 	vignette_update();
+	vehicle_spawn_update();
 	look_update();
 	grenade_update();
 	melee_update();
@@ -1867,6 +1907,7 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 	(void)local_player_index; (void)vehicle_yaw;
 }
 int halo_vr_vehicle_first_person(void) { return 0; }
+int halo_vr_take_vehicle_spawn(short local_player_index) { (void)local_player_index; return 0; }
 void halo_vr_set_seat_gun(short local_player_index, const float start[3], const float direction[3])
 {
 	(void)local_player_index; (void)start; (void)direction;

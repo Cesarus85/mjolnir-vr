@@ -126,6 +126,9 @@ void *tag_block_get_element_with_size(struct tag_block const *block, long index,
 /* ---------- prototypes/CACHE_FILES.C */
 
 long tag_loaded(long group_tag, const char *name);
+#ifdef HALO_ANDROID
+long tag_vr_next_loaded(long group_tag, long after_tag_index, char const **name);
+#endif
 
 void *tag_get(long group_tag, long tag_index);
 

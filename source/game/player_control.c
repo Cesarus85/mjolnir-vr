@@ -333,6 +333,8 @@ boolean controls_enable_doubled_spin = FALSE;
 boolean controls_swap_doubled_spin_state = FALSE;
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
+#include "tag_files/tag_groups.h"
+void platform_log(const char *format, ...);
 /* how far up or down the head can aim the player */
 #define VR_PITCH_LIMIT (85.f * _pi / 180.f)
 #endif
@@ -345,6 +347,49 @@ static real player_control_angle_step_ticks = 1.f;
 static real player_control_autolevel_time[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 #endif
 
+#ifdef HALO_ANDROID
+/* VR test aid (debug.vehicle_spawn, both sticks held in): the map's next
+vehicle, a few metres ahead of the player; not the flying transports */
+static void player_control_vr_spawn_vehicle(
+	long unit_index)
+{
+	static long last_definition_index = NONE;
+	struct object_placement_data data;
+	struct unit_datum *unit = unit_get(unit_index);
+	real_vector3d forward = unit->unit.aiming_vector;
+	real_point3d position;
+	char const *name = NULL;
+	long definition_index = last_definition_index;
+	short tries;
+
+	for (tries = 0; tries < 64; tries++)
+	{
+		definition_index = tag_vr_next_loaded(VEHICLE_DEFINITION_TAG, definition_index, &name);
+		if (definition_index == NONE || definition_index == last_definition_index && tries > 0)
+			break;
+		if (!strstr(name, "pelican") && !strstr(name, "dropship") && !strstr(name, "lifepod"))
+			break;
+	}
+	if (definition_index == NONE)
+	{
+		platform_log("VR: no vehicle in this map");
+		return;
+	}
+	last_definition_index = definition_index;
+	forward.k = 0.f;
+	if (normalize3d(&forward) == 0.f)
+		forward = *global_forward3d;
+	object_get_origin(unit_index, &position);
+	point_from_line3d(&position, &forward, 2.f, &position);
+	position.z += 0.3f;
+	object_placement_data_new(&data, definition_index, NONE);
+	data.position = position;
+	data.forward = forward;
+	data.up = *global_up3d;
+	platform_log("VR: spawning %s: %s", name, object_new(&data) == NONE ? "failed" : "done");
+}
+
+#endif
 /* ---------- public code */
 
 short unit_get_local_player_index(
@@ -712,6 +757,8 @@ static void handle_one_player_input(
 					HALO_VR_SEAT_AIM;
 			}
 			halo_vr_set_seat(local_player_index, vr_seat, vr_armed, vr_vehicle_yaw);
+			if (halo_vr_take_vehicle_spawn(local_player_index) && !vr_vehicle)
+				player_control_vr_spawn_vehicle(player->unit_index);
 		}
 #endif
 		if (!director_inhibited_facing(local_player_index))

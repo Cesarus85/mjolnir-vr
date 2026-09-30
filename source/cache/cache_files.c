@@ -374,6 +374,46 @@ unsigned long tag_groups_checksum(
 	return cache_file_globals.tag_header->checksum;
 }
 
+#ifdef HALO_ANDROID
+/* VR test aid: the loaded tag of the group after the given one (NONE: the
+first), wrapping round; NONE if the map has none. Its name too. */
+long tag_vr_next_loaded(
+	long group_tag,
+	long after_tag_index,
+	char const **name)
+{
+	short absolute_index;
+	short start = 0;
+	short count;
+
+	if (!cache_file_globals.tags_loaded)
+		return NONE;
+	count = (short)cache_file_globals.tag_header->tag_count;
+	if (after_tag_index != NONE)
+	{
+		for (absolute_index = 0; absolute_index < count; absolute_index++)
+		{
+			if (global_tag_instances[absolute_index].tag_index == after_tag_index)
+			{
+				start = absolute_index + 1;
+				break;
+			}
+		}
+	}
+	for (absolute_index = 0; absolute_index < count; absolute_index++)
+	{
+		struct cache_file_tag_instance *instance = &global_tag_instances[(start + absolute_index) % count];
+
+		if (instance->group_tag == group_tag)
+		{
+			*name = instance->name;
+			return instance->tag_index;
+		}
+	}
+	return NONE;
+}
+
+#endif
 long tag_loaded(
 	long group_tag,
 	char const *name)
