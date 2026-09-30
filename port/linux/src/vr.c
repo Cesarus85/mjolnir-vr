@@ -205,7 +205,7 @@ static struct
 /* d3d8_gl.c */
 unsigned int d3d8_back_buffer_texture(void);
 int d3d8_multiview_supported(void);
-int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[4]);
+int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4]);
 void d3d8_multiview_rows(const float rows[4][4]);
 unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
@@ -1247,14 +1247,16 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 		vr.multiview_logged_views = 1;
 	}
 	{
-		/* the left eye's picture's place in the shared one (rows from the
-		top) */
-		float resolve_rect[4];
+		/* each eye's picture's place in the shared one (rows from the top) */
+		float resolve_rect[2][4];
 
-		resolve_rect[0] = (views[0].tangent_left - left) / (right - left);
-		resolve_rect[1] = (top - views[0].tangent_up) / (top - down);
-		resolve_rect[2] = (views[0].tangent_right - left) / (right - left);
-		resolve_rect[3] = (top - views[0].tangent_down) / (top - down);
+		for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+		{
+			resolve_rect[eye][0] = (views[eye].tangent_left - left) / (right - left);
+			resolve_rect[eye][1] = (top - views[eye].tangent_up) / (top - down);
+			resolve_rect[eye][2] = (views[eye].tangent_right - left) / (right - left);
+			resolve_rect[eye][3] = (top - views[eye].tangent_down) / (top - down);
+		}
 		multiview_drawing = d3d8_multiview_begin(rows, resolve_rect);
 	}
 }

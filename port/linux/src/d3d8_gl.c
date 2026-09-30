@@ -870,8 +870,9 @@ buffer goes into two layers at once, one per eye: every vertex program is
 compiled for two views (nv2a_vsh.c) and moves each view's positions to its
 eye (rows, from vr.c). The game draws the scene once, from between the eyes.
 A texture read of the back buffer meanwhile (a screen effect: the sun's
-glow measures the picture about the sun) gets the left eye's picture, laid
-where it lies in the shared camera's (resolve_rect). */
+glow measures the picture about the sun) gets the eyes' pictures, each laid
+where it lies in the shared camera's (resolve_rect), the left one over the
+right. */
 
 static struct
 {
@@ -884,9 +885,9 @@ static struct
 	unsigned long width, height;
 	float rows[4][4];
 	unsigned long serial;
-	/* where the left eye's picture lies in the shared camera's: left, top,
+	/* where each eye's picture lies in the shared camera's: left, top,
 	right, bottom, 0..1 from its top left */
-	float resolve_rect[4];
+	float resolve_rect[2][4];
 } multiview;
 
 /* the bound targets are the layers */
@@ -894,12 +895,13 @@ static BOOL targets_multiview;
 
 static GLuint framebuffer_get(GLuint color, GLuint depth);
 
-/* the left eye's picture into the back buffer's own texture, for a draw
-that reads it; the bindings it changes are put back */
+/* the eyes' pictures into the back buffer's own texture, for a draw that
+reads it; the bindings it changes are put back */
 static void multiview_resolve(void)
 {
 	static GLuint read_framebuffer;
 	GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+	int eye;
 
 	if (!multiview.drawn)
 		return;
@@ -907,16 +909,20 @@ static void multiview_resolve(void)
 	if (!read_framebuffer)
 		glGenFramebuffers(1, &read_framebuffer);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, read_framebuffer);
-	glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, multiview.color, 0, 0);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer_get(multiview.back_buffer->target.texture, 0));
 	if (scissor)
 		glDisable(GL_SCISSOR_TEST);
-	/* (rows from the top in both: GL's y 0 is the picture's top) */
-	glBlitFramebuffer(0, 0, (GLint)multiview.width, (GLint)multiview.height,
-		(GLint)(multiview.resolve_rect[0] * multiview.width + 0.5f),
-		(GLint)(multiview.resolve_rect[1] * multiview.height + 0.5f),
-		(GLint)(multiview.resolve_rect[2] * multiview.width + 0.5f),
-		(GLint)(multiview.resolve_rect[3] * multiview.height + 0.5f), GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	for (eye = 1; eye >= 0; eye--)
+	{
+		const float *rect = multiview.resolve_rect[eye];
+
+		glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, multiview.color, 0, eye);
+		/* (rows from the top in both: GL's y 0 is the picture's top) */
+		glBlitFramebuffer(0, 0, (GLint)multiview.width, (GLint)multiview.height,
+			(GLint)(rect[0] * multiview.width + 0.5f), (GLint)(rect[1] * multiview.height + 0.5f),
+			(GLint)(rect[2] * multiview.width + 0.5f), (GLint)(rect[3] * multiview.height + 0.5f),
+			GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	}
 	if (scissor)
 		glEnable(GL_SCISSOR_TEST);
 	glBindFramebuffer(GL_FRAMEBUFFER, gl_state.framebuffer != (GLuint)-1 ? gl_state.framebuffer : 0);
@@ -928,8 +934,8 @@ int d3d8_multiview_supported(void)
 }
 
 /* rows: per view, the correction of x and of y (nv2a_vsh.c); resolve_rect:
-where the left eye's picture lies in the shared camera's */
-int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[4])
+where each eye's picture lies in the shared camera's */
+int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 {
 	struct render_target_entry *back_buffer;
 
