@@ -142,6 +142,10 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"In a vehicle, the view stays behind the player's own eyes, and turns\n"
 		"with the vehicle (false: the game's camera behind it, as on a screen)." },
+	{ "vr.turret_handles", _config_boolean, "true", "HALO_VR_TURRET_HANDLES", _environment_value,
+		_platform_android,
+		"At a vehicle's gun, the right controller works it as by its handles: tipped\n"
+		"down, the barrel rises (false: the barrel points where the controller does)." },
 	{ "vr.gunner_camera_back", _config_real, "0.15", "HALO_VR_GUNNER_CAMERA_BACK", _environment_value,
 		_platform_android,
 		"At a vehicle's gun, the view this many metres back from where the\n"

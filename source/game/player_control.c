@@ -701,7 +701,11 @@ static void handle_one_player_input(
 
 				object_get_orientation(unit->object.parent_object_index, &vehicle_forward, &vehicle_up);
 				vr_vehicle_yaw = (real)atan2(vehicle_forward.j, vehicle_forward.i);
-				vr_armed = TEST_FLAG(seat->flags, _unit_seat_gunner_bit);
+				if (TEST_FLAG(seat->flags, _unit_seat_gunner_bit))
+				{
+					vr_armed = HALO_VR_SEAT_ARMED |
+						(TEST_FLAG(seat->flags, _unit_seat_driver_bit) ? 0 : HALO_VR_SEAT_TURRET);
+				}
 				vr_seat = TEST_FLAG(seat->flags, _unit_seat_driver_bit) &&
 					vehicle_vr_steered_by_facing(unit->object.parent_object_index) ?
 					HALO_VR_SEAT_STEER :

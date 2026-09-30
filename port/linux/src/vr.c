@@ -87,6 +87,7 @@ static struct
 	int seat_frame_valid;
 	float seat_turn;
 	int vehicle_first_person;
+	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
@@ -411,6 +412,7 @@ void halo_vr_initialize(void)
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
+	vr.turret_handles = config_boolean("vr.turret_handles");
 	vr.gunner_camera_back = (float)config_real("vr.gunner_camera_back");
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
@@ -870,6 +872,17 @@ float halo_vr_gunner_camera_back(void)
 	return vr.gunner_camera_back / METRES_PER_WORLD_UNIT;
 }
 
+/* seated at a gun or a window, where the right controller aims it: at a
+gun's handles (vr.turret_handles), the barrel rises as the hand tips down */
+static void seat_aim_direction(float direction[3])
+{
+	float up[3], right[3];
+
+	controller_axes(direction, up, right);
+	if ((vr.seat_armed & HALO_VR_SEAT_TURRET) && vr.turret_handles)
+		direction[2] = -direction[2];
+}
+
 /* seated, where the aim runs from (world units) and along: from the right
 hand where it points, or driving, from the eyes the way the stick steers */
 static int seat_aim(float start[3], float direction[3])
@@ -880,9 +893,9 @@ static int seat_aim(float start[3], float direction[3])
 		return 0;
 	if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(0))
 	{
-		float up[3], right[3], hand[3];
+		float hand[3];
 
-		controller_axes(direction, up, right);
+		seat_aim_direction(direction);
 		hand_offset(hand);
 		for (axis = 0; axis < 3; axis++)
 			start[axis] = vr.game_camera[axis] + hand[axis];
@@ -1096,9 +1109,9 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 	else if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(local_player_index))
 	{
 		/* a gunner or passenger: where the right controller points */
-		float forward[3], up[3], right[3];
+		float forward[3];
 
-		controller_axes(forward, up, right);
+		seat_aim_direction(forward);
 		*yaw = atan2f(forward[1], forward[0]);
 		*pitch = asinf(forward[2] > 1.0f ? 1.0f : forward[2] < -1.0f ? -1.0f : forward[2]);
 		vr.aim_synced = 1;
