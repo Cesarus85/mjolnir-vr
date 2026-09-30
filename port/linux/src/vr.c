@@ -478,8 +478,6 @@ static void grenade_update(void)
 		count++;
 	}
 	vr.grenade_sample_count = count;
-	if (held != vr.grenade_held)
-		platform_log("VR: grenade trigger %s (%.2f)", held ? "held" : "let go", hand->trigger);
 	if (vr.grenade_held && !held)
 	{
 		/* let go: the fastest the hand moved over its last 150 ms, each
