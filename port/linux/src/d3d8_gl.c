@@ -971,6 +971,15 @@ int d3d8_multiview_begin(const float rows[4][4])
 	return TRUE;
 }
 
+/* new rows for the draws that follow (the sky's, vr.c) */
+void d3d8_multiview_rows(const float rows[4][4])
+{
+	if (!multiview.active)
+		return;
+	memcpy(multiview.rows, rows, sizeof(multiview.rows));
+	multiview.serial++;
+}
+
 /* the eyes' layers (GL_TEXTURE_2D_ARRAY), after d3d8_multiview_end */
 unsigned int d3d8_multiview_end(void)
 {

@@ -206,6 +206,7 @@ static struct
 unsigned int d3d8_back_buffer_texture(void);
 int d3d8_multiview_supported(void);
 int d3d8_multiview_begin(const float rows[4][4]);
+void d3d8_multiview_rows(const float rows[4][4]);
 unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
@@ -1146,6 +1147,9 @@ from the top. An eye that stands t aside sees X - t: x' = a x + b d + c. */
 
 static float multiview_bounds[4];     /* the shared view's L, R, D, U */
 static int multiview_drawing;
+/* the rows for what is drawn in the world, and for the sky, which is drawn
+about the camera, as though infinitely far: no eye stands aside of it */
+static float multiview_rows[2][4][4];
 
 int halo_vr_multiview(void)
 {
@@ -1224,6 +1228,10 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 		rows[eye * 2 + 1][2] = 2.0f * ty / eye_height;
 		rows[eye * 2 + 1][3] = 0.0f;
 	}
+	memcpy(multiview_rows[0], rows, sizeof(rows));
+	memcpy(multiview_rows[1], rows, sizeof(rows));
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+		multiview_rows[1][eye * 2][2] = multiview_rows[1][eye * 2 + 1][2] = 0.0f;
 	if (!vr.multiview_logged_views)
 	{
 		/* (the correction assumes parallel views: say if they are not) */
@@ -1239,6 +1247,13 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 		vr.multiview_logged_views = 1;
 	}
 	multiview_drawing = d3d8_multiview_begin(rows);
+}
+
+/* the sky is being drawn (render.c): as though infinitely far */
+void halo_vr_multiview_sky(int sky)
+{
+	if (multiview_drawing)
+		d3d8_multiview_rows(multiview_rows[sky ? 1 : 0]);
 }
 
 /* after the shared draw: its layers become the eyes' images */
@@ -2011,6 +2026,7 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 	(void)game_position; (void)position; (void)forward; (void)up; (void)vertical_field_of_view; (void)frustum_bounds;
 }
 void halo_vr_capture_multiview(void) {}
+void halo_vr_multiview_sky(int sky) { (void)sky; }
 void halo_vr_begin_overlay(int menus_active) { (void)menus_active; }
 int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch, float *yaw, float *pitch)
 {

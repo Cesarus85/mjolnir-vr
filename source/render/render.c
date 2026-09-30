@@ -389,7 +389,13 @@ static void render_window(
 	if (!bink_playback_in_progress())
 	{
 		build_sprite_prepare_for_window();
+#ifdef HALO_ANDROID
+		halo_vr_multiview_sky(TRUE);
+#endif
 		render_sky();
+#ifdef HALO_ANDROID
+		halo_vr_multiview_sky(FALSE);
+#endif
 		first_person_weapon_render_update();
 		lights_preprocess_scene();
 		render_objects();

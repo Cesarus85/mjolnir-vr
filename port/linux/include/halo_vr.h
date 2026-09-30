@@ -58,6 +58,8 @@ int halo_vr_multiview(void);
 void halo_vr_center_camera(const float game_position[3], float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view, float frustum_bounds[4]);
 void halo_vr_capture_multiview(void);
+/* the sky, drawn about the camera, is being drawn: infinitely far */
+void halo_vr_multiview_sky(int sky);
 
 /* clears the back buffer to transparent black for the overlay, after the
 eyes; menus_active chooses where the overlay is shown */
