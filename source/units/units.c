@@ -1015,6 +1015,7 @@ static boolean unit_vectors_are_valid(long unit_index);
 static void unit_throw_grenade_release(long unit_index, boolean premature);
 #ifdef HALO_ANDROID
 static short unit_vr_grenade_player(long unit_index);
+void platform_log(const char *format, ...);
 #endif
 
 static void unit_seat_update(long object_index);
@@ -11125,6 +11126,9 @@ static void unit_throw_grenade_release(
 	boolean vr_thrown = FALSE;
 
 	/* VR: the grenade stays in the hand while the trigger holds it */
+	platform_log("VR: grenade release (premature %d, local player %d, held %d, state %d, tick %d)", premature,
+		vr_local_player_index, vr_local_player_index != NONE && halo_vr_grenade_held(vr_local_player_index),
+		unit->unit.grenade_throw_state, unit->unit.grenade_throw_ticks);
 	if (vr_local_player_index != NONE && halo_vr_grenade_held(vr_local_player_index))
 		return;
 #endif

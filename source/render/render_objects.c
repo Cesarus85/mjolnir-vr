@@ -108,6 +108,10 @@ symbols in this file:
 #include "cutscene/cinematics.h"
 #include "tag_files/tag_files.h"
 #include "saved games/game_state.h"
+#ifdef HALO_ANDROID
+#include "models/model_definitions.h"
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -507,6 +511,94 @@ static real object_get_level_of_detail_pixels(
 	return render_frustum_sphere_diameter_in_pixels(&render.frustum, &center, radius);
 }
 
+#ifdef HALO_ANDROID
+/* VR: the grenade the player holds (the left trigger, units.c) hangs from
+the body, which the first-person view leaves out, and with it the grenade:
+drawn instead in the left hand, as it is this frame */
+static void render_vr_held_grenade(
+	struct object_render_data *data,
+	struct render_model_effect const *parent_model_effect,
+	long unit_index)
+{
+	struct unit_datum *unit;
+	struct object_datum *grenade;
+	struct object_definition *definition;
+	struct model *model;
+	struct render_model_effect model_effect;
+	real_matrix4x3 *node_matrices;
+	real_matrix4x3 hand, inverse, delta;
+	real_point3d position;
+	real_vector3d forward, up;
+	float hand_position[3], hand_forward[3], hand_up[3];
+	short node_index;
+
+	if (data->shadow || !parent_model_effect ||
+		!TEST_FLAG(_object_mask_unit, object_get(unit_index)->object.type))
+	{
+		return;
+	}
+	unit = unit_get(unit_index);
+	if (unit->unit.grenade_object_index == NONE ||
+		unit->unit.grenade_throw_state != _unit_grenade_throw_in_hand ||
+		!halo_vr_left_hand(render.local_player_index, hand_position, hand_forward, hand_up))
+	{
+		return;
+	}
+	grenade = object_get(unit->unit.grenade_object_index);
+	definition = object_definition_get(grenade->definition_index);
+	if (definition->object.model.index == NONE || TEST_FLAG(grenade->object.flags, _object_invisible_bit))
+		return;
+	model = model_definition_get(definition->object.model.index);
+	node_matrices = object_get_node_matrices(unit->unit.grenade_object_index);
+	if (model->nodes.count <= 0)
+		return;
+
+	/* the whole grenade moved so its root lies in the hand, as the hand
+	turns (drawn only: the next tick puts it back on the body) */
+	position.x = hand_position[0];
+	position.y = hand_position[1];
+	position.z = hand_position[2];
+	forward.i = hand_forward[0];
+	forward.j = hand_forward[1];
+	forward.k = hand_forward[2];
+	up.i = hand_up[0];
+	up.j = hand_up[1];
+	up.k = hand_up[2];
+	matrix4x3_from_point_and_vectors(&hand, &position, &forward, &up);
+	matrix4x3_inverse(&node_matrices[0], &inverse);
+	matrix4x3_multiply(&hand, &inverse, &delta);
+	for (node_index = 0; node_index < model->nodes.count; node_index++)
+	{
+		real_matrix4x3 node = node_matrices[node_index];
+
+		matrix4x3_multiply(&delta, &node, &node_matrices[node_index]);
+	}
+
+	model_effect = *parent_model_effect;
+	if (model_effect.type == _render_model_effect_type_modifier)
+	{
+		model_effect.type = _render_model_effect_type_none;
+		model_effect.modifier_shader = NULL;
+		model_effect.modifier_animation.values = NULL;
+		model_effect.modifier_animation.colors = NULL;
+	}
+	render_model(
+		definition->object.model.index,
+		REAL_MAX,
+		node_matrices,
+		grenade->object.region_permutations,
+		grenade->object.outgoing_change_colors,
+		grenade->object.outgoing_function_values,
+		data->lighting,
+		&position,
+		grenade->object.bounding_sphere_radius,
+		&model_effect,
+		unit->unit.grenade_object_index,
+		grenade->object.forced_shader_permutation_index,
+		data->no_planar_fog ? FLAG(_render_model_no_planar_fog_bit) : 0);
+}
+
+#endif
 static void render_object_list(
 	struct object_render_data *data,
 	struct render_model_effect const *parent_model_effect,
@@ -700,6 +792,12 @@ static void render_object_list(
 					object->object.first_child_object_index);
 			}
 		}
+#ifdef HALO_ANDROID
+		else if (halo_vr_active())
+		{
+			render_vr_held_grenade(data, parent_model_effect, object_index);
+		}
+#endif
 
 		object_index = object->object.next_object_index;
 	}
