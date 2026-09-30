@@ -111,6 +111,7 @@ symbols in this file:
 #ifdef HALO_ANDROID
 #include "models/model_definitions.h"
 #include "units/unit_definitions.h"
+#include "units/vehicles.h"
 #include "halo_vr.h"
 #endif
 
@@ -515,7 +516,8 @@ static real object_get_level_of_detail_pixels(
 #ifdef HALO_ANDROID
 /* VR: seated at a wheel or a gun, the player's own body is drawn, its hands
 on the wheel or the gun's handles as the seat's animation has them, but for
-its head, where the eyes are */
+its head, where the eyes are; not in a Ghost, a Banshee or a Covenant gun,
+whose rider bends down into it (the eyes would be in his shoulders) */
 boolean render_object_vr_seated_body(
 	long object_index)
 {
@@ -532,6 +534,8 @@ boolean render_object_vr_seated_body(
 	unit = unit_get(object_index);
 	parent = object_get(object->object.parent_object_index);
 	if (!TEST_FLAG(_object_mask_unit, parent->object.type) || unit->unit.parent_seat_index == NONE)
+		return FALSE;
+	if (TEST_FLAG(_object_mask_vehicle, parent->object.type) && vehicle_vr_encloses_riders(object->object.parent_object_index))
 		return FALSE;
 	seat = TAG_BLOCK_GET_ELEMENT(
 		&unit_definition_get(parent->definition_index)->unit.seats,
