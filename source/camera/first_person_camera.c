@@ -31,6 +31,11 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
+#ifdef HALO_ANDROID
+#include "physics/collision_models.h"
+#include "physics/collision_bsp.h"
+#include "physics/collisions.h"
+#endif
 
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
@@ -167,6 +172,49 @@ void first_person_camera_update(
 
 /* ---------- private code */
 
+#ifdef HALO_ANDROID
+/* VR: a rider who sits down in the hull (a Ghost, a Banshee, a Covenant gun)
+sees out over it: the eyes rise to above the hull's top, over the head and
+a little ahead of it (vr.enclosed_seat_clearance) */
+static void first_person_camera_vr_over_hull(
+	long vehicle_index,
+	real_point3d *eyes)
+{
+	struct collision_model_instance instance;
+	real_vector3d forward;
+	real_vector3d up;
+	real top = -FLT_MAX;
+	short sample;
+
+	if (!collision_model_instance_new(&instance, vehicle_index))
+		return;
+	object_get_orientation(vehicle_index, &forward, &up);
+	forward.k = 0.f;
+	if (normalize3d(&forward) == 0.f)
+		return;
+	for (sample = 0; sample < 3; sample++)
+	{
+		struct collision_model_test_vector_result hit;
+		real_point3d from = *eyes;
+		real_vector3d down;
+
+		/* down from 3 metres over the eyes, 0, 25 and 50 cm ahead */
+		point_from_line3d(&from, &forward, sample * 0.25f / 3.048f, &from);
+		from.z += 1.f;
+		down.i = 0.f;
+		down.j = 0.f;
+		down.k = -1.5f;
+		if (collision_model_test_vector(&instance, FLAG(_collision_test_front_facing_surfaces_bit), &from, &down, &hit) &&
+			from.z + down.k * hit.bsp_result.t > top)
+		{
+			top = from.z + down.k * hit.bsp_result.t;
+		}
+	}
+	if (top > -FLT_MAX && top + halo_vr_enclosed_seat_clearance() > eyes->z)
+		eyes->z = top + halo_vr_enclosed_seat_clearance();
+}
+
+#endif
 static void first_person_camera_for_unit_and_vector(
 	long unit_index,
 	real_vector3d const *forward,
@@ -262,6 +310,8 @@ static void first_person_camera_for_unit_and_vector(
 						if (normalize3d(&back) > 0.f)
 							point_from_line3d(&result->position, &back, -halo_vr_gunner_camera_back(), &result->position);
 					}
+					if (seated_in && vehicle_vr_encloses_riders(unit->object.parent_object_index))
+						first_person_camera_vr_over_hull(unit->object.parent_object_index, &result->position);
 				}
 			}
 #endif

@@ -89,6 +89,7 @@ static struct
 	int vehicle_first_person;
 	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
+	float enclosed_seat_clearance; /* metres */
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_pitch_angle;
@@ -414,6 +415,7 @@ void halo_vr_initialize(void)
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
 	vr.turret_handles = config_boolean("vr.turret_handles");
 	vr.gunner_camera_back = (float)config_real("vr.gunner_camera_back");
+	vr.enclosed_seat_clearance = (float)config_real("vr.enclosed_seat_clearance");
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
@@ -865,6 +867,11 @@ int halo_vr_vehicle_first_person(void)
 float halo_vr_glass_strength(void)
 {
 	return vr.active ? vr.glass_strength : 1.0f;
+}
+
+float halo_vr_enclosed_seat_clearance(void)
+{
+	return vr.enclosed_seat_clearance / METRES_PER_WORLD_UNIT;
 }
 
 float halo_vr_gunner_camera_back(void)
@@ -1831,6 +1838,7 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 }
 int halo_vr_vehicle_first_person(void) { return 0; }
 float halo_vr_gunner_camera_back(void) { return 0.0f; }
+float halo_vr_enclosed_seat_clearance(void) { return 0.0f; }
 float halo_vr_glass_strength(void) { return 1.0f; }
 int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
 int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],

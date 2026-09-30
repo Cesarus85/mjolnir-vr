@@ -168,6 +168,9 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
 int halo_vr_vehicle_first_person(void);
 /* how far a gunner's view is moved back from the gun (world units) */
 float halo_vr_gunner_camera_back(void);
+/* how far above its hull the eyes of a rider who sits down in it are
+(world units) */
+float halo_vr_enclosed_seat_clearance(void);
 /* how strongly glass tints and reflects (1 as the game has it) */
 float halo_vr_glass_strength(void);
 

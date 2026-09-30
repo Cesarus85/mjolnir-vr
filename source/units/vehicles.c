@@ -879,6 +879,24 @@ boolean vehicle_vr_steered_by_facing(
 	}
 }
 
+boolean vehicle_vr_encloses_riders(
+	long vehicle_index)
+{
+	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
+	struct vehicle_definition *definition = vehicle_specific_definition_get(
+		vehicle->definition_index);
+
+	switch (definition->vehicle_type)
+	{
+		case _vehicle_type_alien_scout:
+		case _vehicle_type_alien_fighter:
+		case _vehicle_type_turret:
+			return TRUE;
+		default:
+			return FALSE;
+	}
+}
+
 #endif
 long vehicle_find_pathfinding_surface_index(
 	long vehicle_index,

@@ -72,6 +72,10 @@ boat, plane, scout and fighter: the right stick steers them), as opposed to
 aiming with it (the tank's turret, turrets) */
 boolean vehicle_vr_steered_by_facing(
 	long vehicle_index);
+/* VR: whether its riders sit down in the hull, below where they could see
+out (the scout, fighter and turrets, drawn from behind in the game) */
+boolean vehicle_vr_encloses_riders(
+	long vehicle_index);
 #endif
 
 #endif // __VEHICLES_H
