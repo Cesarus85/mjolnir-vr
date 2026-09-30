@@ -81,6 +81,10 @@ and the game does as before, when the hand is not tracked):
 - the aiming laser's start and direction; */
 int halo_vr_aim_vector(short local_player_index, float vector[3]);
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
+/* - and the same as a point in the world, where the crosshair's line starts
+  (as the drawn frame had it): shots start there too, not from an offset to
+  the unit's own eye point, which need not be the drawn camera's */
+int halo_vr_weapon_origin(short local_player_index, float origin[3]);
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
 /* the laser for this frame, along the barrel (first_person_weapons.c: while

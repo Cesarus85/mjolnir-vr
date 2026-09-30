@@ -956,6 +956,18 @@ int halo_vr_weapon_origin_offset(short local_player_index, float offset[3])
 	return 1;
 }
 
+int halo_vr_weapon_origin(short local_player_index, float origin[3])
+{
+	float offset[3];
+	int axis;
+
+	if (!halo_vr_weapon_origin_offset(local_player_index, offset))
+		return 0;
+	for (axis = 0; axis < 3; axis++)
+		origin[axis] = vr.game_camera[axis] + offset[axis];
+	return 1;
+}
+
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	float right[3], hand[3];
@@ -1357,6 +1369,11 @@ int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]) { (v
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	(void)local_player_index; (void)position; (void)forward; (void)up;
+	return 0;
+}
+int halo_vr_weapon_origin(short local_player_index, float origin[3])
+{
+	(void)local_player_index; (void)origin;
 	return 0;
 }
 int halo_vr_laser(short local_player_index, float start[3], float direction[3])

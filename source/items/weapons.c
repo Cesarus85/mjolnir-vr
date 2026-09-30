@@ -2260,16 +2260,13 @@ static void trigger_create_projectiles(
 					/* VR: from the muzzle of the weapon in the right hand; the
 					projectile is kept inside the level from the camera below,
 					so a hand through a wall does not fire through it */
-					real vr_offset[3];
+					real vr_origin[3];
 
-					if (halo_vr_weapon_origin_offset(player_get(player_index)->local_player_index, vr_offset))
+					if (halo_vr_weapon_origin(player_get(player_index)->local_player_index, vr_origin))
 					{
-						real_point3d camera_position;
-
-						unit_get_camera_position(owner_object_index, &camera_position);
-						origin.x = camera_position.x + vr_offset[0];
-						origin.y = camera_position.y + vr_offset[1];
-						origin.z = camera_position.z + vr_offset[2];
+						origin.x = vr_origin[0];
+						origin.y = vr_origin[1];
+						origin.z = vr_origin[2];
 					}
 				}
 #endif
