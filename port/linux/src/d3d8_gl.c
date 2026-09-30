@@ -2410,24 +2410,6 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 #ifdef HALO_ANDROID
 				if (multiview.active && multiview.back_buffer && target == &multiview.back_buffer->target)
 					multiview_resolve();
-				if (multiview.active)
-				{
-					/* (diagnostics: what a draw into both eyes reads) */
-					static unsigned long logged[16];
-					int slot, known = FALSE;
-
-					for (slot = 0; slot < 16 && logged[slot]; slot++)
-						known |= logged[slot] == target->data;
-					if (!known && slot < 16)
-					{
-						logged[slot] = target->data;
-						platform_log("multiview: a draw reads render target %08lx (%lux%lu%s%s), vertex program %lu",
-							target->data, target->width, target->height, target->depth ? ", depth" : "",
-							target == &multiview.back_buffer->target ? ", the back buffer" :
-							target->data == device.depth_buffer.Data ? ", the depth buffer" : "",
-							current_program() ? current_program()->id : 0);
-					}
-				}
 #endif
 				xgpu_texture_describe(texture->Format, texture->Size, &description);
 				gl_texture = target->texture;
