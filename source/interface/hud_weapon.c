@@ -957,11 +957,35 @@ finished:
 }
 
 #ifdef HALO_ANDROID
-/* VR (render.c): the crosshair is drawn on its own, and taken to where the
-weapon aims (hud_render_weapon_crosshair); the HUD is drawn without it, so
-what else is drawn about the screen's centre (the reload prompt) stays in
-the HUD whole */
+/* VR (render.c): the crosshair's reticle is drawn on its own, and taken to
+where the weapon aims (hud_render_weapon_crosshair); the HUD is drawn with
+the crosshair's messages alone ("reload", "low ammo" and the like, which the
+weapon HUD draws as crosshairs too), which stay in the HUD whole */
 static boolean hud_vr_crosshair_only = FALSE;
+
+enum
+{
+	_hud_vr_crosshair_all = 0,
+	_hud_vr_crosshair_reticle,
+	_hud_vr_crosshair_messages,
+};
+
+static boolean crosshair_state_is_reticle(
+	short state_index)
+{
+	switch (state_index)
+	{
+	case _crosshair_state_aim:
+	case _crosshair_state_zoom:
+	case _crosshair_state_charge:
+	case _crosshair_state_flash_heat:
+	case _crosshair_state_primary_trigger_ready:
+	case _crosshair_state_secondary_trigger_ready:
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
 #endif
 
 static void crosshairs_draw(
@@ -973,21 +997,26 @@ static void crosshairs_draw(
 	long return_eip = get_return_eip();
 	long stack_buffer[STACK_BUFFER_LENGTH];
 	boolean firing_active = FALSE;
+#ifdef HALO_ANDROID
+	short vr_crosshairs = _hud_vr_crosshair_all;
+	boolean vr_zoomed = halo_vr_active() &&
+		player_control_get_zoom_level(player->local_player_index) != NONE;
+#endif
 
 	csmemset(
 		stack_buffer,
 		0x62,
 		sizeof(stack_buffer));
 #ifdef HALO_ANDROID
-	/* VR: the crosshair marks where the head looks; the weapon in the hand
-	has its laser instead (render.c) */
-	if (halo_vr_active() &&
-		(player_control_get_zoom_level(player->local_player_index) != NONE ||
-			(halo_vr_hide_crosshair() && !hud_vr_crosshair_only)))
-	{
-		/* zoomed in, the scope has its own */
+	/* VR: the HUD's reticle marks where the head looks; it is drawn apart,
+	to where the weapon aims, or left out (and zoomed in, the scope has its
+	own); the messages stay in the HUD */
+	if (hud_vr_crosshair_only)
+		vr_crosshairs = _hud_vr_crosshair_reticle;
+	else if (halo_vr_hide_crosshair() || vr_zoomed)
+		vr_crosshairs = _hud_vr_crosshair_messages;
+	if (vr_crosshairs == _hud_vr_crosshair_reticle && vr_zoomed)
 		return;
-	}
 #endif
 	if (TEST_FLAG(weapon_hud_globals->script_flags, _hud_crosshair_show_bit) &&
 		hud_index != NONE)
@@ -1047,6 +1076,13 @@ static void crosshairs_draw(
 						struct weapon_hud_crosshairs_element);
 					short state_index = element->crosshair_type;
 
+#ifdef HALO_ANDROID
+					if (vr_crosshairs != _hud_vr_crosshair_all &&
+						(vr_crosshairs == _hud_vr_crosshair_reticle) != crosshair_state_is_reticle(state_index))
+					{
+						continue;
+					}
+#endif
 					if (TEST_FLAG(render_flags, state_index) &&
 						TEST_FLAG(map_type_flags, element->use_on_map_type))
 					{
