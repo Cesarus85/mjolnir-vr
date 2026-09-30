@@ -1512,16 +1512,45 @@ static void first_person_weapon_vr_arms(
 		/* the gun at the ready, as drawn: where the weapon's shots and its
 		crosshair start (in a reload, where it was at the ready) */
 		real_matrix4x3 camera_matrix;
+		real_matrix4x3 const *ready_gun = &vr_arm_nodes.idle_pose[vr_arm_nodes.gun];
+		real_vector3d const *axes[3];
 		real_point3d gun;
-		float barrel[3];
+		float barrel[3], direction[3];
+		real best = 0.f;
+		short axis;
 
 		matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
 			&weapon_camera->up);
-		matrix4x3_transform_point(&camera_matrix, &vr_arm_nodes.idle_pose[vr_arm_nodes.gun].position, &gun);
+		matrix4x3_transform_point(&camera_matrix, &ready_gun->position, &gun);
 		barrel[0] = gun.x;
 		barrel[1] = gun.y;
 		barrel[2] = gun.z;
-		halo_vr_set_barrel(local_player_index, barrel);
+		/* the barrel: the gun node's axis nearest the camera's forward, in
+		the camera's frame (forward, left, up) */
+		axes[0] = &ready_gun->forward;
+		axes[1] = &ready_gun->left;
+		axes[2] = &ready_gun->up;
+		direction[0] = 1.f;
+		direction[1] = direction[2] = 0.f;
+		for (axis = 0; axis < 3; axis++)
+		{
+			real along = axes[axis]->i;
+
+			if (along * along > best * best)
+			{
+				real length = magnitude3d(axes[axis]);
+				real sign = along < 0.f ? -1.f : 1.f;
+
+				best = along;
+				if (length > 0.f)
+				{
+					direction[0] = sign * axes[axis]->i / length;
+					direction[1] = sign * axes[axis]->j / length;
+					direction[2] = sign * axes[axis]->k / length;
+				}
+			}
+		}
+		halo_vr_set_barrel(local_player_index, barrel, direction);
 	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);

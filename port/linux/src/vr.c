@@ -94,6 +94,12 @@ static struct
 	the crosshair and the laser start */
 	float barrel[3];
 	unsigned long barrel_frame;
+	/* the barrel's direction in the weapon camera's frame (forward, left,
+	up): first-person models point their barrels in towards the screen's
+	centre, and the camera is turned so that they point where the
+	controller aims */
+	float barrel_direction[3];
+	int barrel_direction_valid;
 	float aim_distance;      /* metres from the muzzle to what the weapon aims at */
 	unsigned long aim_distance_frame;
 	/* the scope this frame: drawn (halo_vr_scope to halo_vr_capture_scope),
@@ -829,12 +835,21 @@ int halo_vr_aim_vector(short local_player_index, float vector[3])
 	return 1;
 }
 
-void halo_vr_set_barrel(short local_player_index, const float world[3])
+void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3])
 {
 	if (local_player_index != 0)
 		return;
 	memcpy(vr.barrel, world, sizeof(vr.barrel));
 	vr.barrel_frame = vr.frame_number;
+	if (!vr.barrel_direction_valid || memcmp(vr.barrel_direction, direction, sizeof(vr.barrel_direction)))
+	{
+		float degrees = acosf(direction[0] > 1.0f ? 1.0f : direction[0]) * 180.0f / PI;
+
+		if (!vr.barrel_direction_valid || fabsf(direction[0] - vr.barrel_direction[0]) > 1e-3f)
+			platform_log("VR: this weapon's barrel points %.1f degrees off its camera; turned to aim", degrees);
+		memcpy(vr.barrel_direction, direction, sizeof(vr.barrel_direction));
+		vr.barrel_direction_valid = 1;
+	}
 }
 
 /* the barrel was drawn this frame or the last */
@@ -875,6 +890,24 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 	if (!weapon_hand_tracked(local_player_index))
 		return 0;
 	weapon_axes(forward, up, right);
+	if (vr.barrel_direction_valid)
+	{
+		/* turned so that the model's barrel points where the weapon aims */
+		float barrel[3], aim[3];
+
+		for (axis = 0; axis < 3; axis++)
+		{
+			barrel[axis] = forward[axis] * vr.barrel_direction[0] - right[axis] * vr.barrel_direction[1] +
+				up[axis] * vr.barrel_direction[2];
+			aim[axis] = forward[axis];
+		}
+		if (normalize3(barrel) > 0.0f)
+		{
+			rotate_between(barrel, aim, forward);
+			rotate_between(barrel, aim, up);
+			cross3(forward, up, right);
+		}
+	}
 	hand_offset(hand);
 	{
 		/* the right grip's melee attack, which the hand does not swing: the
@@ -1178,11 +1211,21 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 
 	if (magnification <= 1.0f || vr.scope_size <= 0.0f || !weapon_hand_tracked(local_player_index))
 		return 0;
-	/* the disc: above and ahead of the hand, facing back along the aim */
+	/* the disc: above and ahead of the barrel as drawn (or the hand), facing
+	back along the aim */
 	quaternion_rotate(hand->aim.orientation, local_offset, offset);
+	{
+		float start[3];
+
+		if (barrel_known())
+			world_to_local(vr.barrel, start);
+		else
+			memcpy(start, hand->aim.position, sizeof(start));
+		for (axis = 0; axis < 3; axis++)
+			vr.scope_pose.position[axis] = start[axis] + offset[axis];
+	}
 	for (axis = 0; axis < 3; axis++)
 	{
-		vr.scope_pose.position[axis] = hand->aim.position[axis] + offset[axis];
 		eye_distance += (vr.scope_pose.position[axis] - vr.frame.head.position[axis]) *
 			(vr.scope_pose.position[axis] - vr.frame.head.position[axis]);
 	}
@@ -1309,9 +1352,9 @@ void halo_vr_capture_scope(float left, float top, float right, float bottom)
 	(void)left; (void)top; (void)right; (void)bottom;
 }
 void halo_vr_set_aim_distance(float world_units) { (void)world_units; }
-void halo_vr_set_barrel(short local_player_index, const float world[3])
+void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3])
 {
-	(void)local_player_index; (void)world;
+	(void)local_player_index; (void)world; (void)direction;
 }
 int halo_vr_hide_crosshair(void) { return 0; }
 
