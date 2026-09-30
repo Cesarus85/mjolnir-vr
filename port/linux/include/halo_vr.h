@@ -81,6 +81,10 @@ and the game does as before, when the hand is not tracked):
 - the aiming laser's start and direction; */
 int halo_vr_aim_vector(short local_player_index, float vector[3]);
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
+/* - and the same as a point in the world, where the crosshair's line starts
+  (as the drawn frame had it): shots start there too, not from an offset to
+  the unit's own eye point, which need not be the drawn camera's */
+int halo_vr_weapon_origin(short local_player_index, float origin[3]);
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
 /* the laser for this frame, along the barrel (first_person_weapons.c: while
@@ -105,9 +109,30 @@ int halo_vr_melee(void);
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
 float halo_vr_melee_strength(void);
+/* The scope (render.c): zoomed in by magnification, the camera for the
+view on a disc over the weapon, in the game's axes; then that view, drawn
+into the given part of the back buffer (left, top, right, bottom, 0..1),
+is taken for the disc. Between the two, the first-person weapon is left
+out (halo_vr_scope_pass). */
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view);
+int halo_vr_scope_pass(void);
+void halo_vr_capture_scope(float left, float top, float right, float bottom);
+/* where the weapon's gun node is as drawn, at the ready (world units;
+first_person_weapons.c, each frame): shots, the crosshair and the laser
+start there; and the direction its barrel points in the weapon camera's
+frame (forward, left, up), which the camera is turned to aim */
+void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3]);
+/* how far, in world units, the weapon's aim runs before it hits something
+(render.c, each frame); the crosshair floats there */
+void halo_vr_set_aim_distance(float world_units);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);
+/* whether the crosshair is drawn apart this frame (render.c), and taking
+it, drawn alone on the cleared back buffer, which is cleared again */
+int halo_vr_crosshair_apart(void);
+void halo_vr_capture_crosshair(void);
 
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);

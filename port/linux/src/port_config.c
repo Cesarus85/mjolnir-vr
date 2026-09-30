@@ -103,8 +103,11 @@ static const struct config_setting config_settings[] =
 	{ "vr.aim_with", _config_string, "\"controller\"", "HALO_VR_AIM_WITH", _environment_value, _platform_android,
 		"\"controller\": the weapon is in your right hand and aims where it points,\n"
 		"while you move and look with your head; \"head\": you aim where you look." },
-	{ "vr.laser", _config_boolean, "true", "HALO_VR_LASER", _environment_value, _platform_android,
+	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
+	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
+		"The weapon's crosshair where it aims, at the distance of what it aims at\n"
+		"(with aim_with = \"controller\"); false leaves it out." },
 	{ "vr.weapon_forward", _config_real, "0.18", "HALO_VR_WEAPON_FORWARD", _environment_value, _platform_android,
 		"Where the weapon lies in your hand: how far the first-person model's\n"
 		"camera is behind your hand, in metres (weapon_right: to its left,\n"
@@ -133,6 +136,9 @@ static const struct config_setting config_settings[] =
 	{ "vr.motion_tracker_down", _config_real, "0.055", "HALO_VR_MOTION_TRACKER_DOWN", _environment_value,
 		_platform_android,
 		"Moves the motion tracker on the wrist down as you read it, in metres." },
+	{ "vr.scope_size", _config_real, "0.10", "HALO_VR_SCOPE_SIZE", _environment_value, _platform_android,
+		"Zoomed in, the scope's view shows on a disc over the weapon this wide, in\n"
+		"metres; 0 turns it off." },
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,

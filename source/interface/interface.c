@@ -105,6 +105,10 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -663,6 +667,12 @@ void interface_draw_screen(
 		return;
 
 	weapon_hud_index = interface_get_weapon_hud_index(&flashlight_power);
+#ifdef HALO_ANDROID
+	/* VR: no zoom mask or filters over the HUD before the eyes; the scope
+	shows the zoom (render.c) */
+	if (halo_vr_active())
+		weapon_hud_index = NONE;
+#endif
 	if (weapon_hud_index != NONE)
 	{
 		struct weapon_hud_interface_definition *hud_definition =

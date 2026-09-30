@@ -84,7 +84,10 @@ symbols in this file:
 #ifdef HALO_ANDROID
 #include "cutscene/cinematics.h"
 #include "game/players.h"
+#include "game/player_control.h"
+#include "interface/hud.h"
 #include "physics/collisions.h"
+#include "units/units.h"
 #include "halo_vr.h"
 #endif
 
@@ -144,6 +147,8 @@ static void render_vr_overlay(
 	const struct render_window *window);
 static void render_vr_laser(
 	short local_player_index);
+static void render_vr_scope(
+	struct render_window *window);
 #endif
 
 void structure_get_planar_fog(
@@ -706,39 +711,99 @@ static void render_vr_player_frame(
 		render_vr_eye_pass = FALSE;
 		halo_vr_capture_eye(eye);
 	}
+	render_vr_scope(window);
 	render_vr_overlay(window);
 
 	return;
 }
 
-/* the aiming laser of the weapon in the right hand, up to what it hits */
+/* The scope's view (halo_vr_scope): zoomed in, the player's view once more,
+from the weapon along its aim through the zoom's field of view, into a
+small square at the back buffer's top left (a sixteenth of it: the disc
+is a few centimetres across), which becomes the disc over the weapon. */
+#define RENDER_VR_SCOPE_SIZE 120
+
+static void render_vr_scope(
+	struct render_window *window)
+{
+	short zoom_level = player_control_get_zoom_level(window->local_player_index);
+	long player_index = local_player_get_player_index(window->local_player_index);
+	float position[3], forward[3], up[3];
+	float vertical_field_of_view;
+	real magnification;
+	struct render_window scope_window;
+
+	if (zoom_level == NONE || player_index == NONE || player_get(player_index)->unit_index == NONE)
+		return;
+	magnification = unit_get_zoom_magnification(player_get(player_index)->unit_index, zoom_level);
+	if (!halo_vr_scope(window->local_player_index, magnification, position, forward, up, &vertical_field_of_view))
+		return;
+	scope_window = *window;
+	render_vr_camera_set(&scope_window.render_camera, position, forward, up, vertical_field_of_view);
+	render_vr_camera_set(&scope_window.rasterizer_camera, position, forward, up, vertical_field_of_view);
+	scope_window.render_camera.viewport_bounds.x0 = scope_window.render_camera.viewport_bounds.y0 = 0;
+	scope_window.render_camera.viewport_bounds.x1 = scope_window.render_camera.viewport_bounds.y1 = RENDER_VR_SCOPE_SIZE;
+	scope_window.render_camera.window_bounds = scope_window.render_camera.viewport_bounds;
+	scope_window.rasterizer_camera.viewport_bounds = scope_window.render_camera.viewport_bounds;
+	scope_window.rasterizer_camera.window_bounds = scope_window.render_camera.viewport_bounds;
+
+	render_vr_eye_pass = TRUE;
+	render_player_frame(&scope_window, NULL);
+	render_vr_eye_pass = FALSE;
+	halo_vr_capture_scope(0.f, 0.f, (float)RENDER_VR_SCOPE_SIZE / RASTERIZER_TARGET_RENDER_PRIMARY_WIDTH,
+		(float)RENDER_VR_SCOPE_SIZE / RASTERIZER_TARGET_RENDER_PRIMARY_HEIGHT);
+
+	return;
+}
+
+/* where a ray from the weapon, as far as the longest-ranged weapons reach,
+hits something, or its end */
+static void render_vr_ray_end(
+	float const start[3],
+	float const direction[3],
+	long unit_index,
+	real_point3d *origin,
+	real_point3d *end)
+{
+	real_vector3d ray;
+	struct collision_result collision;
+
+	origin->x = start[0];
+	origin->y = start[1];
+	origin->z = start[2];
+	ray.i = direction[0] * 100.f;
+	ray.j = direction[1] * 100.f;
+	ray.k = direction[2] * 100.f;
+	if (collision_test_vector(_collision_test_for_projectiles_flags, origin, &ray, unit_index, &collision))
+		*end = collision.point;
+	else
+		point_from_line3d(origin, &ray, 1.f, end);
+}
+
+/* how far the weapon in the right hand aims before it hits something (the
+crosshair floats there, halo_vr_set_aim_distance), and its laser up to
+there, along the barrel as a reload turns it (halo_vr_laser), if vr.laser
+is on, but not over the menus */
 static void render_vr_laser(
 	short local_player_index)
 {
 	static real_argb_color const laser_color = { 1.f, 1.f, 0.15f, 0.1f };
 	float start[3], direction[3];
 	real_point3d origin, end;
-	real_vector3d ray;
-	struct collision_result collision;
 	long player_index;
 	long unit_index = NONE;
 
-	if (!halo_vr_laser(local_player_index, start, direction))
+	if (!halo_vr_ready_laser(local_player_index, start, direction))
 		return;
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index != NONE)
 		unit_index = player_get(player_index)->unit_index;
-	origin.x = start[0];
-	origin.y = start[1];
-	origin.z = start[2];
-	/* as far as the longest-ranged weapons reach */
-	ray.i = direction[0] * 100.f;
-	ray.j = direction[1] * 100.f;
-	ray.k = direction[2] * 100.f;
-	if (collision_test_vector(_collision_test_for_projectiles_flags, &origin, &ray, unit_index, &collision))
-		end = collision.point;
-	else
-		point_from_line3d(&origin, &ray, 1.f, &end);
+	render_vr_ray_end(start, direction, unit_index, &origin, &end);
+	halo_vr_set_aim_distance(distance3d(&origin, &end));
+
+	if (!halo_vr_laser(local_player_index, start, direction) || ui_widgets_menus_active())
+		return;
+	render_vr_ray_end(start, direction, unit_index, &origin, &end);
 	render_debug_line(TRUE, &origin, &end, &laser_color);
 	render_debug_point(TRUE, &end, 0.02f, &laser_color);
 
@@ -750,8 +815,9 @@ static void render_vr_overlay(
 	const struct render_window *window)
 {
 	struct rasterizer_window_begin_parameters parameters;
+	boolean menus_active = ui_widgets_menus_active();
 
-	halo_vr_begin_overlay(ui_widgets_menus_active());
+	halo_vr_begin_overlay(menus_active);
 	profile_render_window_start(FALSE);
 	memset(&parameters, 0, sizeof(parameters));
 	render.local_player_index = window->local_player_index;
@@ -762,6 +828,15 @@ static void render_vr_overlay(
 	parameters.rasterizer_target = _render_target_primary;
 	parameters.suppress_clear = TRUE;
 	parameters.window_index = render.window_index;
+
+	if (!menus_active && halo_vr_crosshair_apart())
+	{
+		/* the weapon's crosshair alone, taken to where the weapon aims */
+		rasterizer_window_begin(&parameters);
+		hud_draw_crosshair();
+		rasterizer_window_end();
+		halo_vr_capture_crosshair();
+	}
 	rasterizer_window_begin(&parameters);
 
 	interface_draw_screen();

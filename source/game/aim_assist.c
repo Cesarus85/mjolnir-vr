@@ -67,6 +67,10 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -583,6 +587,16 @@ long player_aim_projectile(
 		real autoaim_level;
 
 		director_camera_deterministic(player->unit_index, &camera_position, &camera_direction);
+#ifdef HALO_ANDROID
+		if (halo_vr_active() && player->local_player_index==0)
+		{
+			/* VR: the weapon aims from the hand, not from the eyes: trace and
+			seek targets along its own line, where its crosshair is (from the
+			camera the shots would meet the head's parallel line, above) */
+			camera_position= *position;
+			camera_direction= *direction;
+		}
+#endif
 		target_direction= *direction;
 		autoaim_level= 0.f;
 

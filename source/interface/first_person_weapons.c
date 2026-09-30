@@ -475,6 +475,11 @@ long first_person_weapon_get_local_index(
 void first_person_weapon_draw(
 	void)
 {
+#ifdef HALO_ANDROID
+	/* VR: not in the scope's view, taken from the weapon itself */
+	if (halo_vr_scope_pass())
+		return;
+#endif
 	if (render.local_player_index!=NONE)
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);
@@ -631,6 +636,11 @@ void first_person_weapon_render_update(
 		{
 			boolean visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person &&
 				player_control_get_zoom_level(render.local_player_index)==NONE;
+#ifdef HALO_ANDROID
+			/* VR: the weapon stays in the hand zoomed in (the scope is on it) */
+			if (halo_vr_active())
+				visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person;
+#endif
 
 			first_person_weapon_set_visibility(render.local_player_index, visible);
 			if (first_person_weapon->visible)
@@ -1071,13 +1081,15 @@ struct vr_arm_nodes
 	short left_index;
 	short left_middle;
 	short left_pinky;
+	long barrel_logged_graph_index;
 	/* the whole pose in the weapon camera's frame, outside a melee attack */
 	boolean idle_pose_valid;
 	short idle_pose_count;
 	real_matrix4x3 idle_pose[MAXIMUM_NODES_PER_ANIMATION];
 };
 
-static struct vr_arm_nodes vr_arm_nodes = { NONE };
+static struct vr_arm_nodes vr_arm_nodes = { NONE, { NONE, NONE }, { NONE, NONE }, { NONE, NONE }, NONE, NONE, NONE, NONE,
+	NONE };
 
 static void vr_vector_scale_add(
 	real_vector3d *out,
@@ -1497,6 +1509,60 @@ static void first_person_weapon_vr_arms(
 		vr_arm_nodes.idle_pose_valid = FALSE;
 	}
 	vr_hold_pose(node_matrices, node_count, weapon_camera, ready, melee);
+	if (vr_arm_nodes.gun != NONE && vr_arm_nodes.idle_pose_valid)
+	{
+		/* the gun at the ready, as drawn: where the weapon's shots and its
+		crosshair start (in a reload, where it was at the ready) */
+		real_matrix4x3 camera_matrix;
+		real_matrix4x3 const *ready_gun = &vr_arm_nodes.idle_pose[vr_arm_nodes.gun];
+		real_vector3d const *axes[3];
+		real_point3d gun;
+		float barrel[3], direction[3];
+		real best = 0.f;
+		short axis;
+
+		matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
+			&weapon_camera->up);
+		matrix4x3_transform_point(&camera_matrix, &ready_gun->position, &gun);
+		barrel[0] = gun.x;
+		barrel[1] = gun.y;
+		barrel[2] = gun.z;
+		/* the barrel: the gun node's axis nearest the camera's forward, in
+		the camera's frame (forward, left, up) */
+		axes[0] = &ready_gun->forward;
+		axes[1] = &ready_gun->left;
+		axes[2] = &ready_gun->up;
+		direction[0] = 1.f;
+		direction[1] = direction[2] = 0.f;
+		for (axis = 0; axis < 3; axis++)
+		{
+			real along = axes[axis]->i;
+
+			if (along * along > best * best)
+			{
+				real length = magnitude3d(axes[axis]);
+				real sign = along < 0.f ? -1.f : 1.f;
+
+				best = along;
+				if (length > 0.f)
+				{
+					direction[0] = sign * axes[axis]->i / length;
+					direction[1] = sign * axes[axis]->j / length;
+					direction[2] = sign * axes[axis]->k / length;
+				}
+			}
+		}
+		halo_vr_set_barrel(local_player_index, barrel, direction);
+		if (vr_arm_nodes.barrel_logged_graph_index != graph_index)
+		{
+			/* once per weapon (debug.txt) */
+			error(2, "VR barrel: %.1f degrees off the weapon camera; gun node %.2f %.2f %.2f m from it (forward, left, up)",
+				arccosine(PIN(direction[0], -1.f, 1.f)) * 180.f / _pi,
+				ready_gun->position.x * VR_METRES_PER_WORLD_UNIT, ready_gun->position.y * VR_METRES_PER_WORLD_UNIT,
+				ready_gun->position.z * VR_METRES_PER_WORLD_UNIT);
+			vr_arm_nodes.barrel_logged_graph_index = graph_index;
+		}
+	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
 	if (!halo_vr_body_frame(local_player_index, head, body_forward))

@@ -88,6 +88,26 @@ static struct
 	float screen_distance;
 	float screen_width;
 	int positional_tracking;
+	float scope_size;
+	int crosshair;
+	int crosshair_captured;  /* this frame (halo_vr_capture_crosshair) */
+	/* the barrel of the weapon as drawn (halo_vr_set_barrel): where shots,
+	the crosshair and the laser start */
+	float barrel[3];
+	unsigned long barrel_frame;
+	/* the barrel's direction in the weapon camera's frame (forward, left,
+	up): first-person models point their barrels in towards the screen's
+	centre, and the camera is turned so that they point where the
+	controller aims */
+	float barrel_direction[3];
+	int barrel_direction_valid;
+	float aim_distance;      /* metres from the muzzle to what the weapon aims at */
+	unsigned long aim_distance_frame;
+	/* the scope this frame: drawn (halo_vr_scope to halo_vr_capture_scope),
+	captured, and where its disc is in LOCAL space */
+	int scope_pass;
+	int scope_captured;
+	struct halo_xr_pose scope_pose;
 	int motion_tracker_on_wrist;
 	float motion_tracker_size;
 	float motion_tracker_turn;
@@ -140,10 +160,23 @@ its disc (x 49-131, y 362-444) and its range below. */
 #define WRIST_REGION_RIGHT (142.0f / 640.0f)
 #define WRIST_REGION_BOTTOM (456.0f / 480.0f)
 
+/* The weapon's crosshair, drawn at the HUD's centre, moves to where the
+weapon aims, as far away as what it aims at (so the eyes focus on it with
+the target), keeping the size it has in the HUD: this part of the HUD. */
+#define CROSSHAIR_REGION_PIXELS 80.0f
+#define CROSSHAIR_REGION_LEFT ((320.0f - CROSSHAIR_REGION_PIXELS * 0.5f) / 640.0f)
+#define CROSSHAIR_REGION_TOP ((240.0f - CROSSHAIR_REGION_PIXELS * 0.5f) / 480.0f)
+#define CROSSHAIR_REGION_RIGHT ((320.0f + CROSSHAIR_REGION_PIXELS * 0.5f) / 640.0f)
+#define CROSSHAIR_REGION_BOTTOM ((240.0f + CROSSHAIR_REGION_PIXELS * 0.5f) / 480.0f)
+/* how far it floats with nothing in the way, and its nearest, in metres */
+#define CROSSHAIR_FARTHEST 60.0f
+#define CROSSHAIR_NEAREST 0.5f
+
 /* ---------- math */
 
 static void cross3(const float a[3], const float b[3], float out[3]);
 static float normalize3(float v[3]);
+static int crosshair_pose(struct halo_xr_pose *pose, float *size);
 
 static void quaternion_rotate(const float q[4], const float v[3], float out[3])
 {
@@ -205,11 +238,13 @@ static void vr_recentre(void)
 the game's axes (metres): the head's offset from the origin, kept within the
 lean and crouch limits so the view stays near the player's body, plus the
 point's own offset from the head */
-static void tracked_offset(const float position[3], float out[3])
+/* the head's offset from the origin (LOCAL, metres), kept within the lean
+and crouch limits */
+static void clamped_head(float head[3])
 {
-	float head[3] = { 0.0f, 0.0f, 0.0f }, local[3];
 	int axis;
 
+	head[0] = head[1] = head[2] = 0.0f;
 	if (!vr.origin_valid)
 		vr_recentre();
 	if (vr.positional_tracking && vr.origin_valid)
@@ -229,9 +264,46 @@ static void tracked_offset(const float position[3], float out[3])
 		if (head[1] > vr.rise_limit)
 			head[1] = vr.rise_limit;
 	}
+}
+
+static void tracked_offset(const float position[3], float out[3])
+{
+	float head[3], local[3];
+	int axis;
+
+	clamped_head(head);
 	for (axis = 0; axis < 3; axis++)
 		local[axis] = head[axis] + position[axis] - vr.frame.head.position[axis];
 	local_to_game(local, vr.body_yaw, out);
+}
+
+/* a direction in the game's axes as one in LOCAL space */
+static void game_to_local(const float v[3], float out[3])
+{
+	float c = cosf(vr.body_yaw), s = sinf(vr.body_yaw);
+	float forward = v[0] * c + v[1] * s;
+	float left = -v[0] * s + v[1] * c;
+
+	out[0] = -left;
+	out[1] = v[2];
+	out[2] = -forward;
+}
+
+/* the inverse: a point in the game's world as one in LOCAL space */
+static void world_to_local(const float world[3], float local[3])
+{
+	float offset[3], head[3], forward, left;
+	float c = cosf(vr.body_yaw), s = sinf(vr.body_yaw);
+	int axis;
+
+	for (axis = 0; axis < 3; axis++)
+		offset[axis] = (world[axis] - vr.game_camera[axis]) * METRES_PER_WORLD_UNIT;
+	forward = offset[0] * c + offset[1] * s;
+	left = -offset[0] * s + offset[1] * c;
+	clamped_head(head);
+	local[0] = -left - head[0] + vr.frame.head.position[0];
+	local[1] = offset[2] - head[1] + vr.frame.head.position[1];
+	local[2] = -forward - head[2] + vr.frame.head.position[2];
 }
 
 /* ---------- platform side */
@@ -250,6 +322,8 @@ void halo_vr_initialize(void)
 	vr.screen_width = (float)config_real("vr.screen_width");
 	vr.positional_tracking = config_boolean("vr.positional_tracking");
 	vr.motion_tracker_on_wrist = config_boolean("vr.motion_tracker_on_wrist");
+	vr.scope_size = (float)config_real("vr.scope_size");
+	vr.crosshair = config_boolean("vr.crosshair");
 	vr.motion_tracker_size = (float)config_real("vr.motion_tracker_size");
 	vr.motion_tracker_turn = (float)config_real("vr.motion_tracker_turn");
 	vr.motion_tracker_right = (float)config_real("vr.motion_tracker_right");
@@ -472,6 +546,8 @@ void halo_vr_frame_begin(void)
 	vr.frame_begun = 1;
 	vr.frame_number++;
 	vr.eyes_captured = 0;
+	vr.scope_captured = 0;
+	vr.crosshair_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
 	if (vr.frame.recentred)
@@ -522,7 +598,8 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	if (vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED && vr.motion_tracker_on_wrist && vr.aim_with_controller)
 	{
 		/* the motion tracker to the wrist, and out of the HUD */
-		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, 0, WRIST_REGION_LEFT,
+		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, HALO_XR_COPY_ALPHA,
+			WRIST_REGION_LEFT,
 			WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 		submit.wrist_size = vr.motion_tracker_size;
 		submit.wrist_turn = vr.motion_tracker_turn;
@@ -530,7 +607,18 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.wrist_down = vr.motion_tracker_down;
 		d3d8_clear_back_buffer_region(WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 	}
-	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture, !vr.overlay_blend);
+	/* the crosshair, drawn apart (halo_vr_capture_crosshair), to where the
+	weapon aims */
+	if (vr.crosshair_captured && vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED)
+		submit.crosshair = crosshair_pose(&submit.crosshair_pose, &submit.crosshair_size);
+	if (vr.scope_captured && submit.eyes)
+	{
+		submit.scope = 1;
+		submit.scope_size = vr.scope_size;
+		submit.scope_pose = vr.scope_pose;
+	}
+	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture,
+		vr.overlay_blend ? HALO_XR_COPY_ALPHA : HALO_XR_COPY_OPAQUE);
 	host_xr_end_frame(&submit);
 	vr.last_overlay_mode = vr.overlay_mode;
 	vr.last_frame_stereo = submit.eyes;
@@ -695,7 +783,17 @@ static int weapon_hand_tracked(short local_player_index)
 }
 
 /* the weapon's axes in the game's: where the right controller points */
-static void weapon_axes(float forward[3], float up[3], float right[3])
+/* The weapon's frames, all in the game's axes:
+- the controller's: where it points;
+- the model's: the controller's turned so that the first-person model's
+  barrel, pointed in towards the screen's centre, points where the
+  controller does (barrel_direction);
+- with both hands on it, both turned alike so that the line from the
+  model's right hand to its left, in the model's frame, runs from the right
+  controller to the left one.
+The weapon aims along the controller's frame (so turned); the model hangs
+from the model's frame. */
+static void controller_axes(float forward[3], float up[3], float right[3])
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
 	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
@@ -708,29 +806,81 @@ static void weapon_axes(float forward[3], float up[3], float right[3])
 	local_to_game(direction, vr.body_yaw, up);
 	/* the game's axes are right-handed with +z up: forward x up is right */
 	cross3(forward, up, right);
-	if (vr.two_hand_gripping && vr.two_hand_valid)
-	{
-		/* both hands on the weapon: turn it (the least) so that the line
-		from the right hand to the left one runs where the model's grips do */
-		float reference[3], target[3], left[3], right_hand[3];
-		int axis;
+}
 
-		for (axis = 0; axis < 3; axis++)
-		{
-			reference[axis] = forward[axis] * vr.two_hand_reference[0] + right[axis] * vr.two_hand_reference[1] +
-				up[axis] * vr.two_hand_reference[2];
-		}
-		tracked_offset(vr.frame.hands[HALO_XR_HAND_LEFT].grip.position, left);
-		tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, right_hand);
-		for (axis = 0; axis < 3; axis++)
-			target[axis] = left[axis] - right_hand[axis];
-		if (normalize3(reference) > 0.0f && normalize3(target) > 0.0f)
-		{
-			rotate_between(reference, target, forward);
-			rotate_between(reference, target, up);
-			cross3(forward, up, right);
-		}
+static void model_axes(const float forward[3], const float up[3], const float right[3],
+	float model_forward[3], float model_up[3], float model_right[3])
+{
+	float barrel[3];
+	int axis;
+
+	memcpy(model_forward, forward, 3 * sizeof(float));
+	memcpy(model_up, up, 3 * sizeof(float));
+	memcpy(model_right, right, 3 * sizeof(float));
+	if (!vr.barrel_direction_valid)
+		return;
+	for (axis = 0; axis < 3; axis++)
+	{
+		barrel[axis] = forward[axis] * vr.barrel_direction[0] - right[axis] * vr.barrel_direction[1] +
+			up[axis] * vr.barrel_direction[2];
 	}
+	if (normalize3(barrel) > 0.0f)
+	{
+		rotate_between(barrel, forward, model_forward);
+		rotate_between(barrel, forward, model_up);
+		cross3(model_forward, model_up, model_right);
+	}
+}
+
+/* with both hands on the weapon, the turn that brings the model's grips in
+line with the hands (from, to); 0 without */
+static int two_hand_turn(const float model_forward[3], const float model_up[3], const float model_right[3],
+	float from[3], float to[3])
+{
+	float left[3], right_hand[3];
+	int axis;
+
+	if (!vr.two_hand_gripping || !vr.two_hand_valid)
+		return 0;
+	for (axis = 0; axis < 3; axis++)
+	{
+		from[axis] = model_forward[axis] * vr.two_hand_reference[0] + model_right[axis] * vr.two_hand_reference[1] +
+			model_up[axis] * vr.two_hand_reference[2];
+	}
+	tracked_offset(vr.frame.hands[HALO_XR_HAND_LEFT].grip.position, left);
+	tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, right_hand);
+	for (axis = 0; axis < 3; axis++)
+		to[axis] = left[axis] - right_hand[axis];
+	return normalize3(from) > 0.0f && normalize3(to) > 0.0f;
+}
+
+static void turn_axes(const float from[3], const float to[3], float forward[3], float up[3], float right[3])
+{
+	rotate_between(from, to, forward);
+	rotate_between(from, to, up);
+	cross3(forward, up, right);
+}
+
+/* where the weapon aims */
+static void weapon_axes(float forward[3], float up[3], float right[3])
+{
+	float model_forward[3], model_up[3], model_right[3], from[3], to[3];
+
+	controller_axes(forward, up, right);
+	model_axes(forward, up, right, model_forward, model_up, model_right);
+	if (two_hand_turn(model_forward, model_up, model_right, from, to))
+		turn_axes(from, to, forward, up, right);
+}
+
+/* how the weapon's model hangs */
+static void weapon_model_axes(float forward[3], float up[3], float right[3])
+{
+	float controller_forward[3], controller_up[3], controller_right[3], from[3], to[3];
+
+	controller_axes(controller_forward, controller_up, controller_right);
+	model_axes(controller_forward, controller_up, controller_right, forward, up, right);
+	if (two_hand_turn(forward, up, right, from, to))
+		turn_axes(from, to, forward, up, right);
 }
 
 /* the hand's offset from the game's camera, in world units */
@@ -756,6 +906,29 @@ int halo_vr_aim_vector(short local_player_index, float vector[3])
 	return 1;
 }
 
+void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3])
+{
+	if (local_player_index != 0)
+		return;
+	memcpy(vr.barrel, world, sizeof(vr.barrel));
+	vr.barrel_frame = vr.frame_number;
+	if (!vr.barrel_direction_valid || memcmp(vr.barrel_direction, direction, sizeof(vr.barrel_direction)))
+	{
+		float degrees = acosf(direction[0] > 1.0f ? 1.0f : direction[0]) * 180.0f / PI;
+
+		if (!vr.barrel_direction_valid || fabsf(direction[0] - vr.barrel_direction[0]) > 1e-3f)
+			platform_log("VR: this weapon's barrel points %.1f degrees off its camera; turned to aim", degrees);
+		memcpy(vr.barrel_direction, direction, sizeof(vr.barrel_direction));
+		vr.barrel_direction_valid = 1;
+	}
+}
+
+/* the barrel was drawn this frame or the last */
+static int barrel_known(void)
+{
+	return vr.barrel_frame && vr.frame_number - vr.barrel_frame <= 1;
+}
+
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3])
 {
 	float forward[3], up[3], right[3];
@@ -764,9 +937,31 @@ int halo_vr_weapon_origin_offset(short local_player_index, float offset[3])
 	if (!weapon_hand_tracked(local_player_index))
 		return 0;
 	weapon_axes(forward, up, right);
-	hand_offset(offset);
+	/* along the weapon as drawn (each weapon's model sits differently in
+	the hand), else along the controller */
+	if (barrel_known())
+	{
+		for (axis = 0; axis < 3; axis++)
+			offset[axis] = vr.barrel[axis] - vr.game_camera[axis];
+	}
+	else
+	{
+		hand_offset(offset);
+	}
 	for (axis = 0; axis < 3; axis++)
 		offset[axis] += forward[axis] * vr.muzzle_distance / METRES_PER_WORLD_UNIT;
+	return 1;
+}
+
+int halo_vr_weapon_origin(short local_player_index, float origin[3])
+{
+	float offset[3];
+	int axis;
+
+	if (!halo_vr_weapon_origin_offset(local_player_index, offset))
+		return 0;
+	for (axis = 0; axis < 3; axis++)
+		origin[axis] = vr.game_camera[axis] + offset[axis];
 	return 1;
 }
 
@@ -777,7 +972,7 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 
 	if (!weapon_hand_tracked(local_player_index))
 		return 0;
-	weapon_axes(forward, up, right);
+	weapon_model_axes(forward, up, right);
 	hand_offset(hand);
 	{
 		/* the right grip's melee attack, which the hand does not swing: the
@@ -806,7 +1001,9 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 
 int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 {
-	if (vr.laser && local_player_index == 0 && vr.laser_frame == vr.frame_number)
+	if (!vr.laser)
+		return 0;
+	if (local_player_index == 0 && vr.laser_frame == vr.frame_number)
 	{
 		memcpy(start, vr.laser_start, sizeof(vr.laser_start));
 		memcpy(direction, vr.laser_direction, sizeof(vr.laser_direction));
@@ -820,7 +1017,7 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
 	float up[3], right[3], offset[3];
 	int axis;
 
-	if (!vr.laser || !halo_vr_weapon_origin_offset(local_player_index, offset))
+	if (!halo_vr_weapon_origin_offset(local_player_index, offset))
 		return 0;
 	weapon_axes(direction, up, right);
 	for (axis = 0; axis < 3; axis++)
@@ -958,10 +1155,191 @@ void halo_vr_set_laser(short local_player_index, const float start[3], const flo
 	vr.laser_frame = vr.frame_number;
 }
 
+/* ---------- the crosshair
+
+render.c tells, each frame, how far the weapon's aim runs before it hits
+something; the crosshair floats there, along the controller's aim from
+the muzzle, facing the eyes, as large as the HUD showed it. */
+
+void halo_vr_set_aim_distance(float world_units)
+{
+	vr.aim_distance = world_units * METRES_PER_WORLD_UNIT;
+	vr.aim_distance_frame = vr.frame_number;
+}
+
+/* a rotation from its axes (unit, right-handed) */
+static void quaternion_from_axes(const float x[3], const float y[3], const float z[3], float q[4])
+{
+	float trace = x[0] + y[1] + z[2];
+
+	if (trace > 0.0f)
+	{
+		float s = sqrtf(trace + 1.0f) * 2.0f;
+
+		q[3] = 0.25f * s;
+		q[0] = (y[2] - z[1]) / s;
+		q[1] = (z[0] - x[2]) / s;
+		q[2] = (x[1] - y[0]) / s;
+	}
+	else if (x[0] > y[1] && x[0] > z[2])
+	{
+		float s = sqrtf(1.0f + x[0] - y[1] - z[2]) * 2.0f;
+
+		q[3] = (y[2] - z[1]) / s;
+		q[0] = 0.25f * s;
+		q[1] = (y[0] + x[1]) / s;
+		q[2] = (z[0] + x[2]) / s;
+	}
+	else if (y[1] > z[2])
+	{
+		float s = sqrtf(1.0f + y[1] - x[0] - z[2]) * 2.0f;
+
+		q[3] = (z[0] - x[2]) / s;
+		q[0] = (y[0] + x[1]) / s;
+		q[1] = 0.25f * s;
+		q[2] = (z[1] + y[2]) / s;
+	}
+	else
+	{
+		float s = sqrtf(1.0f + z[2] - x[0] - y[1]) * 2.0f;
+
+		q[3] = (x[1] - y[0]) / s;
+		q[0] = (z[0] + x[2]) / s;
+		q[1] = (z[1] + y[2]) / s;
+		q[2] = 0.25f * s;
+	}
+}
+
+static int crosshair_pose(struct halo_xr_pose *pose, float *size)
+{
+	static const float world_up[3] = { 0.0f, 1.0f, 0.0f };
+	float forward[3], up[3], right[3], offset[3], start_world[3], start[3], direction[3], x[3], y[3], z[3];
+	float distance = vr.aim_distance_frame == vr.frame_number ? vr.aim_distance : CROSSHAIR_FARTHEST;
+	float angle;
+	int axis;
+
+	/* along the weapon's aim from its muzzle, as its shots go */
+	if (!halo_vr_weapon_origin_offset(0, offset))
+		return 0;
+	if (distance > CROSSHAIR_FARTHEST)
+		distance = CROSSHAIR_FARTHEST;
+	if (distance < CROSSHAIR_NEAREST)
+		distance = CROSSHAIR_NEAREST;
+	weapon_axes(forward, up, right);
+	for (axis = 0; axis < 3; axis++)
+		start_world[axis] = vr.game_camera[axis] + offset[axis];
+	world_to_local(start_world, start);
+	game_to_local(forward, direction);
+	for (axis = 0; axis < 3; axis++)
+	{
+		pose->position[axis] = start[axis] + direction[axis] * distance;
+		z[axis] = vr.frame.head.position[axis] - pose->position[axis];
+	}
+	/* facing the eyes, upright */
+	if (normalize3(z) < 1e-4f)
+		return 0;
+	cross3(world_up, z, x);
+	if (normalize3(x) < 1e-4f)
+		return 0;
+	cross3(z, x, y);
+	quaternion_from_axes(x, y, z, pose->orientation);
+	/* the angle the region spans in the HUD, at this distance */
+	angle = CROSSHAIR_REGION_PIXELS / 640.0f * vr.hud_width / vr.hud_distance;
+	*size = 2.0f * distance * tanf(angle * 0.5f);
+	return 1;
+}
+
+/* ---------- the scope
+
+Zoomed in, the weapon shows its view on a disc over the barrel, like a
+scope's eyepiece, from a camera there looking along the weapon: the disc
+magnifies what it covers of the player's view by the zoom's magnification.
+The world around it stays as it is (zooming the whole view sickens). */
+
+#define SCOPE_ABOVE_HAND 0.07f
+#define SCOPE_AHEAD_OF_HAND 0.22f
+
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view)
+{
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+	float right[3], game_offset[3], local_forward[3], local_up[3], local_right[3], back[3];
+	float eye_distance = 0.0f;
+	int axis;
+
+	if (magnification <= 1.0f || vr.scope_size <= 0.0f || !weapon_hand_tracked(local_player_index))
+		return 0;
+	/* the disc: above and ahead of the hand, moved sideways over the barrel
+	as drawn, facing back along the weapon's aim */
+	weapon_axes(forward, up, right);
+	game_to_local(forward, local_forward);
+	game_to_local(up, local_up);
+	game_to_local(right, local_right);
+	for (axis = 0; axis < 3; axis++)
+	{
+		vr.scope_pose.position[axis] = hand->aim.position[axis] + local_up[axis] * SCOPE_ABOVE_HAND +
+			local_forward[axis] * SCOPE_AHEAD_OF_HAND;
+	}
+	if (barrel_known())
+	{
+		float barrel[3], sideways = 0.0f;
+
+		world_to_local(vr.barrel, barrel);
+		for (axis = 0; axis < 3; axis++)
+			sideways += (barrel[axis] - hand->aim.position[axis]) * local_right[axis];
+		for (axis = 0; axis < 3; axis++)
+			vr.scope_pose.position[axis] += local_right[axis] * sideways;
+	}
+	for (axis = 0; axis < 3; axis++)
+	{
+		back[axis] = -local_forward[axis];
+		eye_distance += (vr.scope_pose.position[axis] - vr.frame.head.position[axis]) *
+			(vr.scope_pose.position[axis] - vr.frame.head.position[axis]);
+	}
+	quaternion_from_axes(local_right, local_up, back, vr.scope_pose.orientation);
+	eye_distance = sqrtf(eye_distance);
+	if (eye_distance < 0.05f)
+		eye_distance = 0.05f;
+
+	/* the camera: at the disc, along the weapon */
+	tracked_offset(vr.scope_pose.position, game_offset);
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = vr.game_camera[axis] + game_offset[axis] / METRES_PER_WORLD_UNIT;
+	*vertical_field_of_view = 2.0f * atanf(vr.scope_size * 0.5f / eye_distance) / magnification;
+	vr.scope_pass = 1;
+	return 1;
+}
+
+int halo_vr_scope_pass(void)
+{
+	return vr.scope_pass;
+}
+
+void halo_vr_capture_scope(float left, float top, float right, float bottom)
+{
+	vr.scope_pass = 0;
+	vr.scope_captured = host_xr_copy_layer_region(HALO_XR_LAYER_SCOPE, d3d8_back_buffer_texture(), HALO_XR_COPY_DISC,
+		left, top, right, bottom);
+}
+
 int halo_vr_hide_crosshair(void)
 {
-	/* the head's crosshair shows where the head looks, not the weapon */
+	/* the HUD's crosshair marks where the head looks: left out of it, and
+	drawn on its own to be taken to where the weapon aims (vr.crosshair) */
 	return vr.active && vr.aim_with_controller;
+}
+
+int halo_vr_crosshair_apart(void)
+{
+	return vr.active && vr.aim_with_controller && vr.crosshair && halo_vr_stereo_frame();
+}
+
+void halo_vr_capture_crosshair(void)
+{
+	vr.crosshair_captured = host_xr_copy_layer_region(HALO_XR_LAYER_CROSSHAIR, d3d8_back_buffer_texture(),
+		HALO_XR_COPY_ALPHA, CROSSHAIR_REGION_LEFT, CROSSHAIR_REGION_TOP, CROSSHAIR_REGION_RIGHT,
+		CROSSHAIR_REGION_BOTTOM);
+	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */
@@ -1003,6 +1381,11 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 	(void)local_player_index; (void)position; (void)forward; (void)up;
 	return 0;
 }
+int halo_vr_weapon_origin(short local_player_index, float origin[3])
+{
+	(void)local_player_index; (void)origin;
+	return 0;
+}
 int halo_vr_laser(short local_player_index, float start[3], float direction[3])
 {
 	(void)local_player_index; (void)start; (void)direction;
@@ -1040,6 +1423,25 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
 	(void)local_player_index; (void)start; (void)direction;
 	return 0;
 }
+int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view)
+{
+	(void)local_player_index; (void)magnification; (void)position; (void)forward; (void)up;
+	(void)vertical_field_of_view;
+	return 0;
+}
+int halo_vr_scope_pass(void) { return 0; }
+void halo_vr_capture_scope(float left, float top, float right, float bottom)
+{
+	(void)left; (void)top; (void)right; (void)bottom;
+}
+void halo_vr_set_aim_distance(float world_units) { (void)world_units; }
+void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3])
+{
+	(void)local_player_index; (void)world; (void)direction;
+}
 int halo_vr_hide_crosshair(void) { return 0; }
+int halo_vr_crosshair_apart(void) { return 0; }
+void halo_vr_capture_crosshair(void) {}
 
 #endif

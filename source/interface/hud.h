@@ -20,6 +20,10 @@ union real_argb_color;
 
 /* ---------- prototypes/HUD.C */
 
+#ifdef HALO_ANDROID
+void hud_draw_crosshair(
+	void);
+#endif
 void hud_initialize(
 	void);
 void hud_dispose(
