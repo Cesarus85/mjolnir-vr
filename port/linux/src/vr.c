@@ -98,6 +98,7 @@ static struct
 	float enclosed_seat_raise[5];  /* metres, by HALO_VR_HULL_* */
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
+	float vehicle_gun_steer_angle; /* radians: steering that aims guns too */
 	float vehicle_pitch_angle;
 	float vehicle_steer_curve;  /* the stick's deflection to this power */
 	float vehicle_steer_smoothing; /* seconds */
@@ -433,6 +434,7 @@ void halo_vr_initialize(void)
 	vr.enclosed_seat_raise[HALO_VR_HULL_TANK] = (float)config_real("vr.tank_eye_raise");
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
+	vr.vehicle_gun_steer_angle = (float)config_real("vr.vehicle_gun_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
 	vr.vehicle_steer_curve = (float)config_real("vr.vehicle_steer_curve");
 	vr.vehicle_steer_smoothing = (float)config_real("vr.vehicle_steer_smoothing");
@@ -1182,7 +1184,9 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 				amount = -amount;
 			vr.steer[axis] += (amount - vr.steer[axis]) * blend;
 		}
-		*yaw = wrap_angle(vr.seat_yaw - vr.steer[0] * vr.vehicle_steer_angle);
+		/* (a Ghost or a Banshee aims its guns as it steers: less, finer) */
+		*yaw = wrap_angle(vr.seat_yaw - vr.steer[0] *
+			(vr.seat_armed ? vr.vehicle_gun_steer_angle : vr.vehicle_steer_angle));
 		*pitch = vr.steer[1] * vr.vehicle_pitch_angle;
 		vr.aim_synced = 1;
 	}

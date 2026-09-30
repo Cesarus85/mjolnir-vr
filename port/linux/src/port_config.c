@@ -171,6 +171,9 @@ static const struct config_setting config_settings[] =
 	{ "vr.vehicle_steer_degrees", _config_real, "60", "HALO_VR_VEHICLE_STEER", _environment_value, _platform_android,
 		"Driving, the right stick pushed fully aside steers this many degrees off\n"
 		"the vehicle's heading (the game turns the vehicle towards it)." },
+	{ "vr.vehicle_gun_steer_degrees", _config_real, "40", "HALO_VR_VEHICLE_GUN_STEER", _environment_value,
+		_platform_android,
+		"The same for a vehicle whose steering aims its guns too (a Ghost, a Banshee)." },
 	{ "vr.vehicle_steer_curve", _config_real, "2.0", "HALO_VR_VEHICLE_STEER_CURVE", _environment_value,
 		_platform_android,
 		"Driving, the right stick's deflection to this power steers (1 evenly;\n"
