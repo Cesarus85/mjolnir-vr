@@ -208,7 +208,8 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		camera between the eyes whose view covers both; each view moves the
 		position to its eye (half the eyes' distance aside) and onto its
 		own view's edges. As x' = a x + b w + c and y' likewise, with w the
-		depth along the view: mv_rows[2 * view] and [2 * view + 1]. */
+		depth along the view: mv_rows[2 * view] and [2 * view + 1];
+		what is drawn in screen space goes without c, as though far. */
 		xgpu_text_append(&text,
 			"#extension GL_OVR_multiview2 : require\n"
 			"layout(num_views = 2) in;\n"
@@ -390,12 +391,14 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 #ifdef HALO_ANDROID
 		, XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37,
 		/* (what is drawn in screen space, which kept no clip position, is
-		the same in both views) */
+		taken to each view as though infinitely far: a lens flare's sun
+		lands where the sky's does) */
 		multiview ?
-			"\tif (clip_captured)\n\t{\n"
+			"\t{\n"
 			"\t\tint row = int(gl_ViewID_OVR) * 2;\n"
-			"\t\tgl_Position.xy = vec2(dot(vec3(gl_Position.xw, 1.0), mv_rows[row].xyz),\n"
-			"\t\t\tdot(vec3(gl_Position.yw, 1.0), mv_rows[row + 1].xyz));\n"
+			"\t\tfloat near = clip_captured ? 1.0 : 0.0;\n"
+			"\t\tgl_Position.xy = vec2(dot(vec3(gl_Position.xw, near), mv_rows[row].xyz),\n"
+			"\t\t\tdot(vec3(gl_Position.yw, near), mv_rows[row + 1].xyz));\n"
 			"\t}\n" :
 			""
 #endif
