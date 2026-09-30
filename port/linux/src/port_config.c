@@ -134,7 +134,7 @@ static const struct config_setting config_settings[] =
 		"grip: towards the palm (right),", },
 	{ "vr.grenade_forward", _config_real, "0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
 		"the grip's forward (through the fist, towards the index finger),", },
-	{ "vr.grenade_down", _config_real, "0.025", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
+	{ "vr.grenade_down", _config_real, "0.01", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
 		"down the drawn hand's knuckles, from the index finger to the little one,", },
 	{ "vr.grenade_back", _config_real, "0.02", "HALO_VR_GRENADE_BACK", _environment_value, _platform_android,
 		"and back along its fingers, towards the wrist." },
