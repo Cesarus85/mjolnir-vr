@@ -31,6 +31,7 @@ the game uses (halo_vr_aim) is the body's yaw plus the head's.
 
 #define METRES_PER_WORLD_UNIT 3.048f
 #define PI 3.14159265358979f
+#define GRENADE_SAMPLES 24
 /* the facing the game changes itself by more than this (a respawn, a
 teleport, a vehicle's seat) turns the body with it */
 #define FACING_JUMP (10.0f * PI / 180.0f)
@@ -122,6 +123,23 @@ static struct
 	int two_hand_latched;    /* the grip is held (on the weapon or not) */
 	int two_hand_valid;
 	float two_hand_reach;    /* metres from the foregrip a closing grip takes the weapon */
+	/* the grenade in the left hand (grenade_update, vr.grenade_throw_speed):
+	the left trigger held, the hand's last positions (LOCAL), and the throw
+	as it let go */
+	float grenade_throw_speed;
+	float grenade_scale;
+	float grenade_offset[3];  /* in the grip's axes: right, up, back (metres) */
+	float grenade_down;       /* down the knuckles (the aim's -y; metres) */
+	float grenade_back;       /* back along the fingers (the aim's +z; metres) */
+	int grenade_held;
+	float grenade_sample[GRENADE_SAMPLES][3];
+	unsigned long long grenade_sample_us[GRENADE_SAMPLES];
+	int grenade_sample_count;
+	int grenade_thrown;
+	float grenade_hand[3];
+	float grenade_direction[3];
+	float grenade_strength;
+	unsigned long long grenade_released_us;
 	/* melee by swinging a hand (vr.melee_swing_speed) */
 	float melee_swing_speed;
 	float hand_last[HALO_XR_HAND_COUNT][3];
@@ -340,6 +358,13 @@ void halo_vr_initialize(void)
 	vr.muzzle_distance = 0.3f;
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
+	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
+	vr.grenade_scale = (float)config_real("vr.grenade_scale");
+	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
+	vr.grenade_offset[1] = 0.0f;
+	vr.grenade_down = (float)config_real("vr.grenade_down");
+	vr.grenade_back = (float)config_real("vr.grenade_back");
+	vr.grenade_offset[2] = -(float)config_real("vr.grenade_forward");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
 		platform_log("VR: the headset's session could not be created; see logcat");
@@ -425,6 +450,158 @@ static void look_update(void)
 	vr.look_valid = 1;
 }
 
+/* The grenade in the left hand: while the left trigger is held the game
+keeps it in the hand (halo_vr_grenade_held); as the trigger lets go, the
+fastest the hand moved in its last moments is the throw (halo_vr_grenade_throw). */
+static void grenade_update(void)
+{
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	unsigned long long now = now_us();
+	int valid = hand->active && (hand->flags & HALO_XR_POSE_VALID);
+	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN &&
+		hand->trigger > (vr.grenade_held ? 0.2f : 0.3f);
+	int count = vr.grenade_sample_count;
+
+	if (held && !vr.grenade_held)
+		count = 0;
+	if (valid && (held || vr.grenade_held))
+	{
+		if (count == GRENADE_SAMPLES)
+		{
+			memmove(vr.grenade_sample[0], vr.grenade_sample[1], sizeof(vr.grenade_sample[0]) * (GRENADE_SAMPLES - 1));
+			memmove(&vr.grenade_sample_us[0], &vr.grenade_sample_us[1],
+				sizeof(vr.grenade_sample_us[0]) * (GRENADE_SAMPLES - 1));
+			count--;
+		}
+		memcpy(vr.grenade_sample[count], hand->grip.position, sizeof(vr.grenade_sample[count]));
+		vr.grenade_sample_us[count] = now;
+		count++;
+	}
+	vr.grenade_sample_count = count;
+	if (vr.grenade_held && !held)
+	{
+		/* let go: the fastest the hand moved over its last 150 ms, each
+		speed over two frames or more (a single frame's is noisy) */
+		float best_speed = 0.0f, best_velocity[3] = { 0.0f, 0.0f, 0.0f };
+		int best = -1, i;
+
+		vr.grenade_released_us = now;
+		for (i = 0; i < count; i++)
+		{
+			int j;
+
+			if (now - vr.grenade_sample_us[i] > 150000)
+				continue;
+			for (j = i - 1; j >= 0; j--)
+			{
+				float seconds = (float)(vr.grenade_sample_us[i] - vr.grenade_sample_us[j]) * 1e-6f;
+
+				if (seconds >= 0.02f)
+				{
+					float velocity[3], speed;
+					int axis;
+
+					if (seconds > 0.1f)
+						break;
+					for (axis = 0; axis < 3; axis++)
+						velocity[axis] = (vr.grenade_sample[i][axis] - vr.grenade_sample[j][axis]) / seconds;
+					speed = sqrtf(velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]);
+					if (speed > best_speed)
+					{
+						best_speed = speed;
+						memcpy(best_velocity, velocity, sizeof(best_velocity));
+						best = i;
+					}
+					break;
+				}
+			}
+		}
+		vr.grenade_thrown = 0;
+		if (vr.grenade_throw_speed > 0.0f && best >= 0 && best_speed >= vr.grenade_throw_speed)
+		{
+			int axis;
+
+			vr.grenade_thrown = 1;
+			memcpy(vr.grenade_hand, vr.grenade_sample[count - 1], sizeof(vr.grenade_hand));
+			for (axis = 0; axis < 3; axis++)
+				vr.grenade_direction[axis] = best_velocity[axis] / best_speed;
+			/* the throw's speed is its strength: full at 5 m/s */
+			vr.grenade_strength = best_speed / 5.0f;
+			if (vr.grenade_strength < 0.25f)
+				vr.grenade_strength = 0.25f;
+			if (vr.grenade_strength > 1.0f)
+				vr.grenade_strength = 1.0f;
+			host_xr_haptic(HALO_XR_HAND_LEFT, 0.6f, 0.06f);
+			platform_log("VR: grenade thrown at %.1f m/s", best_speed);
+		}
+		vr.grenade_sample_count = 0;
+	}
+	vr.grenade_held = held;
+}
+
+int halo_vr_grenade_held(short local_player_index)
+{
+	return vr.active && vr.aim_with_controller && local_player_index == 0 && vr.grenade_held;
+}
+
+int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
+	float *scale)
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	float held[3], offset[3], direction[3];
+	int axis;
+
+	if (!vr.aim_with_controller || local_player_index != 0 || !halo_vr_stereo_frame() || !hand->active ||
+		!(hand->flags & HALO_XR_POSE_VALID))
+	{
+		return 0;
+	}
+	/* the grip's +x faces out of the left palm; the drawn hand's knuckles
+	run along the aim's y, and its fingers along the aim's -z
+	(first_person_weapons.c, vr_left_hand_free) */
+	{
+		float knuckles[3], fingers[3];
+
+		quaternion_rotate(hand->grip.orientation, vr.grenade_offset, held);
+		quaternion_rotate(hand->aim.orientation, local_up, knuckles);
+		quaternion_rotate(hand->aim.orientation, local_forward, fingers);
+		for (axis = 0; axis < 3; axis++)
+			held[axis] += hand->grip.position[axis] - knuckles[axis] * vr.grenade_down -
+				fingers[axis] * vr.grenade_back;
+	}
+	tracked_offset(held, offset);
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	quaternion_rotate(hand->grip.orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(hand->grip.orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	*scale = vr.grenade_scale;
+	return 1;
+}
+
+int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength)
+{
+	float offset[3];
+	int axis;
+
+	if (!vr.active || !vr.aim_with_controller || local_player_index != 0 || !vr.grenade_thrown ||
+		now_us() - vr.grenade_released_us > 1000000)
+	{
+		vr.grenade_thrown = 0;
+		return 0;
+	}
+	vr.grenade_thrown = 0;
+	tracked_offset(vr.grenade_hand, offset);
+	for (axis = 0; axis < 3; axis++)
+		origin[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	local_to_game(vr.grenade_direction, vr.body_yaw, direction);
+	*strength = vr.grenade_strength;
+	return 1;
+}
+
 /* a hand thrust forward fast enough is a melee attack; the game sees its
 button for a moment (halo_vr_melee) */
 static void melee_update(void)
@@ -460,8 +637,10 @@ static void melee_update(void)
 			vr.hand_last_valid[hand] = 0;
 			continue;
 		}
+		/* (a grenade's throw is not a blow) */
 		if (vr.hand_last_valid[hand] && seconds > 0.0f && seconds < 0.1f && vr.melee_swing_speed > 0.0f &&
-			vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && now >= vr.melee_ready_us)
+			vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && now >= vr.melee_ready_us &&
+			!(hand == HALO_XR_HAND_LEFT && (vr.grenade_held || now - vr.grenade_released_us < 500000)))
 		{
 			float velocity[3], forward_speed;
 			int axis;
@@ -563,6 +742,7 @@ void halo_vr_frame_begin(void)
 	}
 	turn_update();
 	look_update();
+	grenade_update();
 	melee_update();
 }
 
@@ -1397,6 +1577,18 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
+int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
+	float *scale)
+{
+	(void)local_player_index; (void)position; (void)forward; (void)up; (void)scale;
+	return 0;
+}
+int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength)
+{
+	(void)local_player_index; (void)origin; (void)direction; (void)strength;
+	return 0;
+}
 float halo_vr_melee_strength(void) { return 0.0f; }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
 int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])

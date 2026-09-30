@@ -472,6 +472,83 @@ long first_person_weapon_get_local_index(
 	return (local_player_index==MAXIMUM_NUMBER_OF_LOCAL_PLAYERS) ? NONE : local_player_index;
 }
 
+#ifdef HALO_ANDROID
+/* VR: the grenade the player holds (the left trigger, units.c) hangs from
+the body, which the first-person view leaves out, and with it the grenade:
+drawn instead in the left hand, as it is this frame, with the hands (which
+are drawn over the world, and would hide it wherever they overlap) */
+static void first_person_weapon_draw_held_grenade(
+	long unit_index,
+	struct render_lighting *lighting,
+	struct render_model_effect const *hands_effect)
+{
+	struct unit_datum *unit= unit_get(unit_index);
+	struct object_datum *grenade;
+	struct object_definition *definition;
+	struct model *model;
+	struct render_model_effect model_effect;
+	real_matrix4x3 *node_matrices;
+	real_matrix4x3 hand, inverse, delta;
+	real_point3d position;
+	real_vector3d forward, up;
+	float hand_position[3], hand_forward[3], hand_up[3], scale;
+	short node_index;
+
+	if (unit->unit.grenade_object_index==NONE ||
+		unit->unit.grenade_throw_state!=_unit_grenade_throw_in_hand ||
+		!halo_vr_grenade_in_hand(render.local_player_index, hand_position, hand_forward, hand_up, &scale))
+	{
+		return;
+	}
+	grenade= object_get(unit->unit.grenade_object_index);
+	definition= object_definition_get(grenade->definition_index);
+	if (definition->object.model.index==NONE || TEST_FLAG(grenade->object.flags, _object_invisible_bit))
+		return;
+	model= model_definition_get(definition->object.model.index);
+	if (model->nodes.count<=0)
+		return;
+	node_matrices= object_get_node_matrices(unit->unit.grenade_object_index);
+
+	/* the whole grenade moved so its root lies in the hand, as the hand
+	turns (drawn only: the next tick puts it back on the body) */
+	position.x= hand_position[0];
+	position.y= hand_position[1];
+	position.z= hand_position[2];
+	forward.i= hand_forward[0];
+	forward.j= hand_forward[1];
+	forward.k= hand_forward[2];
+	up.i= hand_up[0];
+	up.j= hand_up[1];
+	up.k= hand_up[2];
+	matrix4x3_from_point_and_vectors(&hand, &position, &forward, &up);
+	hand.scale= scale;
+	matrix4x3_inverse(&node_matrices[0], &inverse);
+	matrix4x3_multiply(&hand, &inverse, &delta);
+	for (node_index= 0; node_index<model->nodes.count; node_index++)
+	{
+		real_matrix4x3 node= node_matrices[node_index];
+
+		matrix4x3_multiply(&delta, &node, &node_matrices[node_index]);
+	}
+
+	model_effect= *hands_effect;
+	render_model(
+		definition->object.model.index,
+		0.0f,
+		node_matrices,
+		grenade->object.region_permutations,
+		grenade->object.outgoing_change_colors,
+		grenade->object.outgoing_function_values,
+		lighting,
+		&render.camera.position,
+		0.0f,
+		&model_effect,
+		unit->unit.grenade_object_index,
+		grenade->object.forced_shader_permutation_index,
+		FLAG(_render_model_first_person_bit));
+}
+
+#endif
 void first_person_weapon_draw(
 	void)
 {
@@ -575,6 +652,10 @@ void first_person_weapon_draw(
 							0,
 							FLAG(_render_model_first_person_bit));
 					}
+#ifdef HALO_ANDROID
+					if (halo_vr_active())
+						first_person_weapon_draw_held_grenade(unit_index, lighting, &model_effect);
+#endif
 				}
 			}
 		}
@@ -1474,7 +1555,10 @@ static void first_person_weapon_vr_arms(
 	struct render_camera const *weapon_camera,
 	short state)
 {
-	boolean melee = state==_first_person_weapon_state_melee;
+	/* a grenade's throw is the player's own too */
+	boolean melee = state==_first_person_weapon_state_melee ||
+		state==_first_person_weapon_state_throw_grenade ||
+		state==_first_person_weapon_state_throw_grenade_overheated;
 	/* held ready: firing or not, the gun where it aims */
 	boolean ready = state==_first_person_weapon_state_idle ||
 		state==_first_person_weapon_state_primary_fire ||

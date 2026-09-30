@@ -122,6 +122,22 @@ static const struct config_setting config_settings[] =
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
 		"melee attack (the right grip is too); 0 turns it off." },
+	{ "vr.grenade_throw_speed", _config_real, "1.5", "HALO_VR_GRENADE_THROW", _environment_value, _platform_android,
+		"A grenade is held while the left trigger is, and thrown as it lets go:\n"
+		"along the hand's throw, when the hand moved faster than this (metres per\n"
+		"second; full strength at 4), else as the game throws it. 0 turns the\n"
+		"hand's throw off." },
+	{ "vr.grenade_scale", _config_real, "0.55", "HALO_VR_GRENADE_SCALE", _environment_value, _platform_android,
+		"The size the grenade held in the left hand is drawn at (1 as in the game)." },
+	{ "vr.grenade_right", _config_real, "0.055", "HALO_VR_GRENADE_RIGHT", _environment_value, _platform_android,
+		"Where the held grenade is drawn, in metres from the left controller's\n"
+		"grip: towards the palm (right),", },
+	{ "vr.grenade_forward", _config_real, "0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
+		"the grip's forward (through the fist, towards the index finger),", },
+	{ "vr.grenade_down", _config_real, "0.01", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
+		"down the drawn hand's knuckles, from the index finger to the little one,", },
+	{ "vr.grenade_back", _config_real, "0.02", "HALO_VR_GRENADE_BACK", _environment_value, _platform_android,
+		"and back along its fingers, towards the wrist." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"

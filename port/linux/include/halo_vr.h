@@ -109,6 +109,15 @@ int halo_vr_melee(void);
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
 float halo_vr_melee_strength(void);
+/* The grenade (units.c): whether the left trigger holds it in the hand; and
+as it let go, whether the hand threw it: from where (world units), which
+way (the game's axes) and how hard (0..1 of the game's throw) */
+int halo_vr_grenade_held(short local_player_index);
+int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength);
+/* where the held grenade is drawn (render_objects.c): in the left palm, and
+at what size */
+int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
+	float *scale);
 /* The scope (render.c): zoomed in by magnification, the camera for the
 view on a disc over the weapon, in the game's axes; then that view, drawn
 into the given part of the back buffer (left, top, right, bottom, 0..1),

@@ -433,7 +433,7 @@ static int controller_port(HANDLE device)
 
 In play, laid out for VR shooters rather than by position:
 
-	right trigger  fire                 left trigger   throw grenade
+	right trigger  fire                 left trigger   grenade: held in the hand, thrown as it lets go (vr.c)
 	right grip     melee (B)            left grip      hold the weapon with both hands (vr.c)
 	(a hand thrust forward, vr.melee_swing_speed, is a melee attack too)
 	A              jump                 X              flashlight (white); held, switch grenade (black)

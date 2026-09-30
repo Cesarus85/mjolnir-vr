@@ -112,6 +112,11 @@ boolean projectile_aim_ballistic(
 	real *result_distance,
 	real *result_vertical_velocity,
 	real *result_horizontal_velocity);
+#ifdef HALO_ANDROID
+/* VR: a grenade thrown by the hand keeps the speed it was thrown at */
+void projectile_set_thrown_by_hand(
+	long projectile_index);
+#endif
 void projectile_accelerate(
 	long projectile_index,
 	union real_vector3d const *acceleration);
