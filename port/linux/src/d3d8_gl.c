@@ -178,6 +178,9 @@ struct vertex_shader_object
 	/* [0] streams per the declaration, [1] immediate mode (all floats);
 	[2] and [3] the same for both eyes at once (multiview) */
 	GLuint shader[4];
+	/* its position is a projected one (nv2a_vsh.c's clip capture): known,
+	and so; and whether a multiview draw with it was looked at (diagnostics) */
+	BOOL projection_known, projected, multiview_checked;
 };
 
 /* ---------- programs */
@@ -1050,26 +1053,6 @@ static BOOL bind_targets(BOOL *has_depth)
 	/* VR: the back buffer, while both eyes are drawn at once, is their
 	layers (d3d8_multiview_begin), with a depth buffer of their own */
 	targets_multiview = multiview.active && color == multiview.back_buffer;
-	if (multiview.active && !targets_multiview)
-	{
-		/* (diagnostics: what else a draw into both eyes' pass draws into) */
-		static unsigned long logged[16][2];
-		unsigned long color_data = color ? color->target.data : 0;
-		unsigned long depth_data = depth ? depth->target.data : 0;
-		int slot, known = FALSE;
-
-		for (slot = 0; slot < 16 && (logged[slot][0] || logged[slot][1]); slot++)
-			known |= logged[slot][0] == color_data && logged[slot][1] == depth_data;
-		if (!known && slot < 16)
-		{
-			logged[slot][0] = color_data;
-			logged[slot][1] = depth_data;
-			platform_log("multiview: the pass also draws into %08lx (%lux%lu) with depth %08lx%s, vertex program %lu",
-				color_data, color ? color->target.width : 0, color ? color->target.height : 0, depth_data,
-				depth_data && depth_data == device.depth_buffer.Data ? " (the screen's depth buffer)" : "",
-				current_program() ? current_program()->id : 0);
-		}
-	}
 	if (targets_multiview)
 	{
 		multiview.drawn = TRUE;
@@ -2066,6 +2049,11 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 			immediate ? 0 : device.vertex_shader->packed_mask, multiview_view);
 
 		program->shader[variant] = compile_shader(GL_VERTEX_SHADER, source, "vertex");
+		if (!program->projection_known)
+		{
+			program->projected = strstr(source, "clip_captured = true") != NULL;
+			program->projection_known = TRUE;
+		}
 		if (debug_settings.dump_shaders)
 		{
 			char path[512];
@@ -2447,7 +2435,21 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 			{
 #ifdef HALO_ANDROID
 				if (multiview.active && multiview.back_buffer && target == &multiview.back_buffer->target)
+				{
+					static unsigned long logged[16];
+					unsigned long id = current_program() ? current_program()->id : 0;
+					int slot, known = FALSE;
+
+					/* (diagnostics: each vertex program that reads the picture) */
+					for (slot = 0; slot < 16 && logged[slot]; slot++)
+						known |= logged[slot] == id + 1;
+					if (!known && slot < 16)
+					{
+						logged[slot] = id + 1;
+						platform_log("multiview: vertex program %lu reads the picture", id);
+					}
 					multiview_resolve();
+				}
 #endif
 				xgpu_texture_describe(texture->Format, texture->Size, &description);
 				gl_texture = target->texture;
@@ -2789,6 +2791,15 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	{
 		glUniform4fv(entry->mv_rows, 4, &multiview.rows[0][0]);
 		entry->mv_serial = multiview.serial;
+	}
+	if (targets_multiview && !program->multiview_checked)
+	{
+		/* (diagnostics: a vertex program whose position is not a projected
+		one, drawn depth tested into both eyes, is something the game
+		placed in screen space itself, which multiview puts at infinity) */
+		program->multiview_checked = TRUE;
+		if (!program->projected && has_depth && D3D__RenderState[D3DRS_ZENABLE])
+			platform_log("multiview: vertex program %lu draws in screen space, depth tested", program->id);
 	}
 	if (targets_multiview && entry->mv_depth >= 0)
 	{
