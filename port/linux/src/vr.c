@@ -130,6 +130,7 @@ static struct
 	float grenade_scale;
 	float grenade_offset[3];  /* in the grip's axes: right, up, back (metres) */
 	float grenade_down;       /* down the knuckles (the aim's -y; metres) */
+	float grenade_back;       /* back along the fingers (the aim's +z; metres) */
 	int grenade_held;
 	float grenade_sample[GRENADE_SAMPLES][3];
 	unsigned long long grenade_sample_us[GRENADE_SAMPLES];
@@ -362,6 +363,7 @@ void halo_vr_initialize(void)
 	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
 	vr.grenade_offset[1] = 0.0f;
 	vr.grenade_down = (float)config_real("vr.grenade_down");
+	vr.grenade_back = (float)config_real("vr.grenade_back");
 	vr.grenade_offset[2] = -(float)config_real("vr.grenade_forward");
 	if (!host_xr_initialize(&vr.info, (float)config_real("vr.refresh_rate")))
 	{
@@ -559,11 +561,18 @@ int halo_vr_grenade_in_hand(short local_player_index, float position[3], float f
 		return 0;
 	}
 	/* the grip's +x faces out of the left palm; the drawn hand's knuckles
-	run along the aim's y (first_person_weapons.c, vr_left_hand_free) */
-	quaternion_rotate(hand->grip.orientation, vr.grenade_offset, held);
-	quaternion_rotate(hand->aim.orientation, local_up, direction);
-	for (axis = 0; axis < 3; axis++)
-		held[axis] += hand->grip.position[axis] - direction[axis] * vr.grenade_down;
+	run along the aim's y, and its fingers along the aim's -z
+	(first_person_weapons.c, vr_left_hand_free) */
+	{
+		float knuckles[3], fingers[3];
+
+		quaternion_rotate(hand->grip.orientation, vr.grenade_offset, held);
+		quaternion_rotate(hand->aim.orientation, local_up, knuckles);
+		quaternion_rotate(hand->aim.orientation, local_forward, fingers);
+		for (axis = 0; axis < 3; axis++)
+			held[axis] += hand->grip.position[axis] - knuckles[axis] * vr.grenade_down -
+				fingers[axis] * vr.grenade_back;
+	}
 	tracked_offset(held, offset);
 	for (axis = 0; axis < 3; axis++)
 		position[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;

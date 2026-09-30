@@ -132,10 +132,12 @@ static const struct config_setting config_settings[] =
 	{ "vr.grenade_right", _config_real, "0.055", "HALO_VR_GRENADE_RIGHT", _environment_value, _platform_android,
 		"Where the held grenade is drawn, in metres from the left controller's\n"
 		"grip: towards the palm (right),", },
-	{ "vr.grenade_forward", _config_real, "-0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
-		"forward,", },
+	{ "vr.grenade_forward", _config_real, "0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
+		"the grip's forward (through the fist, towards the index finger),", },
 	{ "vr.grenade_down", _config_real, "0.025", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
-		"and down the hand's knuckles, from the index finger to the little one." },
+		"down the drawn hand's knuckles, from the index finger to the little one,", },
+	{ "vr.grenade_back", _config_real, "0.02", "HALO_VR_GRENADE_BACK", _environment_value, _platform_android,
+		"and back along its fingers, towards the wrist." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"
