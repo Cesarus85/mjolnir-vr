@@ -165,6 +165,10 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/vehicle_definitions.h"
 
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
+
 /* ---------- constants */
 
 enum
@@ -882,6 +886,12 @@ boolean vehicle_vr_steered_by_facing(
 boolean vehicle_vr_encloses_riders(
 	long vehicle_index)
 {
+	return vehicle_vr_hull(vehicle_index) != HALO_VR_HULL_OPEN;
+}
+
+short vehicle_vr_hull(
+	long vehicle_index)
+{
 	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
 	struct vehicle_definition *definition = vehicle_specific_definition_get(
 		vehicle->definition_index);
@@ -889,11 +899,13 @@ boolean vehicle_vr_encloses_riders(
 	switch (definition->vehicle_type)
 	{
 		case _vehicle_type_alien_scout:
+			return HALO_VR_HULL_SCOUT;
 		case _vehicle_type_alien_fighter:
+			return HALO_VR_HULL_FIGHTER;
 		case _vehicle_type_turret:
-			return TRUE;
+			return HALO_VR_HULL_TURRET;
 		default:
-			return FALSE;
+			return HALO_VR_HULL_OPEN;
 	}
 }
 

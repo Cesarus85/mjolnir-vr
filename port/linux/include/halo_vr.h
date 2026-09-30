@@ -169,8 +169,17 @@ int halo_vr_vehicle_first_person(void);
 /* how far a gunner's view is moved back from the gun (world units) */
 float halo_vr_gunner_camera_back(void);
 /* how far above its hull the eyes of a rider who sits down in it are
-(world units) */
+(world units), and how far they rise above his head at least, by the kind
+of hull */
+enum
+{
+	HALO_VR_HULL_OPEN = 0,
+	HALO_VR_HULL_SCOUT,    /* a Ghost: its hood arches over the rider */
+	HALO_VR_HULL_FIGHTER,  /* a Banshee: the pilot lies in it */
+	HALO_VR_HULL_TURRET,   /* a Shade: its shield is at the eyes */
+};
 float halo_vr_enclosed_seat_clearance(void);
+float halo_vr_enclosed_seat_raise(int hull);
 /* how strongly glass tints and reflects (1 as the game has it) */
 float halo_vr_glass_strength(void);
 

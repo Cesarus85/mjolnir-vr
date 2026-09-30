@@ -150,6 +150,15 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"In a Ghost, a Banshee or a Covenant gun, whose rider sits down in the hull,\n"
 		"the eyes are this many metres above its top, over the head and ahead of it." },
+	{ "vr.ghost_eye_raise", _config_real, "0.45", "HALO_VR_GHOST_EYE_RAISE", _environment_value, _platform_android,
+		"In a Ghost, whose hood arches over its rider, the eyes this many metres\n"
+		"above his head," },
+	{ "vr.banshee_eye_raise", _config_real, "0.5", "HALO_VR_BANSHEE_EYE_RAISE", _environment_value,
+		_platform_android,
+		"in a Banshee, whose pilot lies in it, this many," },
+	{ "vr.turret_eye_raise", _config_real, "0.35", "HALO_VR_TURRET_EYE_RAISE", _environment_value,
+		_platform_android,
+		"and at a Covenant gun, whose shield is at the eyes, this many." },
 	{ "vr.gunner_camera_back", _config_real, "0.15", "HALO_VR_GUNNER_CAMERA_BACK", _environment_value,
 		_platform_android,
 		"At a vehicle's gun, the view this many metres back from where the\n"

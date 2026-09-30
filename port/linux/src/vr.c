@@ -90,6 +90,7 @@ static struct
 	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
 	float enclosed_seat_clearance; /* metres */
+	float enclosed_seat_raise[4];  /* metres, by HALO_VR_HULL_* */
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_pitch_angle;
@@ -416,6 +417,9 @@ void halo_vr_initialize(void)
 	vr.turret_handles = config_boolean("vr.turret_handles");
 	vr.gunner_camera_back = (float)config_real("vr.gunner_camera_back");
 	vr.enclosed_seat_clearance = (float)config_real("vr.enclosed_seat_clearance");
+	vr.enclosed_seat_raise[HALO_VR_HULL_SCOUT] = (float)config_real("vr.ghost_eye_raise");
+	vr.enclosed_seat_raise[HALO_VR_HULL_FIGHTER] = (float)config_real("vr.banshee_eye_raise");
+	vr.enclosed_seat_raise[HALO_VR_HULL_TURRET] = (float)config_real("vr.turret_eye_raise");
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
@@ -867,6 +871,12 @@ int halo_vr_vehicle_first_person(void)
 float halo_vr_glass_strength(void)
 {
 	return vr.active ? vr.glass_strength : 1.0f;
+}
+
+float halo_vr_enclosed_seat_raise(int hull)
+{
+	return hull > HALO_VR_HULL_OPEN && hull <= HALO_VR_HULL_TURRET ?
+		vr.enclosed_seat_raise[hull] / METRES_PER_WORLD_UNIT : 0.0f;
 }
 
 float halo_vr_enclosed_seat_clearance(void)
@@ -1839,6 +1849,7 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 int halo_vr_vehicle_first_person(void) { return 0; }
 float halo_vr_gunner_camera_back(void) { return 0.0f; }
 float halo_vr_enclosed_seat_clearance(void) { return 0.0f; }
+float halo_vr_enclosed_seat_raise(int hull) { (void)hull; return 0.0f; }
 float halo_vr_glass_strength(void) { return 1.0f; }
 int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
 int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
