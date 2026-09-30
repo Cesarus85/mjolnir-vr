@@ -97,6 +97,9 @@ static const struct config_setting config_settings[] =
 		"away from the player's body (walls are not checked)." },
 	{ "vr.crouch_limit", _config_real, "0.9", "HALO_VR_CROUCH_LIMIT", _environment_value, _platform_android,
 		"How far, in metres, the view follows your head down." },
+	{ "vr.multiview", _config_boolean, "true", "HALO_VR_MULTIVIEW", _environment_value, _platform_android,
+		"Draw both eyes in one pass (GL_OVR_multiview2), from between them: about\n"
+		"half the drawing's cost on the processor. false: one eye after the other." },
 	{ "vr.log_performance", _config_boolean, "false", "HALO_VR_LOG_PERFORMANCE", _environment_value, _platform_android,
 		"Log the frame rate and where the frame time goes every five seconds\n"
 		"(adb logcat -s halo)." },

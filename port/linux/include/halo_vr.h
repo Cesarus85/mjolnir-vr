@@ -50,6 +50,15 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 /* copies the back buffer, just drawn for an eye, to that eye's image */
 void halo_vr_capture_eye(int eye);
 
+/* Both eyes in one draw (vr.multiview, where GL_OVR_multiview2 is): whether
+this frame draws so; the camera between the eyes whose view takes in both
+(as halo_vr_eye_camera), which also starts drawing into both eyes' layers;
+and after the draw, the layers taken for the eyes' images. */
+int halo_vr_multiview(void);
+void halo_vr_center_camera(const float game_position[3], float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view, float frustum_bounds[4]);
+void halo_vr_capture_multiview(void);
+
 /* clears the back buffer to transparent black for the overlay, after the
 eyes; menus_active chooses where the overlay is shown */
 void halo_vr_begin_overlay(int menus_active);

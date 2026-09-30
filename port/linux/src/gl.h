@@ -128,6 +128,10 @@ this list to generate the guest's entry points */
 	X(glGenQueries) \
 	X(glBeginQuery) \
 	X(glEndQuery) \
+	X(glTexStorage3D) \
+	X(glFramebufferTextureLayer) \
+	X(glFramebufferTextureMultiviewOVR) \
+	X(glIsEnabled) \
 	X(glGetQueryObjectuiv)
 /* ANDROID_GL_FUNCTIONS_END */
 #else
@@ -343,6 +347,10 @@ pointers, sees the declarations without these aliases */
 #define glGenQueries halo_glGenQueries
 #define glBeginQuery halo_glBeginQuery
 #define glEndQuery halo_glEndQuery
+#define glTexStorage3D halo_glTexStorage3D
+#define glFramebufferTextureLayer halo_glFramebufferTextureLayer
+#define glFramebufferTextureMultiviewOVR halo_glFramebufferTextureMultiviewOVR
+#define glIsEnabled halo_glIsEnabled
 #define glGetQueryObjectuiv halo_glGetQueryObjectuiv
 #else
 #define glGetString halo_glGetString

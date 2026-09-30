@@ -124,6 +124,13 @@ static struct
 	GLint vignette_uniform;
 	GLint tangents_uniform;
 	float vignette;
+	/* the same copy from a layer of a texture array (the eyes drawn at
+	once, multiview): its program and uniforms, and the layer for the copy
+	under way (host_xr_copy_layer_array; -1: a plain texture) */
+	GLuint array_program;
+	GLint array_source_uniform, array_rect_uniform, array_layer_uniform;
+	GLint array_vignette_uniform, array_tangents_uniform;
+	int copy_array_layer;
 	GLuint vertex_array;
 	GLuint sampler;
 } xr;
@@ -248,6 +255,33 @@ static const char copy_fragment_shader[] =
 	"	}\n"
 	"}\n";
 
+static const char copy_array_fragment_shader[] =
+	"#version 300 es\n"
+	"precision highp float;\n"
+	"uniform highp sampler2DArray source;\n"
+	"uniform float layer;\n"
+	"uniform float vignette;\n"
+	"uniform vec4 tangents;\n"
+	"in vec2 coordinate;\n"
+	"in vec2 disc;\n"
+	"out vec4 color;\n"
+	"vec3 to_linear(vec3 c)\n"
+	"{\n"
+	"	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));\n"
+	"}\n"
+	"void main()\n"
+	"{\n"
+	"	vec4 texel = texture(source, vec3(coordinate, layer));\n"
+	"	color = vec4(to_linear(texel.rgb), texel.a);\n"
+	"	if (vignette > 0.0)\n"
+	"	{\n"
+	"		vec2 corner = disc * 0.5 + 0.5;\n"
+	"		vec2 away = vec2(mix(tangents.x, tangents.y, corner.x), mix(tangents.z, tangents.w, corner.y));\n"
+	"		float edge = mix(1.8, 0.45, vignette);\n"
+	"		color.rgb *= 1.0 - smoothstep(edge - 0.3, edge, length(away));\n"
+	"	}\n"
+	"}\n";
+
 static GLuint compile_shader(GLenum type, const char *text)
 {
 	GLuint shader = glCreateShader(type);
@@ -293,6 +327,38 @@ static int copy_initialize(void)
 	xr.cut_disc_uniform = glGetUniformLocation(xr.program, "cut_disc");
 	xr.vignette_uniform = glGetUniformLocation(xr.program, "vignette");
 	xr.tangents_uniform = glGetUniformLocation(xr.program, "tangents");
+	xr.copy_array_layer = -1;
+	{
+		GLuint array_vertex = compile_shader(GL_VERTEX_SHADER, copy_vertex_shader);
+		GLuint array_fragment = compile_shader(GL_FRAGMENT_SHADER, copy_array_fragment_shader);
+
+		if (array_vertex && array_fragment)
+		{
+			xr.array_program = glCreateProgram();
+			glAttachShader(xr.array_program, array_vertex);
+			glAttachShader(xr.array_program, array_fragment);
+			glLinkProgram(xr.array_program);
+			glGetProgramiv(xr.array_program, GL_LINK_STATUS, &status);
+			if (!status)
+			{
+				host_logf(HOST_LOG_ERROR, "xr: array copy program does not link");
+				glDeleteProgram(xr.array_program);
+				xr.array_program = 0;
+			}
+			else
+			{
+				xr.array_source_uniform = glGetUniformLocation(xr.array_program, "source");
+				xr.array_rect_uniform = glGetUniformLocation(xr.array_program, "rect");
+				xr.array_layer_uniform = glGetUniformLocation(xr.array_program, "layer");
+				xr.array_vignette_uniform = glGetUniformLocation(xr.array_program, "vignette");
+				xr.array_tangents_uniform = glGetUniformLocation(xr.array_program, "tangents");
+			}
+		}
+		if (array_vertex)
+			glDeleteShader(array_vertex);
+		if (array_fragment)
+			glDeleteShader(array_fragment);
+	}
 	glGenVertexArrays(1, &xr.vertex_array);
 	glGenSamplers(1, &xr.sampler);
 	glSamplerParameteri(xr.sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1150,6 +1216,20 @@ int host_xr_copy_layer(int layer, uint32_t texture, int clear_alpha)
 	return host_xr_copy_layer_region(layer, texture, clear_alpha, 0.0f, 0.0f, 1.0f, 1.0f);
 }
 
+/* copies a layer of a texture array (the eyes drawn at once) into a
+layer's image, opaque */
+int host_xr_copy_layer_array(int layer, uint32_t texture, int array_layer)
+{
+	int copied;
+
+	if (!xr.array_program)
+		return 0;
+	xr.copy_array_layer = array_layer;
+	copied = host_xr_copy_layer_region(layer, texture, HALO_XR_COPY_OPAQUE, 0.0f, 0.0f, 1.0f, 1.0f);
+	xr.copy_array_layer = -1;
+	return copied;
+}
+
 /* copies part of a render target (left, top, right, bottom, 0..1 from its
 top left) into a layer's image */
 int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
@@ -1184,7 +1264,38 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_STENCIL_TEST);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	if (texture)
+	if (texture && xr.copy_array_layer >= 0)
+	{
+		/* a layer of the eyes' texture array (multiview) */
+		glUseProgram(xr.array_program);
+		glUniform1i(xr.array_source_uniform, 0);
+		glUniform4f(xr.array_rect_uniform, left, top, right, bottom);
+		glUniform1f(xr.array_layer_uniform, (float)xr.copy_array_layer);
+		if ((layer == HALO_XR_LAYER_EYE_LEFT || layer == HALO_XR_LAYER_EYE_RIGHT) && xr.vignette > 0.001f)
+		{
+			const XrFovf *fov = &xr.views[layer - HALO_XR_LAYER_EYE_LEFT].fov;
+
+			glUniform1f(xr.array_vignette_uniform, xr.vignette);
+			glUniform4f(xr.array_tangents_uniform, tanf(fov->angleLeft), tanf(fov->angleRight),
+				tanf(fov->angleDown), tanf(fov->angleUp));
+		}
+		else
+		{
+			glUniform1f(xr.array_vignette_uniform, 0.0f);
+		}
+		glBindVertexArray(xr.vertex_array);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
+		glBindSampler(0, xr.sampler);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+		if (clear_alpha == HALO_XR_COPY_OPAQUE)
+		{
+			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+	}
+	else if (texture)
 	{
 		GLint swizzle_r, swizzle_b;
 

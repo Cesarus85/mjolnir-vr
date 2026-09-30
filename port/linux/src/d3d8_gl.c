@@ -175,8 +175,9 @@ struct vertex_shader_object
 	struct vertex_element elements[XGPU_VERTEX_ATTRIBUTE_COUNT];
 	unsigned long element_count;
 	unsigned long packed_mask;
-	/* [0] streams per the declaration, [1] immediate mode (all floats) */
-	GLuint shader[2];
+	/* [0] streams per the declaration, [1] immediate mode (all floats);
+	[2] and [3] the same for both eyes at once (multiview) */
+	GLuint shader[4];
 };
 
 /* ---------- programs */
@@ -224,6 +225,10 @@ struct program_entry
 	GLint bump_matrix, bump_luminance, texture_scale;
 	GLint texture_lod_bias;
 	GLint screen_offset;
+	/* multiview: each view's correction (nv2a_vsh.c), and multiview.serial
+	when it was last uploaded */
+	GLint mv_rows;
+	unsigned long mv_serial;
 
 	/* the vertex constants c[0..constant_count) the program uses; with
 	consecutive locations, a changed range is uploaded by itself */
@@ -370,6 +375,8 @@ struct gl_device
 	{
 		unsigned short slot;
 		unsigned short counter;
+		/* drawn into both eyes at once: counted twice */
+		unsigned short views;
 	} frame_tests[STREAM_BUFFER_RING][VISIBILITY_FRAME_TESTS];
 	unsigned long frame_test_count[STREAM_BUFFER_RING];
 	GLuint visibility_latest[VISIBILITY_TEST_SLOTS];
@@ -855,6 +862,124 @@ static GLuint framebuffer_get(GLuint color, GLuint depth)
 	return entry->framebuffer;
 }
 
+#ifdef HALO_ANDROID
+/* ---------- multiview (VR: both eyes in one draw, GL_OVR_multiview2)
+
+Between d3d8_multiview_begin and _end, what the game draws into the back
+buffer goes into two layers at once, one per eye: every vertex program is
+compiled for two views (nv2a_vsh.c) and moves each view's positions to its
+eye (rows, from vr.c). The game draws the scene once, from between the eyes.
+A texture read of the back buffer meanwhile (a screen effect) gets the left
+eye's picture. */
+
+static struct
+{
+	BOOL active;
+	/* the back buffer's target, which the layers stand in for */
+	struct render_target_entry *back_buffer;
+	/* drawn since the back buffer last got the left eye's picture */
+	BOOL drawn;
+	GLuint color, depth, framebuffer;
+	unsigned long width, height;
+	float rows[4][4];
+	unsigned long serial;
+} multiview;
+
+/* the bound targets are the layers */
+static BOOL targets_multiview;
+
+static GLuint framebuffer_get(GLuint color, GLuint depth);
+
+/* the left eye's picture into the back buffer's own texture, for a draw
+that reads it; the bindings it changes are put back */
+static void multiview_resolve(void)
+{
+	static GLuint read_framebuffer;
+	GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+
+	if (!multiview.drawn)
+		return;
+	multiview.drawn = FALSE;
+	if (!read_framebuffer)
+		glGenFramebuffers(1, &read_framebuffer);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, read_framebuffer);
+	glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, multiview.color, 0, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer_get(multiview.back_buffer->target.texture, 0));
+	if (scissor)
+		glDisable(GL_SCISSOR_TEST);
+	glBlitFramebuffer(0, 0, (GLint)multiview.width, (GLint)multiview.height, 0, 0, (GLint)multiview.width,
+		(GLint)multiview.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	if (scissor)
+		glEnable(GL_SCISSOR_TEST);
+	glBindFramebuffer(GL_FRAMEBUFFER, gl_state.framebuffer != (GLuint)-1 ? gl_state.framebuffer : 0);
+}
+
+int d3d8_multiview_supported(void)
+{
+	return device.gl_ready && xgpu_capabilities.multiview;
+}
+
+/* rows: per view, the correction of x and of y (nv2a_vsh.c) */
+int d3d8_multiview_begin(const float rows[4][4])
+{
+	struct render_target_entry *back_buffer;
+
+	if (!d3d8_multiview_supported() || !(back_buffer = render_target_get(&device.back_buffer)))
+		return FALSE;
+	if (!multiview.framebuffer || multiview.width != back_buffer->target.gl_width ||
+		multiview.height != back_buffer->target.gl_height)
+	{
+		static const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+		GLenum status;
+
+		if (multiview.framebuffer)
+		{
+			glDeleteFramebuffers(1, &multiview.framebuffer);
+			glDeleteTextures(1, &multiview.color);
+			glDeleteTextures(1, &multiview.depth);
+		}
+		multiview.width = back_buffer->target.gl_width;
+		multiview.height = back_buffer->target.gl_height;
+		glGenTextures(1, &multiview.color);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, multiview.color);
+		glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, (GLsizei)multiview.width, (GLsizei)multiview.height, 2);
+		glGenTextures(1, &multiview.depth);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, multiview.depth);
+		glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_DEPTH24_STENCIL8, (GLsizei)multiview.width,
+			(GLsizei)multiview.height, 2);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+		glGenFramebuffers(1, &multiview.framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, multiview.framebuffer);
+		glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, multiview.color, 0, 0, 2);
+		glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, multiview.depth, 0, 0, 2);
+		glDrawBuffers(1, &draw_buffer);
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		xgpu_gl_state_invalidate();
+		platform_log("multiview: %lux%lu layers, framebuffer %s", multiview.width, multiview.height,
+			status == GL_FRAMEBUFFER_COMPLETE ? "complete" : "INCOMPLETE");
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			xgpu_capabilities.multiview = FALSE;
+			return FALSE;
+		}
+	}
+	memcpy(multiview.rows, rows, sizeof(multiview.rows));
+	multiview.serial++;
+	multiview.back_buffer = back_buffer;
+	multiview.drawn = FALSE;
+	multiview.active = TRUE;
+	return TRUE;
+}
+
+/* the eyes' layers (GL_TEXTURE_2D_ARRAY), after d3d8_multiview_end */
+unsigned int d3d8_multiview_end(void)
+{
+	multiview.active = FALSE;
+	targets_multiview = FALSE;
+	return multiview.color;
+}
+
+#endif
 /* the pixels per unit of the bound targets (render_target_get) */
 static float target_scale[2] = { 1.0f, 1.0f };
 
@@ -880,6 +1005,18 @@ static BOOL bind_targets(BOOL *has_depth)
 	/* viewports and clears are in the targets' units (render_target_get) */
 	target_scale[0] = color ? color->target.scale[0] : depth->target.scale[0];
 	target_scale[1] = color ? color->target.scale[1] : depth->target.scale[1];
+#ifdef HALO_ANDROID
+	/* VR: the back buffer, while both eyes are drawn at once, is their
+	layers (d3d8_multiview_begin), with a depth buffer of their own */
+	targets_multiview = multiview.active && color == multiview.back_buffer;
+	if (targets_multiview)
+	{
+		multiview.drawn = TRUE;
+		state_framebuffer(multiview.framebuffer);
+		*has_depth = depth != NULL;
+		return TRUE;
+	}
+#endif
 	state_framebuffer(framebuffer_get(color ? color->target.texture : 0, depth ? depth->target.texture : 0));
 	*has_depth = depth != NULL;
 	return TRUE;
@@ -917,9 +1054,11 @@ static void gl_initialize(void)
 			(host_gl_has_extension("GL_EXT_texture_compression_dxt1") &&
 			host_gl_has_extension("GL_ANGLE_texture_compression_dxt3") &&
 			host_gl_has_extension("GL_ANGLE_texture_compression_dxt5"));
-		platform_log("OpenGL ES %d.%d: copy image %d, border clamp %d, anisotropy %d, S3TC %d, sample counting %d",
-			(int)major, (int)minor, xgpu_capabilities.copy_image, xgpu_capabilities.border_clamp,
-			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters);
+		xgpu_capabilities.multiview = host_gl_has_extension("GL_OVR_multiview2");
+		platform_log("OpenGL ES %d.%d: copy image %d, border clamp %d, anisotropy %d, S3TC %d, sample counting %d, "
+			"multiview %d", (int)major, (int)minor, xgpu_capabilities.copy_image, xgpu_capabilities.border_clamp,
+			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters,
+			xgpu_capabilities.multiview);
 	}
 #else
 	if (config_boolean("debug.gl_debug"))
@@ -1414,6 +1553,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		{
 			device.frame_tests[device.buffer_ring][*count].slot = (unsigned short)index;
 			device.frame_tests[device.buffer_ring][*count].counter = (unsigned short)device.counter_active;
+			device.frame_tests[device.buffer_ring][*count].views = (unsigned short)(multiview.active ? 2 : 1);
 			(*count)++;
 		}
 		return S_OK;
@@ -1473,7 +1613,7 @@ static void visibility_results_update(void)
 		{
 			const struct visibility_frame_test *entry = &device.frame_tests[ring][test];
 
-			device.visibility_latest[entry->slot] = counts[entry->counter];
+			device.visibility_latest[entry->slot] = counts[entry->counter] / (entry->views ? entry->views : 1);
 		}
 	}
 	device.frame_test_count[ring] = 0;
@@ -1855,14 +1995,14 @@ static unsigned long hash_words(const void *data, unsigned long size)
 	return hash;
 }
 
-static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate)
+static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL multiview_view)
 {
-	int variant = immediate ? 1 : 0;
+	int variant = (immediate ? 1 : 0) + (multiview_view ? 2 : 0);
 
 	if (!program->shader[variant])
 	{
 		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask);
+			immediate ? 0 : device.vertex_shader->packed_mask, multiview_view);
 
 		program->shader[variant] = compile_shader(GL_VERTEX_SHADER, source, "vertex");
 		if (debug_settings.dump_shaders)
@@ -2018,6 +2158,7 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	entry->texture_scale = glGetUniformLocation(entry->program, "texture_scale");
 	entry->texture_lod_bias = glGetUniformLocation(entry->program, "texture_lod_bias");
 	entry->screen_offset = glGetUniformLocation(entry->program, "screen_offset");
+	entry->mv_rows = glGetUniformLocation(entry->program, "mv_rows");
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		char name[8];
@@ -2241,6 +2382,10 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 
 			if (target)
 			{
+#ifdef HALO_ANDROID
+				if (multiview.active && multiview.back_buffer && target == &multiview.back_buffer->target)
+					multiview_resolve();
+#endif
 				xgpu_texture_describe(texture->Format, texture->Size, &description);
 				gl_texture = target->texture;
 				gl_target = GL_TEXTURE_2D;
@@ -2563,7 +2708,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
-	entry = program_get(vertex_shader_get(program, immediate), fragment_shader_get(&key));
+	entry = program_get(vertex_shader_get(program, immediate, targets_multiview), fragment_shader_get(&key));
 	if (!entry)
 	{
 		stats.skipped_link++;
@@ -2577,6 +2722,11 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		stats.draws++;
 	state_program(entry->program);
 #ifdef HALO_ANDROID
+	if (targets_multiview && entry->mv_rows >= 0 && entry->mv_serial != multiview.serial)
+	{
+		glUniform4fv(entry->mv_rows, 4, &multiview.rows[0][0]);
+		entry->mv_serial = multiview.serial;
+	}
 	if (key.count_samples)
 		glBindBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, device.visibility_counters,
 			(GLintptr)(device.counter_active * sizeof(GLuint)), sizeof(GLuint));

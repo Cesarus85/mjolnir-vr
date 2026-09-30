@@ -195,13 +195,27 @@ static const char shader_prologue[] =
 	"}\n";
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask)
+	unsigned long packed_attribute_mask, int multiview)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
 
 #ifdef HALO_ANDROID
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
+	if (multiview)
+	{
+		/* VR: one draw into both eyes' layers. The scene is posed for a
+		camera between the eyes whose view covers both; each view moves the
+		position to its eye (half the eyes' distance aside) and onto its
+		own view's edges. As x' = a x + b w + c and y' likewise, with w the
+		depth along the view: mv_rows[2 * view] and [2 * view + 1]. */
+		xgpu_text_append(&text,
+			"#extension GL_OVR_multiview2 : require\n"
+			"layout(num_views = 2) in;\n"
+			"uniform vec4 mv_rows[4];\n");
+	}
+#else
+	(void)multiview;
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -360,6 +374,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		GL: rows from the top, depth 0..1 */
 		"\tgl_Position.y = -gl_Position.y;\n"
 		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
+		"%s"
 #endif
 		"\tgl_PointSize = oPts.x;\n"
 		"\txD0 = clamp(oD0, 0.0, 1.0);\n"
@@ -373,7 +388,16 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\txFog = oFog.x;\n"
 		"}\n"
 #ifdef HALO_ANDROID
-		, XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37
+		, XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37,
+		/* (what is drawn in screen space, which kept no clip position, is
+		the same in both views) */
+		multiview ?
+			"\tif (clip_captured)\n\t{\n"
+			"\t\tint row = int(gl_ViewID_OVR) * 2;\n"
+			"\t\tgl_Position.xy = vec2(dot(vec3(gl_Position.xw, 1.0), mv_rows[row].xyz),\n"
+			"\t\t\tdot(vec3(gl_Position.yw, 1.0), mv_rows[row + 1].xyz));\n"
+			"\t}\n" :
+			""
 #endif
 		);
 	return text.buffer;
