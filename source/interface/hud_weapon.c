@@ -973,8 +973,12 @@ static void crosshairs_draw(
 #ifdef HALO_ANDROID
 	/* VR: the crosshair marks where the head looks; the weapon in the hand
 	has its laser instead (render.c) */
-	if (halo_vr_hide_crosshair())
+	if (halo_vr_hide_crosshair() ||
+		(halo_vr_active() && player_control_get_zoom_level(player->local_player_index) != NONE))
+	{
+		/* zoomed in, the scope has its own */
 		return;
+	}
 #endif
 	if (TEST_FLAG(weapon_hud_globals->script_flags, _hud_crosshair_show_bit) &&
 		hud_index != NONE)

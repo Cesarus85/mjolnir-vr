@@ -755,34 +755,54 @@ static void render_vr_scope(
 	return;
 }
 
-/* the aiming laser of the weapon in the right hand, up to what it hits */
+/* where a ray from the weapon, as far as the longest-ranged weapons reach,
+hits something, or its end */
+static void render_vr_ray_end(
+	float const start[3],
+	float const direction[3],
+	long unit_index,
+	real_point3d *origin,
+	real_point3d *end)
+{
+	real_vector3d ray;
+	struct collision_result collision;
+
+	origin->x = start[0];
+	origin->y = start[1];
+	origin->z = start[2];
+	ray.i = direction[0] * 100.f;
+	ray.j = direction[1] * 100.f;
+	ray.k = direction[2] * 100.f;
+	if (collision_test_vector(_collision_test_for_projectiles_flags, origin, &ray, unit_index, &collision))
+		*end = collision.point;
+	else
+		point_from_line3d(origin, &ray, 1.f, end);
+}
+
+/* how far the weapon in the right hand aims before it hits something (the
+crosshair floats there, halo_vr_set_aim_distance), and its laser up to
+there, along the barrel as a reload turns it (halo_vr_laser), if vr.laser
+is on, but not over the menus */
 static void render_vr_laser(
 	short local_player_index)
 {
 	static real_argb_color const laser_color = { 1.f, 1.f, 0.15f, 0.1f };
 	float start[3], direction[3];
 	real_point3d origin, end;
-	real_vector3d ray;
-	struct collision_result collision;
 	long player_index;
 	long unit_index = NONE;
 
-	if (!halo_vr_laser(local_player_index, start, direction))
+	if (!halo_vr_ready_laser(local_player_index, start, direction))
 		return;
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index != NONE)
 		unit_index = player_get(player_index)->unit_index;
-	origin.x = start[0];
-	origin.y = start[1];
-	origin.z = start[2];
-	/* as far as the longest-ranged weapons reach */
-	ray.i = direction[0] * 100.f;
-	ray.j = direction[1] * 100.f;
-	ray.k = direction[2] * 100.f;
-	if (collision_test_vector(_collision_test_for_projectiles_flags, &origin, &ray, unit_index, &collision))
-		end = collision.point;
-	else
-		point_from_line3d(&origin, &ray, 1.f, &end);
+	render_vr_ray_end(start, direction, unit_index, &origin, &end);
+	halo_vr_set_aim_distance(distance3d(&origin, &end));
+
+	if (!halo_vr_laser(local_player_index, start, direction) || ui_widgets_menus_active())
+		return;
+	render_vr_ray_end(start, direction, unit_index, &origin, &end);
 	render_debug_line(TRUE, &origin, &end, &laser_color);
 	render_debug_point(TRUE, &end, 0.02f, &laser_color);
 

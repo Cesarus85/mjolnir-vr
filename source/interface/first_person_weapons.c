@@ -636,6 +636,11 @@ void first_person_weapon_render_update(
 		{
 			boolean visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person &&
 				player_control_get_zoom_level(render.local_player_index)==NONE;
+#ifdef HALO_ANDROID
+			/* VR: the weapon stays in the hand zoomed in (the scope is on it) */
+			if (halo_vr_active())
+				visible= director_get_perspective(render.local_player_index)==_director_perspective_first_person;
+#endif
 
 			first_person_weapon_set_visibility(render.local_player_index, visible);
 			if (first_person_weapon->visible)

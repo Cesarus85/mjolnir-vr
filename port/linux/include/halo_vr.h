@@ -114,6 +114,9 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	float *vertical_field_of_view);
 int halo_vr_scope_pass(void);
 void halo_vr_capture_scope(float left, float top, float right, float bottom);
+/* how far, in world units, the weapon's aim runs before it hits something
+(render.c, each frame); the crosshair floats there */
+void halo_vr_set_aim_distance(float world_units);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);

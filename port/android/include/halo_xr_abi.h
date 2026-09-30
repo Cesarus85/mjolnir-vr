@@ -26,7 +26,8 @@ enum
 	HALO_XR_LAYER_OVERLAY = 2, /* HUD, menus, cinematics: a flat quad */
 	HALO_XR_LAYER_WRIST = 3,   /* the motion tracker, on the left wrist */
 	HALO_XR_LAYER_SCOPE = 4,   /* the zoomed view, a disc over the weapon */
-	HALO_XR_LAYER_COUNT = 5,
+	HALO_XR_LAYER_CROSSHAIR = 5, /* the weapon's crosshair, where it aims */
+	HALO_XR_LAYER_COUNT = 6,
 
 	/* host_xr_copy_layer's clear_alpha: the source's alpha kept, made
 	opaque, or cut to a disc (premultiplied) */
@@ -141,6 +142,11 @@ struct halo_xr_submit
 	int scope;
 	float scope_size;
 	struct halo_xr_pose scope_pose;
+	/* the crosshair layer was filled: shown this wide (metres), here in
+	LOCAL space, facing the eyes */
+	int crosshair;
+	float crosshair_size;
+	struct halo_xr_pose crosshair_pose;
 };
 
 #endif

@@ -227,6 +227,10 @@ static const char copy_fragment_shader[] =
 	"	if (cut_disc > 0.5)\n"
 	"	{\n"
 	"		float inside = 1.0 - smoothstep(0.95, 1.0, length(disc));\n"
+	"		/* a fine cross, open at the centre */\n"
+	"		vec2 away = abs(disc);\n"
+	"		float line = (away.x < 0.008 || away.y < 0.008) && max(away.x, away.y) > 0.06 ? 0.85 : 0.0;\n"
+	"		color.rgb *= 1.0 - line;\n"
 	"		color = vec4(color.rgb * inside, inside);\n"
 	"	}\n"
 	"}\n";
@@ -708,6 +712,7 @@ the layer faces -X with its top towards the elbow, as the wrist turned to
 the eyes reads it. Shown only while it is. */
 
 #define WRIST_IMAGE_SIZE 512
+#define CROSSHAIR_IMAGE_SIZE 256
 #define WRIST_BEHIND_PALM 0.05f
 #define WRIST_DOWN_HANDLE 0.02f
 #define WRIST_ABOVE_HAND 0.04f
@@ -944,7 +949,8 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		return 0;
 	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
 	{
-		int size = layer == HALO_XR_LAYER_WRIST || layer == HALO_XR_LAYER_SCOPE ? WRIST_IMAGE_SIZE : 0;
+		int size = layer == HALO_XR_LAYER_WRIST || layer == HALO_XR_LAYER_SCOPE ? WRIST_IMAGE_SIZE :
+			layer == HALO_XR_LAYER_CROSSHAIR ? CROSSHAIR_IMAGE_SIZE : 0;
 
 		if (!swapchain_create(&xr.swapchains[layer], size ? size : xr.eye_width, size ? size : xr.eye_height))
 			return 0;
@@ -1209,7 +1215,8 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad wrist = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad scope = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	const XrCompositionLayerBaseHeader *layers[4];
+	XrCompositionLayerQuad crosshair = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader *layers[5];
 	uint32_t layer_count = 0;
 	int eye;
 
@@ -1296,6 +1303,21 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		scope.size.width = scope.size.height = submit->scope_size;
 		pose_to_xr(&scope.pose, &submit->scope_pose);
 		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&scope;
+	}
+
+	if (xr.frame_state.shouldRender && submit->crosshair && xr.swapchains[HALO_XR_LAYER_CROSSHAIR].filled)
+	{
+		struct xr_swapchain *swapchain = &xr.swapchains[HALO_XR_LAYER_CROSSHAIR];
+
+		crosshair.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		crosshair.space = xr.local_space;
+		crosshair.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		crosshair.subImage.swapchain = swapchain->handle;
+		crosshair.subImage.imageRect.extent.width = swapchain->width;
+		crosshair.subImage.imageRect.extent.height = swapchain->height;
+		crosshair.size.width = crosshair.size.height = submit->crosshair_size;
+		pose_to_xr(&crosshair.pose, &submit->crosshair_pose);
+		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&crosshair;
 	}
 
 	end.displayTime = xr.frame_state.predictedDisplayTime;
