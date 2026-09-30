@@ -956,6 +956,14 @@ finished:
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* VR (render.c): the crosshair is drawn on its own, and taken to where the
+weapon aims (hud_render_weapon_crosshair); the HUD is drawn without it, so
+what else is drawn about the screen's centre (the reload prompt) stays in
+the HUD whole */
+static boolean hud_vr_crosshair_only = FALSE;
+#endif
+
 static void crosshairs_draw(
 	struct player_datum *player,
 	long weapon_index,
@@ -973,8 +981,9 @@ static void crosshairs_draw(
 #ifdef HALO_ANDROID
 	/* VR: the crosshair marks where the head looks; the weapon in the hand
 	has its laser instead (render.c) */
-	if (halo_vr_hide_crosshair() ||
-		(halo_vr_active() && player_control_get_zoom_level(player->local_player_index) != NONE))
+	if (halo_vr_active() &&
+		(player_control_get_zoom_level(player->local_player_index) != NONE ||
+			(halo_vr_hide_crosshair() && !hud_vr_crosshair_only)))
 	{
 		/* zoomed in, the scope has its own */
 		return;
@@ -1903,6 +1912,19 @@ void hud_update_weapon(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* VR: the weapon's crosshair alone (render.c) */
+void hud_render_weapon_crosshair(
+	struct player_datum *player)
+{
+	hud_vr_crosshair_only = TRUE;
+	hud_render_weapon_interface(player);
+	hud_vr_crosshair_only = FALSE;
+
+	return;
+}
+
+#endif
 void hud_render_weapon_interface(
 	struct player_datum *player)
 {
@@ -1960,6 +1982,10 @@ void hud_render_weapon_interface(
 				weapon_index,
 				hud_index,
 				&weapon_state);
+#ifdef HALO_ANDROID
+			if (hud_vr_crosshair_only)
+				return;
+#endif
 			render_weapon_hud(
 				hud_index,
 				player->local_player_index,
@@ -1985,6 +2011,10 @@ void hud_render_weapon_interface(
 			&weapon_state);
 	}
 
+#ifdef HALO_ANDROID
+	if (hud_vr_crosshair_only)
+		return;
+#endif
 	render_grenade_hud(
 		player->local_player_index,
 		player->unit_index);

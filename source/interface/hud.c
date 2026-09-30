@@ -1205,4 +1205,27 @@ void hud_draw_screen(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* VR (render.c): the weapon's crosshair alone, as hud_draw_screen would
+draw it */
+void hud_draw_crosshair(
+	void)
+{
+	long player_index = local_player_get_player_index(render.local_player_index);
+	director_perspective perspective = director_get_perspective(render.local_player_index);
+
+	rasterizer_hud_begin();
+	if (player_index != NONE && hud_scripted_globals->show_hud &&
+		perspective != _director_perspective_neutral &&
+		perspective != _director_perspective_scripted &&
+		player_get(player_index)->unit_index != NONE)
+	{
+		hud_render_weapon_crosshair(player_get(player_index));
+	}
+	rasterizer_hud_end();
+
+	return;
+}
+
+#endif
 /* ---------- private code */

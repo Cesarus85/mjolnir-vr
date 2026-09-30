@@ -23,6 +23,10 @@ void hud_fix_weapon_data(
 
 void hud_update_weapon(
 	void);
+#ifdef HALO_ANDROID
+void hud_render_weapon_crosshair(
+	struct player_datum *player);
+#endif
 void hud_render_weapon_interface(
 	struct player_datum *player);
 

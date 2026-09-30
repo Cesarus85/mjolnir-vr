@@ -129,6 +129,10 @@ void halo_vr_set_aim_distance(float world_units);
 /* - and whether the HUD's crosshair, which marks where the head looks, is
   left out */
 int halo_vr_hide_crosshair(void);
+/* whether the crosshair is drawn apart this frame (render.c), and taking
+it, drawn alone on the cleared back buffer, which is cleared again */
+int halo_vr_crosshair_apart(void);
+void halo_vr_capture_crosshair(void);
 
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);

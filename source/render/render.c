@@ -85,6 +85,7 @@ symbols in this file:
 #include "cutscene/cinematics.h"
 #include "game/players.h"
 #include "game/player_control.h"
+#include "interface/hud.h"
 #include "physics/collisions.h"
 #include "units/units.h"
 #include "halo_vr.h"
@@ -814,8 +815,9 @@ static void render_vr_overlay(
 	const struct render_window *window)
 {
 	struct rasterizer_window_begin_parameters parameters;
+	boolean menus_active = ui_widgets_menus_active();
 
-	halo_vr_begin_overlay(ui_widgets_menus_active());
+	halo_vr_begin_overlay(menus_active);
 	profile_render_window_start(FALSE);
 	memset(&parameters, 0, sizeof(parameters));
 	render.local_player_index = window->local_player_index;
@@ -826,6 +828,15 @@ static void render_vr_overlay(
 	parameters.rasterizer_target = _render_target_primary;
 	parameters.suppress_clear = TRUE;
 	parameters.window_index = render.window_index;
+
+	if (!menus_active && halo_vr_crosshair_apart())
+	{
+		/* the weapon's crosshair alone, taken to where the weapon aims */
+		rasterizer_window_begin(&parameters);
+		hud_draw_crosshair();
+		rasterizer_window_end();
+		halo_vr_capture_crosshair();
+	}
 	rasterizer_window_begin(&parameters);
 
 	interface_draw_screen();

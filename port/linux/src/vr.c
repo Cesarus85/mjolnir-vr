@@ -90,6 +90,7 @@ static struct
 	int positional_tracking;
 	float scope_size;
 	int crosshair;
+	int crosshair_captured;  /* this frame (halo_vr_capture_crosshair) */
 	/* the barrel of the weapon as drawn (halo_vr_set_barrel): where shots,
 	the crosshair and the laser start */
 	float barrel[3];
@@ -546,6 +547,7 @@ void halo_vr_frame_begin(void)
 	vr.frame_number++;
 	vr.eyes_captured = 0;
 	vr.scope_captured = 0;
+	vr.crosshair_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
 	if (vr.frame.recentred)
@@ -605,15 +607,10 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.wrist_down = vr.motion_tracker_down;
 		d3d8_clear_back_buffer_region(WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 	}
-	if (vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED && vr.crosshair && crosshair_pose(&submit.crosshair_pose,
-		&submit.crosshair_size))
-	{
-		/* the crosshair to where the weapon aims, and out of the HUD */
-		submit.crosshair = host_xr_copy_layer_region(HALO_XR_LAYER_CROSSHAIR, back_buffer_texture, HALO_XR_COPY_ALPHA,
-			CROSSHAIR_REGION_LEFT, CROSSHAIR_REGION_TOP, CROSSHAIR_REGION_RIGHT, CROSSHAIR_REGION_BOTTOM);
-		d3d8_clear_back_buffer_region(CROSSHAIR_REGION_LEFT, CROSSHAIR_REGION_TOP, CROSSHAIR_REGION_RIGHT,
-			CROSSHAIR_REGION_BOTTOM);
-	}
+	/* the crosshair, drawn apart (halo_vr_capture_crosshair), to where the
+	weapon aims */
+	if (vr.crosshair_captured && vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED)
+		submit.crosshair = crosshair_pose(&submit.crosshair_pose, &submit.crosshair_size);
 	if (vr.scope_captured && submit.eyes)
 	{
 		submit.scope = 1;
@@ -1327,9 +1324,22 @@ void halo_vr_capture_scope(float left, float top, float right, float bottom)
 
 int halo_vr_hide_crosshair(void)
 {
-	/* the HUD's crosshair marks where the head looks: shown only to be taken
-	to where the weapon aims (crosshair_pose), else left out */
-	return vr.active && vr.aim_with_controller && !vr.crosshair;
+	/* the HUD's crosshair marks where the head looks: left out of it, and
+	drawn on its own to be taken to where the weapon aims (vr.crosshair) */
+	return vr.active && vr.aim_with_controller;
+}
+
+int halo_vr_crosshair_apart(void)
+{
+	return vr.active && vr.aim_with_controller && vr.crosshair && halo_vr_stereo_frame();
+}
+
+void halo_vr_capture_crosshair(void)
+{
+	vr.crosshair_captured = host_xr_copy_layer_region(HALO_XR_LAYER_CROSSHAIR, d3d8_back_buffer_texture(),
+		HALO_XR_COPY_ALPHA, CROSSHAIR_REGION_LEFT, CROSSHAIR_REGION_TOP, CROSSHAIR_REGION_RIGHT,
+		CROSSHAIR_REGION_BOTTOM);
+	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */
@@ -1431,5 +1441,7 @@ void halo_vr_set_barrel(short local_player_index, const float world[3], const fl
 	(void)local_player_index; (void)world; (void)direction;
 }
 int halo_vr_hide_crosshair(void) { return 0; }
+int halo_vr_crosshair_apart(void) { return 0; }
+void halo_vr_capture_crosshair(void) {}
 
 #endif
