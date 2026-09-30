@@ -122,6 +122,11 @@ static const struct config_setting config_settings[] =
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
 		"melee attack (the right grip is too); 0 turns it off." },
+	{ "vr.grenade_throw_speed", _config_real, "1.5", "HALO_VR_GRENADE_THROW", _environment_value, _platform_android,
+		"A grenade is held while the left trigger is, and thrown as it lets go:\n"
+		"along the hand's throw, when the hand moved faster than this (metres per\n"
+		"second; full strength at 4), else as the game throws it. 0 turns the\n"
+		"hand's throw off." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"

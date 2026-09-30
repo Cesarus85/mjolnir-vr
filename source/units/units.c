@@ -1013,6 +1013,9 @@ short unit_update_animation(
 
 static boolean unit_vectors_are_valid(long unit_index);
 static void unit_throw_grenade_release(long unit_index, boolean premature);
+#ifdef HALO_ANDROID
+static short unit_vr_grenade_player(long unit_index);
+#endif
 
 static void unit_seat_update(long object_index);
 
@@ -5780,6 +5783,19 @@ boolean unit_update(
 				break;
 			case _unit_grenade_throw_in_hand:
 				++unit->unit.grenade_throw_ticks;
+#ifdef HALO_ANDROID
+				{
+					/* VR: held while the trigger is, and thrown as it lets go */
+					short vr_local_player_index = unit_vr_grenade_player(unit_index);
+
+					if (vr_local_player_index != NONE)
+					{
+						if (!halo_vr_grenade_held(vr_local_player_index))
+							unit_throw_grenade_release(unit_index, FALSE);
+						break;
+					}
+				}
+#endif
 				if (unit->unit.animation.state!=_unit_state_throw_grenade)
 				{
 					unit_throw_grenade_release(unit_index, TRUE);
@@ -11080,6 +11096,22 @@ static boolean unit_vectors_are_valid(
 	return result;
 }
 
+#ifdef HALO_ANDROID
+/* VR: the local player whose grenade the left hand holds and throws
+(halo_vr_grenade_held), or NONE */
+static short unit_vr_grenade_player(
+	long unit_index)
+{
+	long player_index = player_index_from_unit_index(unit_index);
+	struct player_datum *player;
+
+	if (!halo_vr_active() || player_index == NONE)
+		return NONE;
+	player = player_get(player_index);
+	return player->unit_index == unit_index ? player->local_player_index : NONE;
+}
+
+#endif
 static void unit_throw_grenade_release(
 	long unit_index,
 	boolean premature)
@@ -11088,6 +11120,14 @@ static void unit_throw_grenade_release(
 
 	struct unit_datum *unit = unit_get(unit_index);
 	struct unit_definition *unit_definition = unit_definition_get(unit->definition_index);
+#ifdef HALO_ANDROID
+	short vr_local_player_index = unit_vr_grenade_player(unit_index);
+	boolean vr_thrown = FALSE;
+
+	/* VR: the grenade stays in the hand while the trigger holds it */
+	if (vr_local_player_index != NONE && halo_vr_grenade_held(vr_local_player_index))
+		return;
+#endif
 
 	if (unit->unit.grenade_throw_state==_unit_grenade_throw_in_hand)
 	{
@@ -11142,10 +11182,36 @@ static void unit_throw_grenade_release(
 
 				{
 					real scale = unit_definition->unit.grenade_velocity/TICKS_PER_SECOND;
+#ifdef HALO_ANDROID
+					float vr_origin[3], vr_direction[3], vr_strength;
+
+					/* VR: thrown by the hand, from it, its way and as hard */
+					if (vr_local_player_index != NONE &&
+						halo_vr_grenade_throw(vr_local_player_index, vr_origin, vr_direction, &vr_strength))
+					{
+						real_point3d origin;
+						real_vector3d direction;
+
+						origin.x = vr_origin[0];
+						origin.y = vr_origin[1];
+						origin.z = vr_origin[2];
+						direction.i = vr_direction[0];
+						direction.j = vr_direction[1];
+						direction.k = vr_direction[2];
+						object_translate(grenade_index, &origin, NULL);
+						scale_vector3d(&direction, scale * vr_strength, &initial_velocity);
+						vr_thrown = TRUE;
+					}
+					else
+#endif
 					scale_vector3d(&unit->unit.aiming_vector, scale, &initial_velocity);
 				}
 			}
 
+#ifdef HALO_ANDROID
+			if (vr_thrown)
+				premature = FALSE;
+#endif
 			if (premature)
 			{
 				real power = (real)unit->unit.grenade_throw_ticks/(real)unit->unit.grenade_throw_full_power_ticks;

@@ -1474,7 +1474,10 @@ static void first_person_weapon_vr_arms(
 	struct render_camera const *weapon_camera,
 	short state)
 {
-	boolean melee = state==_first_person_weapon_state_melee;
+	/* a grenade's throw is the player's own too */
+	boolean melee = state==_first_person_weapon_state_melee ||
+		state==_first_person_weapon_state_throw_grenade ||
+		state==_first_person_weapon_state_throw_grenade_overheated;
 	/* held ready: firing or not, the gun where it aims */
 	boolean ready = state==_first_person_weapon_state_idle ||
 		state==_first_person_weapon_state_primary_fire ||
