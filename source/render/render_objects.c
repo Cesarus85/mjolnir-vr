@@ -516,7 +516,7 @@ static real object_get_level_of_detail_pixels(
 /* VR: seated at a wheel or a gun, the player's own body is drawn, its hands
 on the wheel or the gun's handles as the seat's animation has them, but for
 its head, where the eyes are */
-static boolean object_vr_seated_body(
+boolean render_object_vr_seated_body(
 	long object_index)
 {
 	struct object_datum *object;
@@ -577,7 +577,7 @@ static void render_object_list(
 
 		if (!object_is_first_person_camera(object_index) || render.camera.mirrored
 #ifdef HALO_ANDROID
-			|| (!data->shadow && object_vr_seated_body(object_index))
+			|| (!data->shadow && render_object_vr_seated_body(object_index))
 #endif
 			)
 		{

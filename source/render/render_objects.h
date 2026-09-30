@@ -32,4 +32,11 @@ void render_objects(
 void render_object_shadows(
 	void);
 
+#ifdef HALO_ANDROID
+/* VR: whether a player's own unit is drawn, seated at a wheel or a gun (the
+first-person weapon is not, then) */
+boolean render_object_vr_seated_body(
+	long object_index);
+#endif
+
 #endif // __RENDER_OBJECTS_H
