@@ -146,10 +146,6 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"At a vehicle's gun, the right controller works it as by its handles: tipped\n"
 		"down, the barrel rises (false: the barrel points where the controller does)." },
-	{ "vr.enclosed_seat_clearance", _config_real, "0.15", "HALO_VR_ENCLOSED_SEAT_CLEARANCE", _environment_value,
-		_platform_android,
-		"In a Ghost, a Banshee or a Covenant gun, whose rider sits down in the hull,\n"
-		"the eyes are this many metres above its top, over the head and ahead of it." },
 	{ "vr.ghost_eye_raise", _config_real, "0.45", "HALO_VR_GHOST_EYE_RAISE", _environment_value, _platform_android,
 		"In a Ghost, whose hood arches over its rider, the eyes this many metres\n"
 		"above his head," },

@@ -170,9 +170,8 @@ int halo_vr_vehicle_first_person(void);
 float halo_vr_gunner_camera_back(void);
 /* how far forward an open vehicle's driver's view is moved (world units) */
 float halo_vr_driver_camera_forward(void);
-/* how far above its hull the eyes of a rider who sits down in it are
-(world units), and how far they rise above his head at least, by the kind
-of hull */
+/* how far the eyes of a rider who sits down in the hull rise above his
+head (world units), by the kind of hull */
 enum
 {
 	HALO_VR_HULL_OPEN = 0,
@@ -181,7 +180,6 @@ enum
 	HALO_VR_HULL_TURRET,   /* a Shade: its shield is at the eyes */
 	HALO_VR_HULL_TANK,     /* a Scorpion: its driver sits in the hull */
 };
-float halo_vr_enclosed_seat_clearance(void);
 float halo_vr_enclosed_seat_raise(int hull);
 /* how strongly glass tints and reflects (1 as the game has it) */
 float halo_vr_glass_strength(void);
