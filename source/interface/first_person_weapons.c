@@ -1081,13 +1081,15 @@ struct vr_arm_nodes
 	short left_index;
 	short left_middle;
 	short left_pinky;
+	long barrel_logged_graph_index;
 	/* the whole pose in the weapon camera's frame, outside a melee attack */
 	boolean idle_pose_valid;
 	short idle_pose_count;
 	real_matrix4x3 idle_pose[MAXIMUM_NODES_PER_ANIMATION];
 };
 
-static struct vr_arm_nodes vr_arm_nodes = { NONE };
+static struct vr_arm_nodes vr_arm_nodes = { NONE, { NONE, NONE }, { NONE, NONE }, { NONE, NONE }, NONE, NONE, NONE, NONE,
+	NONE };
 
 static void vr_vector_scale_add(
 	real_vector3d *out,
@@ -1551,6 +1553,15 @@ static void first_person_weapon_vr_arms(
 			}
 		}
 		halo_vr_set_barrel(local_player_index, barrel, direction);
+		if (vr_arm_nodes.barrel_logged_graph_index != graph_index)
+		{
+			/* once per weapon (debug.txt) */
+			error(2, "VR barrel: %.1f degrees off the weapon camera; gun node %.2f %.2f %.2f m from it (forward, left, up)",
+				arccosine(PIN(direction[0], -1.f, 1.f)) * 180.f / _pi,
+				ready_gun->position.x * VR_METRES_PER_WORLD_UNIT, ready_gun->position.y * VR_METRES_PER_WORLD_UNIT,
+				ready_gun->position.z * VR_METRES_PER_WORLD_UNIT);
+			vr_arm_nodes.barrel_logged_graph_index = graph_index;
+		}
 	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
