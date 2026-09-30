@@ -389,7 +389,13 @@ static void render_window(
 	if (!bink_playback_in_progress())
 	{
 		build_sprite_prepare_for_window();
+#ifdef HALO_ANDROID
+		halo_vr_multiview_sky(TRUE);
+#endif
 		render_sky();
+#ifdef HALO_ANDROID
+		halo_vr_multiview_sky(FALSE);
+#endif
 		first_person_weapon_render_update();
 		lights_preprocess_scene();
 		render_objects();
@@ -700,7 +706,36 @@ static void render_vr_player_frame(
 		if (nodes)
 			halo_vr_set_seat_frame(window->local_player_index, (float)atan2(nodes[0].forward.j, nodes[0].forward.i));
 	}
-	for (eye = 0; eye < 2; eye++)
+	if (halo_vr_multiview())
+	{
+		/* both eyes at once, from between them */
+		struct render_window eye_window = *window;
+		float position[3], forward[3], up[3], bounds[4];
+		float vertical_field_of_view;
+		real_rectangle2d frustum_bounds;
+
+		halo_vr_center_camera(game_position, position, forward, up, &vertical_field_of_view, bounds);
+		render_vr_camera_set(&eye_window.render_camera, position, forward, up, vertical_field_of_view);
+		render_vr_camera_set(&eye_window.rasterizer_camera, position, forward, up, vertical_field_of_view);
+		frustum_bounds.x0 = bounds[0];
+		frustum_bounds.x1 = bounds[1];
+		frustum_bounds.y0 = bounds[2];
+		frustum_bounds.y1 = bounds[3];
+		{
+			/* the depth of what the game projects itself (its sprites) */
+			struct render_frustum frustum;
+
+			render_camera_build_frustum(&eye_window.rasterizer_camera, &frustum_bounds, &frustum, TRUE);
+			halo_vr_multiview_projection(frustum.projection_matrix[2][2], frustum.projection_matrix[3][2]);
+		}
+		render_vr_eye_pass = TRUE;
+		render_vr_frustum_bounds = &frustum_bounds;
+		render_player_frame(&eye_window, NULL);
+		render_vr_frustum_bounds = NULL;
+		render_vr_eye_pass = FALSE;
+		halo_vr_capture_multiview();
+	}
+	else for (eye = 0; eye < 2; eye++)
 	{
 		struct render_window eye_window = *window;
 		float position[3], forward[3], up[3], bounds[4];

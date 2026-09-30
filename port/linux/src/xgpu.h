@@ -27,6 +27,8 @@ struct xgpu_capabilities
 	BOOL atomic_counters;
 	/* "300 es" or "310 es" */
 	const char *shading_language;
+	/* GL_OVR_multiview2: both eyes in one draw (VR, d3d8_multiview_begin) */
+	BOOL multiview;
 };
 
 extern struct xgpu_capabilities xgpu_capabilities;
@@ -73,8 +75,10 @@ void xgpu_text_append(struct xgpu_text *text, const char *format, ...) __attribu
 header). Attributes whose bit is set in packed_attribute_mask are fed as
 NORMPACKED3 32-bit integers and unpacked in the shader. Returns a malloc'd
 string. */
+/* multiview: for a two-view (GL_OVR_multiview2) target, each view's
+position corrected from the shared one by mv_rows (d3d8_gl.c, VR) */
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask);
+	unsigned long packed_attribute_mask, int multiview);
 
 /* ---------- pixel shaders */
 

@@ -42,6 +42,10 @@ static struct
 	struct halo_xr_info info;
 	struct halo_xr_frame frame;
 	int frame_begun;
+	/* the hands as last seen with the app in focus (the system menu over
+	it reports none): held still meanwhile */
+	struct halo_xr_hand focused_hands[HALO_XR_HAND_COUNT];
+	int focused_hands_valid;
 	int eyes_captured;       /* bit per eye, this frame */
 	int overlay_mode;        /* HALO_XR_OVERLAY_*, this frame */
 	int overlay_blend;
@@ -91,6 +95,9 @@ static struct
 	float seat_frame_yaw;
 	int seat_frame_valid;
 	float seat_turn;
+	int multiview;              /* vr.multiview: both eyes in one draw */
+	int multiview_logged;
+	int multiview_logged_views;
 	int vehicle_first_person;
 	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
@@ -201,6 +208,11 @@ static struct
 
 /* d3d8_gl.c */
 unsigned int d3d8_back_buffer_texture(void);
+int d3d8_multiview_supported(void);
+int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4]);
+void d3d8_multiview_rows(const float rows[4][4]);
+void d3d8_multiview_depth(float a, float b);
+unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
 
@@ -423,6 +435,7 @@ void halo_vr_initialize(void)
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
+	vr.multiview = config_boolean("vr.multiview");
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
 	vr.vehicle_spawn = config_boolean("debug.vehicle_spawn");
 	vr.turret_handles = config_boolean("vr.turret_handles");
@@ -982,6 +995,25 @@ void halo_vr_frame_begin(void)
 	waited = now_us();
 	if (!host_xr_begin_frame(&vr.frame))
 		memset(&vr.frame, 0, sizeof(vr.frame));
+	if (vr.frame.focused)
+	{
+		memcpy(vr.focused_hands, vr.frame.hands, sizeof(vr.focused_hands));
+		vr.focused_hands_valid = 1;
+	}
+	else if (vr.focused_hands_valid && vr.frame.session_running)
+	{
+		/* the system menu is up: the hands stay where they were, their
+		buttons let go (the weapon does not fall back to the head) */
+		int hand;
+
+		memcpy(vr.frame.hands, vr.focused_hands, sizeof(vr.frame.hands));
+		for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+		{
+			vr.frame.hands[hand].trigger = vr.frame.hands[hand].squeeze = 0.0f;
+			vr.frame.hands[hand].thumbstick[0] = vr.frame.hands[hand].thumbstick[1] = 0.0f;
+			vr.frame.hands[hand].buttons = 0;
+		}
+	}
 	vr.frame_start_us = now_us();
 	vr.wait_us += vr.frame_start_us - waited;
 	vr.frame_begun = 1;
@@ -1123,6 +1155,164 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 	frustum_bounds[1] = view->tangent_right / (half_tangent * (4.0f / 3.0f));
 	frustum_bounds[2] = view->tangent_down / half_tangent;
 	frustum_bounds[3] = view->tangent_up / half_tangent;
+}
+
+/* ---------- both eyes at once (vr.multiview)
+
+The scene is drawn once, from a camera between the eyes whose view takes in
+both eyes' (with a margin, for what is near: the eyes stand apart), into two
+layers; each layer's positions are moved from that camera's picture to its
+eye's (d3d8_multiview_begin, nv2a_vsh.c). With d the depth along the view,
+a point's picture across, x, is (2 tx - (L + R)) / (R - L) times d for the
+tangent tx = X / d of the view's edges L, R; up, y, likewise, but for rows
+from the top. An eye that stands t aside sees X - t: x' = a x + b d + c. */
+
+#define MULTIVIEW_MARGIN 0.1f
+
+static float multiview_bounds[4];     /* the shared view's L, R, D, U */
+static int multiview_drawing;
+/* the rows for what is drawn in the world, and for the sky, which is drawn
+about the camera, as though infinitely far: no eye stands aside of it */
+static float multiview_rows[2][4][4];
+
+int halo_vr_multiview(void)
+{
+	int available = vr.active && vr.multiview && d3d8_multiview_supported();
+
+	if (vr.active && vr.multiview && !vr.multiview_logged)
+	{
+		platform_log("VR: both eyes %s", available ? "in one draw (multiview)" : "drawn one by one (no multiview)");
+		vr.multiview_logged = 1;
+	}
+	return available && halo_vr_stereo_frame();
+}
+
+void halo_vr_center_camera(const float game_position[3], float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view, float frustum_bounds[4])
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	static const float local_right[3] = { 1.0f, 0.0f, 0.0f };
+	const struct halo_xr_view *views = vr.frame.views;
+	float centre[3], offset[3], direction[3], right_local[3], up_local[3], rows[4][4];
+	float left, right, down, top, half_tangent;
+	int axis, eye;
+
+	vr.eyes_start_us = now_us();
+	for (axis = 0; axis < 3; axis++)
+		centre[axis] = (views[0].pose.position[axis] + views[1].pose.position[axis]) * 0.5f;
+	tracked_offset(centre, offset);
+	memcpy(vr.game_camera, game_position, sizeof(vr.game_camera));
+	for (axis = 0; axis < 3; axis++)
+		position[axis] = game_position[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	/* the eyes look alike (parallel views): the left one's way */
+	quaternion_rotate(views[0].pose.orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(views[0].pose.orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	quaternion_rotate(views[0].pose.orientation, local_right, right_local);
+	quaternion_rotate(views[0].pose.orientation, local_up, up_local);
+
+	left = fminf(views[0].tangent_left, views[1].tangent_left) - MULTIVIEW_MARGIN;
+	right = fmaxf(views[0].tangent_right, views[1].tangent_right) + MULTIVIEW_MARGIN;
+	down = fminf(views[0].tangent_down, views[1].tangent_down) - MULTIVIEW_MARGIN;
+	top = fmaxf(views[0].tangent_up, views[1].tangent_up) + MULTIVIEW_MARGIN;
+	multiview_bounds[0] = left;
+	multiview_bounds[1] = right;
+	multiview_bounds[2] = down;
+	multiview_bounds[3] = top;
+	half_tangent = (top - down) * 0.5f;
+	*vertical_field_of_view = 2.0f * atanf(half_tangent);
+	frustum_bounds[0] = left / (half_tangent * (4.0f / 3.0f));
+	frustum_bounds[1] = right / (half_tangent * (4.0f / 3.0f));
+	frustum_bounds[2] = down / half_tangent;
+	frustum_bounds[3] = top / half_tangent;
+
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+	{
+		const struct halo_xr_view *view = &views[eye];
+		float aside[3], tx, ty;
+		float eye_width = view->tangent_right - view->tangent_left;
+		float eye_height = view->tangent_up - view->tangent_down;
+
+		/* the eye's place from the shared camera, in its view's axes (world
+		units) */
+		for (axis = 0; axis < 3; axis++)
+			aside[axis] = view->pose.position[axis] - centre[axis];
+		tx = (aside[0] * right_local[0] + aside[1] * right_local[1] + aside[2] * right_local[2]) /
+			METRES_PER_WORLD_UNIT;
+		ty = (aside[0] * up_local[0] + aside[1] * up_local[1] + aside[2] * up_local[2]) / METRES_PER_WORLD_UNIT;
+		rows[eye * 2][0] = (right - left) / eye_width;
+		rows[eye * 2][1] = (left + right - view->tangent_left - view->tangent_right) / eye_width;
+		rows[eye * 2][2] = -2.0f * tx / eye_width;
+		rows[eye * 2][3] = 0.0f;
+		/* (rows from the top: y runs against the tangents) */
+		rows[eye * 2 + 1][0] = (top - down) / eye_height;
+		rows[eye * 2 + 1][1] = -(down + top - view->tangent_down - view->tangent_up) / eye_height;
+		rows[eye * 2 + 1][2] = 2.0f * ty / eye_height;
+		rows[eye * 2 + 1][3] = 0.0f;
+	}
+	memcpy(multiview_rows[0], rows, sizeof(rows));
+	memcpy(multiview_rows[1], rows, sizeof(rows));
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+		multiview_rows[1][eye * 2][2] = multiview_rows[1][eye * 2 + 1][2] = 0.0f;
+	if (!vr.multiview_logged_views)
+	{
+		/* (the correction assumes parallel views: say if they are not) */
+		float other[3], apart[3];
+
+		quaternion_rotate(views[1].pose.orientation, local_forward, other);
+		quaternion_rotate(views[0].pose.orientation, local_forward, direction);
+		for (axis = 0; axis < 3; axis++)
+			apart[axis] = views[1].pose.position[axis] - views[0].pose.position[axis];
+		platform_log("VR multiview: views %.2f degrees apart, eyes %.1f mm apart; shared view %.2f..%.2f, %.2f..%.2f",
+			acosf(fminf(1.0f, direction[0] * other[0] + direction[1] * other[1] + direction[2] * other[2])) * 180.0f / PI,
+			sqrtf(apart[0] * apart[0] + apart[1] * apart[1] + apart[2] * apart[2]) * 1000.0f, left, right, down, top);
+		vr.multiview_logged_views = 1;
+	}
+	{
+		/* each eye's picture's place in the shared one (rows from the top) */
+		float resolve_rect[2][4];
+
+		for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+		{
+			resolve_rect[eye][0] = (views[eye].tangent_left - left) / (right - left);
+			resolve_rect[eye][1] = (top - views[eye].tangent_up) / (top - down);
+			resolve_rect[eye][2] = (views[eye].tangent_right - left) / (right - left);
+			resolve_rect[eye][3] = (top - views[eye].tangent_down) / (top - down);
+		}
+		multiview_drawing = d3d8_multiview_begin(rows, resolve_rect);
+	}
+}
+
+/* the shared camera's projection's depth (render.c: its [2][2] and [3][2]):
+what the game projects itself carries z = -[2][2] + [3][2] / depth */
+void halo_vr_multiview_projection(float projection_22, float projection_32)
+{
+	d3d8_multiview_depth(-projection_22, projection_32);
+}
+
+/* the sky is being drawn (render.c): as though infinitely far */
+void halo_vr_multiview_sky(int sky)
+{
+	if (multiview_drawing)
+		d3d8_multiview_rows(multiview_rows[sky ? 1 : 0]);
+}
+
+/* after the shared draw: its layers become the eyes' images */
+void halo_vr_capture_multiview(void)
+{
+	unsigned int layers = d3d8_multiview_end();
+
+	if (!multiview_drawing)
+		return;
+	multiview_drawing = 0;
+	if (host_xr_copy_layer_array(HALO_XR_LAYER_EYE_LEFT, layers, 0))
+		vr.eyes_captured |= 1;
+	if (host_xr_copy_layer_array(HALO_XR_LAYER_EYE_RIGHT, layers, 1))
+		vr.eyes_captured |= 2;
+	if (vr.eyes_start_us)
+		vr.eyes_us += now_us() - vr.eyes_start_us;
 }
 
 void halo_vr_capture_eye(int eye)
@@ -1872,6 +2062,18 @@ void halo_vr_eye_camera(int eye, const float game_position[3], float position[3]
 	(void)vertical_field_of_view; (void)frustum_bounds;
 }
 void halo_vr_capture_eye(int eye) { (void)eye; }
+int halo_vr_multiview(void) { return 0; }
+void halo_vr_center_camera(const float game_position[3], float position[3], float forward[3], float up[3],
+	float *vertical_field_of_view, float frustum_bounds[4])
+{
+	(void)game_position; (void)position; (void)forward; (void)up; (void)vertical_field_of_view; (void)frustum_bounds;
+}
+void halo_vr_capture_multiview(void) {}
+void halo_vr_multiview_sky(int sky) { (void)sky; }
+void halo_vr_multiview_projection(float projection_22, float projection_32)
+{
+	(void)projection_22; (void)projection_32;
+}
 void halo_vr_begin_overlay(int menus_active) { (void)menus_active; }
 int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch, float *yaw, float *pitch)
 {

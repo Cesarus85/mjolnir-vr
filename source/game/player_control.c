@@ -775,11 +775,13 @@ static void handle_one_player_input(
 #endif
 #ifdef HALO_ANDROID
 			{
-				/* VR: the player faces where the head does (vr.c) */
+				/* VR: the player faces where the head does (vr.c); not in a
+				cinematic, whose camera the game has (seated, the controller
+				would turn it on the screen) */
 				real vr_yaw;
 				real vr_pitch;
 
-				if (halo_vr_aim(
+				if (!cinematic_in_progress() && halo_vr_aim(
 					local_player_index,
 					player->desired_angles.yaw,
 					player->desired_angles.pitch,

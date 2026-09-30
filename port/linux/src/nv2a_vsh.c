@@ -195,13 +195,30 @@ static const char shader_prologue[] =
 	"}\n";
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask)
+	unsigned long packed_attribute_mask, int multiview)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
 
 #ifdef HALO_ANDROID
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
+	if (multiview)
+	{
+		/* VR: one draw into both eyes' layers. The scene is posed for a
+		camera between the eyes whose view covers both; each view moves the
+		position to its eye (half the eyes' distance aside) and onto its
+		own view's edges. As x' = a x + b w + c and y' likewise, with w the
+		depth along the view: mv_rows[2 * view] and [2 * view + 1];
+		what is drawn in screen space goes without c, as though far. */
+		xgpu_text_append(&text,
+			"#extension GL_OVR_multiview2 : require\n"
+			"layout(num_views = 2) in;\n"
+			"uniform vec4 mv_rows[4];\n"
+			/* the projection's depth: z = x + y / depth; z: depth tested */
+			"uniform vec4 mv_depth;\n");
+	}
+#else
+	(void)multiview;
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -360,6 +377,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		GL: rows from the top, depth 0..1 */
 		"\tgl_Position.y = -gl_Position.y;\n"
 		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
+		"%s"
 #endif
 		"\tgl_PointSize = oPts.x;\n"
 		"\txD0 = clamp(oD0, 0.0, 1.0);\n"
@@ -373,7 +391,28 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\txFog = oFog.x;\n"
 		"}\n"
 #ifdef HALO_ANDROID
-		, XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37
+		, XGPU_VERTEX_CONSTANT_BIAS - 38, XGPU_VERTEX_CONSTANT_BIAS - 37,
+		/* (what is drawn in screen space, which kept no clip position, is
+		taken to each view as though infinitely far: a lens flare's sun
+		lands where the sky's does) */
+		/* (what the game projects itself, a sprite or a lens flare's
+		test, comes as a screen position with w 1 and its depth in z: its
+		eye's offset is by that depth, where it is depth tested) */
+		multiview ?
+			"\t{\n"
+			"\t\tint row = int(gl_ViewID_OVR) * 2;\n"
+			"\t\tfloat near = 0.0;\n"
+			"\t\tif (clip_captured && abs(clip_position.w - 1.0) > 1.0e-5)\n"
+			"\t\t\tnear = 1.0;\n"
+			"\t\telse if (clip_captured && mv_depth.z > 0.5)\n"
+			"\t\t{\n"
+			"\t\t\tfloat depth = mv_depth.y / (clip_position.z - mv_depth.x);\n"
+			"\t\t\tnear = depth > 0.0 ? 1.0 / depth : 0.0;\n"
+			"\t\t}\n"
+			"\t\tgl_Position.xy = vec2(dot(vec3(gl_Position.xw, near), mv_rows[row].xyz),\n"
+			"\t\t\tdot(vec3(gl_Position.yw, near), mv_rows[row + 1].xyz));\n"
+			"\t}\n" :
+			""
 #endif
 		);
 	return text.buffer;
