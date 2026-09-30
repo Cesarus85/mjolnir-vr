@@ -1507,6 +1507,22 @@ static void first_person_weapon_vr_arms(
 		vr_arm_nodes.idle_pose_valid = FALSE;
 	}
 	vr_hold_pose(node_matrices, node_count, weapon_camera, ready, melee);
+	if (vr_arm_nodes.gun != NONE && vr_arm_nodes.idle_pose_valid)
+	{
+		/* the gun at the ready, as drawn: where the weapon's shots and its
+		crosshair start (in a reload, where it was at the ready) */
+		real_matrix4x3 camera_matrix;
+		real_point3d gun;
+		float barrel[3];
+
+		matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
+			&weapon_camera->up);
+		matrix4x3_transform_point(&camera_matrix, &vr_arm_nodes.idle_pose[vr_arm_nodes.gun].position, &gun);
+		barrel[0] = gun.x;
+		barrel[1] = gun.y;
+		barrel[2] = gun.z;
+		halo_vr_set_barrel(local_player_index, barrel);
+	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
 	if (!halo_vr_body_frame(local_player_index, head, body_forward))

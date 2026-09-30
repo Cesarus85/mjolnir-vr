@@ -114,6 +114,10 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	float *vertical_field_of_view);
 int halo_vr_scope_pass(void);
 void halo_vr_capture_scope(float left, float top, float right, float bottom);
+/* where the weapon's gun node is as drawn, at the ready (world units;
+first_person_weapons.c, each frame): shots, the crosshair and the laser
+start there */
+void halo_vr_set_barrel(short local_player_index, const float world[3]);
 /* how far, in world units, the weapon's aim runs before it hits something
 (render.c, each frame); the crosshair floats there */
 void halo_vr_set_aim_distance(float world_units);
