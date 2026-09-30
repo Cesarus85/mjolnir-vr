@@ -177,6 +177,7 @@ enum
 	HALO_VR_HULL_SCOUT,    /* a Ghost: its hood arches over the rider */
 	HALO_VR_HULL_FIGHTER,  /* a Banshee: the pilot lies in it */
 	HALO_VR_HULL_TURRET,   /* a Shade: its shield is at the eyes */
+	HALO_VR_HULL_TANK,     /* a Scorpion: its driver sits in the hull */
 };
 float halo_vr_enclosed_seat_clearance(void);
 float halo_vr_enclosed_seat_raise(int hull);

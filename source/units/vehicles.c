@@ -904,6 +904,8 @@ short vehicle_vr_hull(
 			return HALO_VR_HULL_FIGHTER;
 		case _vehicle_type_turret:
 			return HALO_VR_HULL_TURRET;
+		case _vehicle_type_human_tank:
+			return HALO_VR_HULL_TANK;
 		default:
 			return HALO_VR_HULL_OPEN;
 	}

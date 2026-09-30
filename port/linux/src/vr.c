@@ -90,7 +90,7 @@ static struct
 	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
 	float enclosed_seat_clearance; /* metres */
-	float enclosed_seat_raise[4];  /* metres, by HALO_VR_HULL_* */
+	float enclosed_seat_raise[5];  /* metres, by HALO_VR_HULL_* */
 	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_pitch_angle;
@@ -420,6 +420,7 @@ void halo_vr_initialize(void)
 	vr.enclosed_seat_raise[HALO_VR_HULL_SCOUT] = (float)config_real("vr.ghost_eye_raise");
 	vr.enclosed_seat_raise[HALO_VR_HULL_FIGHTER] = (float)config_real("vr.banshee_eye_raise");
 	vr.enclosed_seat_raise[HALO_VR_HULL_TURRET] = (float)config_real("vr.turret_eye_raise");
+	vr.enclosed_seat_raise[HALO_VR_HULL_TANK] = (float)config_real("vr.tank_eye_raise");
 	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
@@ -875,7 +876,7 @@ float halo_vr_glass_strength(void)
 
 float halo_vr_enclosed_seat_raise(int hull)
 {
-	return hull > HALO_VR_HULL_OPEN && hull <= HALO_VR_HULL_TURRET ?
+	return hull > HALO_VR_HULL_OPEN && hull <= HALO_VR_HULL_TANK ?
 		vr.enclosed_seat_raise[hull] / METRES_PER_WORLD_UNIT : 0.0f;
 }
 

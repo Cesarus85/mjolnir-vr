@@ -295,15 +295,17 @@ static void first_person_camera_for_unit_and_vector(
 				the seat's camera turns about (the vehicle's middle) */
 				struct object_marker marker;
 				struct unit_datum *seated_in = vehicle_try_and_get(unit->object.parent_object_index);
+				unsigned long seat_flags = seated_in ?
+					TAG_BLOCK_GET_ELEMENT(
+						&vehicle_definition_get(seated_in->definition_index)->unit.seats,
+						unit->unit.parent_seat_index,
+						struct unit_seat)->flags :
+					0;
 
 				if (object_get_marker_by_name(unit_index, "head", &marker, 1))
 				{
 					result->position = marker.matrix.position;
-					if (seated_in &&
-						TEST_FLAG(TAG_BLOCK_GET_ELEMENT(
-							&vehicle_definition_get(seated_in->definition_index)->unit.seats,
-							unit->unit.parent_seat_index,
-							struct unit_seat)->flags, _unit_seat_gunner_bit))
+					if (TEST_FLAG(seat_flags, _unit_seat_gunner_bit))
 					{
 						/* a gunner leans into the gun's sights: back from them
 						(vr.gunner_camera_back) */
@@ -313,8 +315,12 @@ static void first_person_camera_for_unit_and_vector(
 						if (normalize3d(&back) > 0.f)
 							point_from_line3d(&result->position, &back, -halo_vr_gunner_camera_back(), &result->position);
 					}
-					if (seated_in && vehicle_vr_encloses_riders(unit->object.parent_object_index))
+					/* (the riders on a tank's back sit on it, not in it) */
+					if (seated_in && vehicle_vr_encloses_riders(unit->object.parent_object_index) &&
+						(TEST_FLAG(seat_flags, _unit_seat_driver_bit) || TEST_FLAG(seat_flags, _unit_seat_gunner_bit)))
+					{
 						first_person_camera_vr_over_hull(unit->object.parent_object_index, &result->position);
+					}
 				}
 			}
 #endif
