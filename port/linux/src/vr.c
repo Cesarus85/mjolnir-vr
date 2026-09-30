@@ -42,6 +42,10 @@ static struct
 	struct halo_xr_info info;
 	struct halo_xr_frame frame;
 	int frame_begun;
+	/* the hands as last seen with the app in focus (the system menu over
+	it reports none): held still meanwhile */
+	struct halo_xr_hand focused_hands[HALO_XR_HAND_COUNT];
+	int focused_hands_valid;
 	int eyes_captured;       /* bit per eye, this frame */
 	int overlay_mode;        /* HALO_XR_OVERLAY_*, this frame */
 	int overlay_blend;
@@ -991,6 +995,25 @@ void halo_vr_frame_begin(void)
 	waited = now_us();
 	if (!host_xr_begin_frame(&vr.frame))
 		memset(&vr.frame, 0, sizeof(vr.frame));
+	if (vr.frame.focused)
+	{
+		memcpy(vr.focused_hands, vr.frame.hands, sizeof(vr.focused_hands));
+		vr.focused_hands_valid = 1;
+	}
+	else if (vr.focused_hands_valid && vr.frame.session_running)
+	{
+		/* the system menu is up: the hands stay where they were, their
+		buttons let go (the weapon does not fall back to the head) */
+		int hand;
+
+		memcpy(vr.frame.hands, vr.focused_hands, sizeof(vr.frame.hands));
+		for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+		{
+			vr.frame.hands[hand].trigger = vr.frame.hands[hand].squeeze = 0.0f;
+			vr.frame.hands[hand].thumbstick[0] = vr.frame.hands[hand].thumbstick[1] = 0.0f;
+			vr.frame.hands[hand].buttons = 0;
+		}
+	}
 	vr.frame_start_us = now_us();
 	vr.wait_us += vr.frame_start_us - waited;
 	vr.frame_begun = 1;
