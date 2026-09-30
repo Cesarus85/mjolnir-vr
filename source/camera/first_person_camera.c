@@ -243,9 +243,26 @@ static void first_person_camera_for_unit_and_vector(
 				/* VR: seated, behind the rider's own eyes, not at the point
 				the seat's camera turns about (the vehicle's middle) */
 				struct object_marker marker;
+				struct unit_datum *seated_in = vehicle_try_and_get(unit->object.parent_object_index);
 
 				if (object_get_marker_by_name(unit_index, "head", &marker, 1))
+				{
 					result->position = marker.matrix.position;
+					if (seated_in &&
+						TEST_FLAG(TAG_BLOCK_GET_ELEMENT(
+							&vehicle_definition_get(seated_in->definition_index)->unit.seats,
+							unit->unit.parent_seat_index,
+							struct unit_seat)->flags, _unit_seat_gunner_bit))
+					{
+						/* a gunner leans into the gun's sights: back from them
+						(vr.gunner_camera_back) */
+						real_vector3d back = unit->unit.aiming_vector;
+
+						back.k = 0.f;
+						if (normalize3d(&back) > 0.f)
+							point_from_line3d(&result->position, &back, -halo_vr_gunner_camera_back(), &result->position);
+					}
+				}
 			}
 #endif
 		}

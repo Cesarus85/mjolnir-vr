@@ -158,6 +158,10 @@ void halo_vr_set_seat(short local_player_index, int seat, float vehicle_yaw);
 void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
+/* how far a gunner's view is moved back from the gun (world units) */
+float halo_vr_gunner_camera_back(void);
+/* how strongly glass tints and reflects (1 as the game has it) */
+float halo_vr_glass_strength(void);
 
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);

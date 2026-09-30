@@ -86,6 +86,8 @@ static struct
 	int seat_frame_valid;
 	float seat_turn;
 	int vehicle_first_person;
+	float gunner_camera_back;   /* metres */
+	float glass_strength;
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_pitch_angle;
 	/* the comfort vignette: how strong at most, now, and the heading it
@@ -408,6 +410,8 @@ void halo_vr_initialize(void)
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
+	vr.gunner_camera_back = (float)config_real("vr.gunner_camera_back");
+	vr.glass_strength = (float)config_real("vr.glass_strength");
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
@@ -852,6 +856,16 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 int halo_vr_vehicle_first_person(void)
 {
 	return vr.active && vr.vehicle_first_person;
+}
+
+float halo_vr_glass_strength(void)
+{
+	return vr.active ? vr.glass_strength : 1.0f;
+}
+
+float halo_vr_gunner_camera_back(void)
+{
+	return vr.gunner_camera_back / METRES_PER_WORLD_UNIT;
 }
 
 /* seated, where the aim runs from (world units) and along: from the right
@@ -1798,6 +1812,8 @@ void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw)
 	(void)local_player_index; (void)vehicle_yaw;
 }
 int halo_vr_vehicle_first_person(void) { return 0; }
+float halo_vr_gunner_camera_back(void) { return 0.0f; }
+float halo_vr_glass_strength(void) { return 1.0f; }
 int halo_vr_grenade_held(short local_player_index) { (void)local_player_index; return 0; }
 int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
 	float *scale)

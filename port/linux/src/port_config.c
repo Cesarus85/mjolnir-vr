@@ -142,6 +142,13 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"In a vehicle, the view stays behind the player's own eyes, and turns\n"
 		"with the vehicle (false: the game's camera behind it, as on a screen)." },
+	{ "vr.gunner_camera_back", _config_real, "0.15", "HALO_VR_GUNNER_CAMERA_BACK", _environment_value,
+		_platform_android,
+		"At a vehicle's gun, the view this many metres back from where the\n"
+		"gunner's head leans into its sights." },
+	{ "vr.glass_strength", _config_real, "0.5", "HALO_VR_GLASS_STRENGTH", _environment_value, _platform_android,
+		"How strongly glass tints and reflects (1 as the game has it): up close, as\n"
+		"through a vehicle's windscreen, it hides the view." },
 	{ "vr.vehicle_steer_degrees", _config_real, "60", "HALO_VR_VEHICLE_STEER", _environment_value, _platform_android,
 		"Driving, the right stick pushed fully aside steers this many degrees off\n"
 		"the vehicle's heading (the game turns the vehicle towards it)." },
