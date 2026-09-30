@@ -86,7 +86,6 @@ symbols in this file:
 #include "game/players.h"
 #include "game/player_control.h"
 #include "interface/hud.h"
-#include "camera/director.h"
 #include "physics/collisions.h"
 #include "units/units.h"
 #include "halo_vr.h"
@@ -939,8 +938,7 @@ void render_frame(
 		}
 #ifdef HALO_ANDROID
 		else if (window->local_player_index != NONE && screenshot_index == NULL &&
-			halo_vr_stereo_player(window->local_player_index, cinematic_in_progress() ||
-				director_get_perspective(window->local_player_index) == _director_perspective_scripted))
+			halo_vr_stereo_player(window->local_player_index, cinematic_in_progress()))
 		{
 			render_vr_player_frame(window);
 			continue;
