@@ -614,18 +614,56 @@ static BOOL platform_text_has_invite_link(const char *text)
 	return FALSE;
 }
 
+/* the last clipboard text looked at, kept beside the settings from run to
+run (the VR port's): a run's own invite, still on the clipboard when the
+game starts again, is not joined then (its host, the run before, is gone,
+and the attempt held up a join for a minute and a half) */
+static void platform_clipboard_seen(char *seen, int size, BOOL save)
+{
+	char path[512];
+	FILE *file;
+
+	snprintf(path, sizeof(path), "%s/clipboard_seen.txt", platform_data_root());
+	if (save)
+	{
+		file = fopen(path, "wb");
+		if (file)
+		{
+			fputs(seen, file);
+			fclose(file);
+		}
+		return;
+	}
+	file = fopen(path, "rb");
+	if (!file)
+		return;
+	{
+		size_t length = fread(seen, 1, (size_t)size - 1, file);
+
+		seen[length] = 0;
+	}
+	fclose(file);
+}
+
 /* puts a new invite on the clipboard, and joins one found there when the
 game comes to the front */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
 	static char seen[256];
+	static BOOL seen_loaded;
 	const char *invite = p2p_take_clipboard_text();
 
+	if (!seen_loaded)
+	{
+		seen_loaded = TRUE;
+		platform_clipboard_seen(seen, sizeof(seen), FALSE);
+	}
 	if (invite)
 	{
 		SDL_SetClipboardText(invite);
 		snprintf(seen, sizeof(seen), "%s", invite);
+		platform_clipboard_seen(seen, sizeof(seen), TRUE);
 		platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
 		SDL_ShowAndroidToast("Hosting: the invite link is on the clipboard", 1, -1, 0, 0);
@@ -638,6 +676,7 @@ static void platform_invite_clipboard(BOOL look)
 		if (text && strcmp(text, seen) && strlen(text) < sizeof(seen))
 		{
 			snprintf(seen, sizeof(seen), "%s", text);
+			platform_clipboard_seen(seen, sizeof(seen), TRUE);
 			/* (a link, not a bare code: 64 hex digits alone are as often a
 			checksum copied for something else) */
 			if (platform_text_has_invite_link(text) && p2p_join_invite(text))

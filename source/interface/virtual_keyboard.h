@@ -38,6 +38,10 @@ void virtual_keyboard_process(
 	void);
 void virtual_keyboard_render(
 	void);
+#ifdef HALO_ANDROID
+void virtual_keyboard_set_caption(
+	wchar_t const *caption);
+#endif
 
 /* ---------- globals */
 

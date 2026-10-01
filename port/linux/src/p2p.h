@@ -26,6 +26,24 @@ int p2p_hand_off_invite(void);
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
 
+/* Join codes (p2p_code.c): the hosted game's code as XXXX-XXXX (0 if
+none); looking a typed one up, which then joins as its invite does (0 if
+it is not a code, or internet play is off); and how the look up goes */
+enum
+{
+	P2P_CODE_IDLE,
+	P2P_CODE_LOOKING,
+	P2P_CODE_FOUND,
+	P2P_CODE_NOT_FOUND,
+	P2P_CODE_INVALID,
+	P2P_CODE_OWN,
+	P2P_CODE_OFFLINE,
+};
+int p2p_join_code(char *text, int size);
+int p2p_join_with_code(const char *typed);
+int p2p_join_code_status(void);
+void p2p_join_code_clear_status(void);
+
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it

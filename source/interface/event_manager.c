@@ -42,7 +42,13 @@ enum
 	_event_type_right_stick,
 	_event_type_button,
 
+#ifdef HALO_ANDROID
+	/* (the VR port's: a headset's controllers' thumbsticks are pushed as
+	far less readily than a gamepad's) */
+	STICK_EVENT_THRESHOLD = 22937,
+#else
 	STICK_EVENT_THRESHOLD = 29490,
+#endif
 	STICK_EVENT_REPEAT_MILLISECONDS = 250
 };
 
@@ -71,6 +77,24 @@ typedef char verify_event_manager_state_size[
 typedef char verify_event_manager_globals_size[
 	sizeof(struct event_manager_globals) == 0x168 ? 1 : -1];
 
+#ifdef HALO_ANDROID
+/* The VR port's: a stick held moves on once after a pause, then quickly,
+as menus do now (the Xbox's moved on every quarter second, which in a
+headset, with the keyboard's letters to cross, is slow going). */
+enum
+{
+	STICK_REPEAT_FIRST_MILLISECONDS = 350,
+	STICK_REPEAT_MILLISECONDS = 90,
+};
+
+static short stick_repeats[NUMBER_OF_GAMEPAD_STICKS][MAXIMUM_GAMEPADS];
+
+#define STICK_REPEAT_INTERVAL(stick, controller_index) \
+	(stick_repeats[stick][controller_index] ? STICK_REPEAT_MILLISECONDS : STICK_REPEAT_FIRST_MILLISECONDS)
+#else
+#define STICK_REPEAT_INTERVAL(stick, controller_index) STICK_EVENT_REPEAT_MILLISECONDS
+#endif
+
 /* ---------- prototypes */
 
 static void queue_event(
@@ -83,6 +107,30 @@ struct event_manager_globals event_manager_globals = { 0 };
 
 /* ---------- public code */
 
+#ifdef HALO_ANDROID
+/* an event the stick posts: a fresh push (it was within the threshold on
+that axis) starts the count of repeats again */
+static void stick_note_event(
+	short stick,
+	short controller_index,
+	long x,
+	long y,
+	unsigned long time)
+{
+	boolean fresh =
+		(ABS(x) >= STICK_EVENT_THRESHOLD &&
+			ABS(event_manager_globals.previous_stick_axes[stick][0][controller_index]) < STICK_EVENT_THRESHOLD) ||
+		(ABS(y) >= STICK_EVENT_THRESHOLD &&
+			ABS(event_manager_globals.previous_stick_axes[stick][1][controller_index]) < STICK_EVENT_THRESHOLD);
+
+	(void)time;
+	if (fresh)
+		stick_repeats[stick][controller_index] = 0;
+	else if (stick_repeats[stick][controller_index] < SHORT_MAX)
+		stick_repeats[stick][controller_index]++;
+}
+
+#endif
 void event_manager_initialize(
 	void)
 {
@@ -209,12 +257,16 @@ static void queue_event(
 				ABS(event_manager_globals.previous_stick_axes[_gamepad_stick_left][0][controller_index]) < STICK_EVENT_THRESHOLD) ||
 			(ABS(y) >= STICK_EVENT_THRESHOLD &&
 				ABS(event_manager_globals.previous_stick_axes[_gamepad_stick_left][1][controller_index]) < STICK_EVENT_THRESHOLD) ||
-			time - event_manager_globals.stick_event_times[_gamepad_stick_left][controller_index] >= STICK_EVENT_REPEAT_MILLISECONDS))
+			time - event_manager_globals.stick_event_times[_gamepad_stick_left][controller_index] >=
+				STICK_REPEAT_INTERVAL(_gamepad_stick_left, controller_index)))
 		{
 			post = FALSE;
 		}
 		else
 		{
+#ifdef HALO_ANDROID
+			stick_note_event(_gamepad_stick_left, controller_index, x, y, time);
+#endif
 			event_manager_globals.stick_event_times[_gamepad_stick_left][controller_index] = time;
 			post = TRUE;
 
@@ -260,12 +312,16 @@ static void queue_event(
 				ABS(event_manager_globals.previous_stick_axes[_gamepad_stick_right][0][controller_index]) < STICK_EVENT_THRESHOLD) ||
 			(ABS(y) >= STICK_EVENT_THRESHOLD &&
 				ABS(event_manager_globals.previous_stick_axes[_gamepad_stick_right][1][controller_index]) < STICK_EVENT_THRESHOLD) ||
-			time - event_manager_globals.stick_event_times[_gamepad_stick_right][controller_index] >= STICK_EVENT_REPEAT_MILLISECONDS))
+			time - event_manager_globals.stick_event_times[_gamepad_stick_right][controller_index] >=
+				STICK_REPEAT_INTERVAL(_gamepad_stick_right, controller_index)))
 		{
 			post = FALSE;
 		}
 		else
 		{
+#ifdef HALO_ANDROID
+			stick_note_event(_gamepad_stick_right, controller_index, x, y, time);
+#endif
 			event_manager_globals.stick_event_times[_gamepad_stick_right][controller_index] = time;
 			post = TRUE;
 

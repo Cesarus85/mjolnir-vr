@@ -96,6 +96,18 @@ symbols in this file:
 #include "text/text_group.h"
 #include "text/unicode.h"
 
+#ifdef HALO_ANDROID
+/* the VR port's: a caption of its own instead of the string list's, for a
+keyboard it launches (ui_widget.c's join codes); NULL for the list's */
+static wchar_t const *virtual_keyboard_caption_override;
+
+void virtual_keyboard_set_caption(
+	wchar_t const *caption)
+{
+	virtual_keyboard_caption_override = caption;
+}
+#endif
+
 /* ---------- constants */
 
 enum
@@ -671,6 +683,10 @@ static void virtual_keyboard_render_internal(
 		wchar_t *caption = unicode_string_list_get_string(
 			virtual_keyboard_globals.keyboard->special_key_labels_string_list_tag.index,
 			virtual_keyboard_globals.caption_index);
+#ifdef HALO_ANDROID
+		if (virtual_keyboard_caption_override)
+			caption = (wchar_t *)virtual_keyboard_caption_override;
+#endif
 
 		bounds.y0 = 78;
 		bounds.x0 = 114;

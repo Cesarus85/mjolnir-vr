@@ -5591,6 +5591,152 @@ static boolean ui_mouse_menus_active(
 }
 
 #ifdef HALO_ANDROID
+/* ---------- join codes (the VR port's)
+
+Internet play's join codes (port/linux/src/p2p_code.c): the host's lobby
+shows its game's code, and on the screen of games to join, X opens the
+keyboard to type one in, which then joins as an invite link does (the game
+shows up in the list once its host is reached). */
+
+int p2p_join_code(char *text, int size);
+int p2p_join_with_code(char const *typed);
+int p2p_join_code_status(void);
+void p2p_join_code_clear_status(void);
+
+enum
+{
+	/* p2p.h's */
+	_join_code_idle,
+	_join_code_looking,
+	_join_code_found,
+	_join_code_not_found,
+	_join_code_invalid,
+	_join_code_own,
+	_join_code_offline,
+};
+
+static struct
+{
+	boolean keyboard_launched;
+	wchar_t typed[12];
+} ui_join_code_globals;
+
+static boolean ui_join_code_screen_active(
+	char const *name)
+{
+	return widget_globals.active_widgets[0] && widget_globals.active_widgets[0]->name &&
+		strcmp(widget_globals.active_widgets[0]->name, name) == 0;
+}
+
+/* X on the screen of games to join: the keyboard, for a code (TRUE: the
+event is taken) */
+static boolean ui_join_code_take_event(
+	struct widget_instance *widget,
+	struct event_record const *event)
+{
+	if (event->type != _event_type_button || event->data.button.value != 1 ||
+		event->data.button.index != _gamepad_analog_button_x || widget != widget_globals.active_widgets[0] ||
+		!ui_join_code_screen_active("server_list_screen"))
+	{
+		return FALSE;
+	}
+	ui_join_code_globals.typed[0] = 0;
+	virtual_keyboard_set_caption(L"Enter the join code of an online game");
+	if (!virtual_keyboard_launch(ui_join_code_globals.typed, sizeof(ui_join_code_globals.typed), 8))
+	{
+		virtual_keyboard_set_caption(NULL);
+		return FALSE;
+	}
+	p2p_join_code_clear_status();
+	ui_join_code_globals.keyboard_launched = TRUE;
+	return TRUE;
+}
+
+/* the keyboard closed: the code typed, looked up */
+static void ui_join_code_update(
+	void)
+{
+	char text[sizeof(ui_join_code_globals.typed) / sizeof(wchar_t)];
+	short index;
+
+	if (!ui_join_code_globals.keyboard_launched || virtual_keyboard_active())
+		return;
+	ui_join_code_globals.keyboard_launched = FALSE;
+	virtual_keyboard_set_caption(NULL);
+	if (!virtual_keyboard_last_exit_saved_text())
+		return;
+	for (index = 0; index < (short)(NUMBEROF(text) - 1) && ui_join_code_globals.typed[index]; index++)
+	{
+		wchar_t character = ui_join_code_globals.typed[index];
+
+		text[index] = character < 128 ? (char)character : '?';
+	}
+	text[index] = 0;
+	p2p_join_with_code(text);
+}
+
+static void ui_join_code_draw_line(
+	short y0,
+	char const *text,
+	boolean icons,
+	boolean centered)
+{
+	rectangle2d bounds;
+	wchar_t wide[96];
+	short index;
+	long font_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
+	real_argb_color color = { 1.0f, 0.85f, 0.85f, 0.85f };
+
+	if (font_index == NONE)
+		return;
+	for (index = 0; index < (short)(NUMBEROF(wide) - 1) && text[index]; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	bounds.y0 = y0;
+	bounds.y1 = (short)(y0 + 20);
+	bounds.x0 = centered ? 0 : 48;
+	bounds.x1 = centered ? 640 : 600;
+	draw_string_set_draw_mode(font_index, NONE, centered ? 2 : 0, 0, &color);
+	if (icons)
+		draw_string_and_hack_in_icons(&bounds, &bounds, NULL, 0, wide, FALSE);
+	else
+		rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, wide);
+}
+
+/* over the screens, as they are drawn */
+static void ui_join_code_render(
+	void)
+{
+	char code[16];
+
+	if (ui_join_code_screen_active("server_list_screen"))
+	{
+		char const *status = NULL;
+
+		ui_join_code_draw_line(372, "%x-button Join an online game with its code", TRUE, FALSE);
+		switch (p2p_join_code_status())
+		{
+		case _join_code_looking: status = "Looking for the game of that code..."; break;
+		case _join_code_found: status = "Found it: the game shows up in the list once its host is reached"; break;
+		case _join_code_not_found: status = "No game answered that code"; break;
+		case _join_code_invalid: status = "That is not a join code (8 letters and digits)"; break;
+		case _join_code_own: status = "That is this game's own code"; break;
+		case _join_code_offline: status = "Online play is off (network.online in config.toml)"; break;
+		}
+		if (status)
+			ui_join_code_draw_line(392, status, FALSE, FALSE);
+	}
+	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get() &&
+		p2p_join_code(code, sizeof(code)))
+	{
+		char line[48];
+
+		snprintf(line, sizeof(line), "Online join code: %s", code);
+		/* (under the buttons' key) */
+		ui_join_code_draw_line(448, line, FALSE, TRUE);
+	}
+}
+
 /* whether a menu is up (VR shows it on a screen in the room: render.c) */
 boolean ui_widgets_menus_active(
 	void)
@@ -6045,6 +6191,9 @@ void render_ui_widgets(
 				}
 			}
 		}
+#ifdef HALO_ANDROID
+		ui_join_code_render();
+#endif
 		if (widget_globals.fade_to_black >= 0.0f &&
 			widget_globals.fade_to_black <= 1.0f)
 		{
@@ -6987,6 +7136,9 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifdef HALO_ANDROID
+	ui_join_code_update();
+#endif
 	if (attract_mode_should_start())
 	{
 		attract_mode_start();
@@ -7088,6 +7240,10 @@ void process_ui_widgets(
 			{
 				do
 				{
+#ifdef HALO_ANDROID
+					if (ui_join_code_take_event(widget, &event))
+						continue;
+#endif
 					if (!pause_pressed)
 					{
 						widget_instance_process_one_event_recursive(

@@ -107,6 +107,34 @@ void p2p_signal_join(const unsigned char *host_hash, const unsigned char *token)
 void p2p_signal_stop_joining(void);
 /* whether any broker is connected */
 int p2p_signal_connected(void);
+/* (for p2p_code.c) the topics every broker listens on, as they are now; and
+a message to a topic through every broker */
+void p2p_signal_sync_topics(void);
+void p2p_signal_publish(const char *topic, const unsigned char *payload, int size);
+
+/* ---------- p2p_code.c: join codes (under p2p_lock) */
+
+enum
+{
+	P2P_CODE_TOPIC_SIZE = 7 + 32 + 1,
+};
+
+/* hosting: a new code for the invite (its key hash and token), and none */
+void p2p_code_host(const unsigned char *invite);
+void p2p_code_stop_hosting(void);
+/* the code hosted, as XXXX-XXXX; 0 if none */
+int p2p_code_hosted(char *text, int size);
+/* starts looking up a typed code (0: not a code, or this machine's own;
+p2p_code_status says which) */
+int p2p_code_look_up(const char *typed);
+int p2p_code_status(void);
+/* forgets a finished look up's result */
+void p2p_code_clear_status(void);
+/* (p2p_signal.c) the topics to listen on (empty: none); a message on a
+topic, nonzero if it was a code's; and each pass of the p2p thread */
+void p2p_code_topics(const char **host_topic, const char **look_topic);
+int p2p_code_received(const char *topic, const unsigned char *payload, int size);
+void p2p_code_update(void);
 
 /* ---------- p2p_crypto.c */
 

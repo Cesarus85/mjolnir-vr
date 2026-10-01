@@ -2314,10 +2314,48 @@ int p2p_join_invite(const char *text)
 	return result > 0;
 }
 
+int p2p_join_code(char *text, int size)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p_code_hosted(text, size);
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+int p2p_join_with_code(const char *typed)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p_code_look_up(typed);
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+int p2p_join_code_status(void)
+{
+	int status;
+
+	pthread_mutex_lock(&p2p_lock);
+	status = p2p.running ? p2p_code_status() : P2P_CODE_OFFLINE;
+	pthread_mutex_unlock(&p2p_lock);
+	return status;
+}
+
+void p2p_join_code_clear_status(void)
+{
+	pthread_mutex_lock(&p2p_lock);
+	p2p_code_clear_status();
+	pthread_mutex_unlock(&p2p_lock);
+}
+
 void p2p_invite_received(const char *text)
 {
-	/* (an older version's is logged as such) */
-	if (!join_invite(text))
+	/* (an older version's is logged as such; a join code is looked up,
+	p2p_code.c) */
+	if (!join_invite(text) && !p2p_code_look_up(text))
 		platform_log("Internet play: that is not an invite");
 }
 
@@ -2382,6 +2420,14 @@ static void update_hosting(void)
 		p2p.stun_started = 1;
 		p2p_signal_start();
 		p2p_signal_host(p2p.token);
+		{
+			/* (and a join code for it, p2p_code.c) */
+			unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+
+			p2p_key_hash(p2p_public_key(), bytes);
+			memcpy(bytes + P2P_KEY_HASH_SIZE, p2p.token, P2P_TOKEN_SIZE);
+			p2p_code_host(bytes);
+		}
 		platform_log("Internet play: hosting. Invite players with this link (it only works while this "
 			"copy of the game runs): %s", p2p.invite);
 		if (!p2p.invite_copied)
@@ -2396,6 +2442,7 @@ static void update_hosting(void)
 	{
 		p2p.hosting = 0;
 		p2p_signal_stop_hosting();
+		p2p_code_stop_hosting();
 		p2p_discord_set_hosting(NULL, 0, 0);
 	}
 	if (p2p.hosting)
