@@ -12,7 +12,10 @@ header included in hcex build.
 
 enum
 {
-	DATAGRAM_MAXIMUM_SIZE = 400,
+	/* the distributed netcode's per-tick state (port/linux/NETCODE.md): as
+	large as fits one Ethernet frame with the internet play tunnel's
+	overhead (every native build must agree) */
+	DATAGRAM_MAXIMUM_SIZE = 1200,
 	MAXIMUM_NUMBER_OF_LOCAL_PLAYERS = 4,
 	_connection_dont_timeout = 0,
 	_connection_create_server_bit = 0,

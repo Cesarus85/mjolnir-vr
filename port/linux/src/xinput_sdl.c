@@ -79,6 +79,14 @@ Y is held, and whether a scroll is under way */
 static Uint64 wheel_moved_ms = 0;
 static Uint64 wheel_press_until_ms = 0;
 static BOOL wheel_scrolling = FALSE;
+/* when port 0's aim last moved, by the mouse and by the right stick
+(halo_linux_mouse_aiming) */
+static Uint64 mouse_aimed_ms = 0;
+static Uint64 stick_aimed_ms = 0;
+
+/* the right stick's deflection that counts as aiming with it, clear of a
+worn stick's drift */
+#define STICK_AIMING_DEFLECTION 8000
 
 static float mouse_sensitivity(void)
 {
@@ -122,6 +130,26 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 	return TRUE;
 }
 
+/* whether the player on the gamepad aims with the mouse (it moved after the
+right stick last did) and input.mouse_aim_assist is off: then the view's
+magnetism leaves them be (player_control.c); the bullets' autoaim stays */
+int halo_linux_mouse_aiming(short gamepad_index)
+{
+	static int aim_assist = -1;
+	int aiming;
+
+	if (gamepad_index != 0)
+		return FALSE;
+	if (aim_assist < 0)
+		aim_assist = config_boolean("input.mouse_aim_assist");
+	if (aim_assist)
+		return FALSE;
+	pthread_mutex_lock(&mouse_lock);
+	aiming = mouse_aimed_ms != 0 && mouse_aimed_ms >= stick_aimed_ms;
+	pthread_mutex_unlock(&mouse_lock);
+	return aiming;
+}
+
 /* collects the motion the game has not asked for yet; motion that nobody
 consumes for a few polls (menus, cutscenes) is dropped so it cannot jerk
 the view later */
@@ -137,6 +165,8 @@ static void mouse_poll(const struct platform_input_state *input)
 	{
 		mouse_pending_x += input->mouse_dx;
 		mouse_pending_y += input->mouse_dy;
+		if (input->mouse_dx != 0.0f || input->mouse_dy != 0.0f)
+			mouse_aimed_ms = SDL_GetTicks();
 		mouse_wheel_accumulated += input->mouse_wheel;
 		if (input->mouse_wheel != 0.0f)
 			wheel_moved_ms = SDL_GetTicks();
@@ -205,6 +235,74 @@ the same weapon straight back. Timed in milliseconds, not polls: polls come
 once a frame, at the display's refresh rate. */
 #define WHEEL_PRESS_MS 50
 #define WHEEL_SCROLL_GAP_MS 200
+
+/* debug.test_input "bot:<seed>": a scripted player for the automated
+network tests (port/linux/game/network_test.c), different for each seed:
+it walks and strafes in circles, turns, fires every few seconds, jumps now
+and then and throws a grenade every seven seconds; "look:<seed>" stands
+still, only turning and looking up and down (where remote players aim and
+whether they stand) */
+static int test_input_holding_action;
+static Uint64 test_input_holding_action_since;
+
+/* the automated tests (port/linux/game/network_test.c): the scripted player
+stands still, holding the action button (X: picking up, swapping weapons)
+after a second */
+void test_input_hold_action(int hold)
+{
+	if (hold && !test_input_holding_action)
+		test_input_holding_action_since = SDL_GetTicks();
+	test_input_holding_action = hold;
+}
+
+static void test_input_gamepad(XINPUT_GAMEPAD *pad)
+{
+	static int checked;
+	static int seed = -1;
+	static int looking;
+	double t;
+
+	if (!checked)
+	{
+		const char *setting = config_string("debug.test_input");
+
+		checked = 1;
+		if (!strncmp(setting, "bot:", 4))
+			seed = atoi(setting + 4);
+		else if (!strcmp(setting, "bot"))
+			seed = 0;
+		else if (!strncmp(setting, "look:", 5))
+		{
+			seed = atoi(setting + 5);
+			looking = 1;
+		}
+	}
+	if (seed < 0)
+		return;
+	if (test_input_holding_action)
+	{
+		/* (standing still, the button held from a second on) */
+		if (SDL_GetTicks() - test_input_holding_action_since >= 1000)
+			pad->bAnalogButtons[XINPUT_GAMEPAD_X] = 255;
+		return;
+	}
+	t = (double)SDL_GetTicks() / 1000.0 + seed * 1.7;
+	if (looking)
+	{
+		pad->sThumbRX = (SHORT)(sin(t * 0.5) * 14000.0);
+		pad->sThumbRY = (SHORT)(sin(t * 0.3) * 32000.0);
+		return;
+	}
+	pad->sThumbLY = (SHORT)(sin(t * 0.9) * 32000.0);
+	pad->sThumbLX = (SHORT)(cos(t * 0.6 + seed) * 20000.0);
+	pad->sThumbRX = (SHORT)(sin(t * 0.4) * 14000.0);
+	if (fmod(t, 3.0) < 0.3)
+		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255;
+	if (fmod(t, 5.0) < 0.1)
+		pad->bAnalogButtons[XINPUT_GAMEPAD_A] = 255;
+	if (fmod(t, 7.0) < 0.2)
+		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = 255;
+}
 
 static void wheel_update(void)
 {
@@ -555,6 +653,14 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 #ifdef HALO_ANDROID
 		vr_gamepad_state(&state->Gamepad);
 #endif
+		test_input_gamepad(&state->Gamepad);
+		if (abs(state->Gamepad.sThumbRX) > STICK_AIMING_DEFLECTION ||
+			abs(state->Gamepad.sThumbRY) > STICK_AIMING_DEFLECTION)
+		{
+			pthread_mutex_lock(&mouse_lock);
+			stick_aimed_ms = SDL_GetTicks();
+			pthread_mutex_unlock(&mouse_lock);
+		}
 	}
 	else if (port < count)
 	{

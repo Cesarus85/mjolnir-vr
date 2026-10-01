@@ -6,9 +6,7 @@ force-included by halo_linux_prefix.h and halo_windows_prefix.h.
 
 The Xbox game allows 16 players on at most 4 machines (up to 4 players each
 on split screen). The native builds allow 128 players on up to 128
-machines; split screen stays at 4 players per machine. Game sources use
-these values only under #ifdef HALO_LINUX, so the byte-matching MSVC build
-keeps the original limits.
+machines; split screen stays at 4 players per machine.
 
 128 is the largest session that fits the game's existing records: player,
 machine and team indices are stored in signed chars (0..127 with NONE), and
@@ -58,6 +56,22 @@ game settings record in fragments), so they search for games with their own
 protocol version and never see the Xbox game's, or it theirs. */
 
 #define HALO_PORT_NETWORK_GAME_MESSAGE_VERSION 2
+
+/* The native builds' network code has a version of its own (an unsigned
+16-bit number): machines of different versions cannot play together, and a
+client does not join a host of another version, but tells the player which
+is newer (network_client_manager.c). A host advertises it, with its netcode,
+in its game's advertisement's reserved bytes (network_server_message_handler.c),
+which hosts built before there was a version send as zeros: version 0.
+Raise it with any change to what the machines send each other. */
+#define HALO_PORT_NETWORK_VERSION 9
+/* ... the advertisement's reserved bytes: the version (a little-endian word),
+then flags */
+#define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
+#define HALO_PORT_ADVERTISED_FLAGS_OFFSET 2
+/* ... the host plays the distributed netcode (always, since the lockstep
+netcode was removed; hosts of version 4 built before then may not) */
+#define HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG 0x01
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

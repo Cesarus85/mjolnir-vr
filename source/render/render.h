@@ -24,12 +24,8 @@ enum
 	MAXIMUM_RENDERED_CLUSTERS = 128,
 	MAXIMUM_SURFACES_PER_STRUCTURE = 0x20000,
 	MAXIMUM_RENDERED_LIGHTS = 128,
-#ifdef HALO_LINUX
 	/* the native builds' larger light pool (halo_port_capacity.h) */
 	MAXIMUM_LIGHTS_PER_MAP = HALO_PORT_MAXIMUM_LIGHTS_PER_MAP,
-#else
-	MAXIMUM_LIGHTS_PER_MAP = 896,
-#endif
 	MAXIMUM_LENS_FLARES_PER_LIGHT = 8,
 	MAXIMUM_QUEUED_LENS_FLARES = 8,
 };
@@ -56,6 +52,17 @@ struct render_lighting
 	real_argb_color reflection_tint_color;
 	real_vector3d shadow_vector;
 	real_rgb_color shadow_color;
+};
+
+/* HCEX and the PC-demo PDB type node_matrices as a non-const `real_matrix4x3 *`.
+   It is declared const here because its users store const node-matrix pointers
+   into it (transparent_geometry_group.node_matrices is const in HCEX as well);
+   the qualifier changes no emitted byte, and the non-const spelling would add
+   eleven C4090 const-qualifier warnings in five translation units. */
+struct render_skinning
+{
+	real_matrix4x3 const *node_matrices;
+	short node_matrix_count;
 };
 
 
@@ -135,6 +142,22 @@ void render_objects_initialize_for_new_map(
 void render_objects_dispose_from_old_map(
 	void);
 void render_objects_dispose(
+	void);
+struct render_lighting *object_get_cached_render_lighting(
+	long object_index,
+	real level_of_detail_pixels);
+#ifdef HALO_ANDROID
+/* VR: whether a player's own unit is drawn, seated at a wheel or a gun (the
+first-person weapon is not, then), and whether it sits at a wheel or a gun
+at all (render_objects.c) */
+boolean render_object_vr_seated_body(
+	long object_index);
+boolean render_object_vr_at_controls(
+	long object_index);
+#endif
+void render_objects(
+	void);
+void render_object_shadows(
 	void);
 
 /* ---------- globals */

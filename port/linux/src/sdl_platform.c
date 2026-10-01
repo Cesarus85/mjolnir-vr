@@ -21,6 +21,9 @@ and the debug keyboard that the game's console reads.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+#include <signal.h>
+#endif
 
 static SDL_Window *platform_window;
 static SDL_GLContext platform_gl_context;
@@ -43,10 +46,22 @@ static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct platform_keystroke keystroke_queue[KEYSTROKE_QUEUE_SIZE];
 static unsigned long keystroke_head, keystroke_count;
 
+#ifndef HALO_ANDROID
+/* updater.c's: the desktop self-updater */
+void updater_start(void);
+void updater_poll(SDL_Window *window);
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
 		return TRUE;
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+	/* a write to a connection the other end closed fails instead of ending
+	the game (the game's sockets and Discord's pass MSG_NOSIGNAL, but UPnP's
+	miniupnpc does not, nor does a write to a closed pipe's standard error) */
+	signal(SIGPIPE, SIG_IGN);
+#endif
 	/* a copy of the game started to open an invite link hands it to the
 	one already running, and goes */
 	if (p2p_hand_off_invite())
@@ -71,6 +86,8 @@ BOOL platform_sdl_initialize(void)
 	/* found (or offered to the player, platform_offer_game_data) before the
 	game's window opens */
 	platform_data_root();
+	/* (a new version looked for meanwhile, updater_poll asking about it) */
+	updater_start();
 #endif
 	return TRUE;
 }
@@ -227,7 +244,10 @@ static BOOL data_choose_image(char *path, int size)
 	/* the dialog answers through events (and on some systems another
 	thread) */
 	while (!SDL_GetAtomicInt(&choice.done))
-		SDL_WaitEventTimeout(NULL, 50);
+	{
+		SDL_PumpEvents();
+		SDL_Delay(50);
+	}
 	if (!choice.path[0])
 		return FALSE;
 	snprintf(path, (size_t)size, "%s", choice.path);
@@ -574,6 +594,26 @@ BOOL platform_next_keystroke(struct platform_keystroke *keystroke)
 bool SDL_ShowAndroidToast(const char *message, int duration, int gravity, int xoffset, int yoffset);
 #endif
 
+/* whether the text has an invite link in it (its prefix, in any case) */
+static BOOL platform_text_has_invite_link(const char *text)
+{
+	static const char prefix[] = "halo://join/";
+	size_t length = sizeof(prefix) - 1;
+
+	for (; *text; text++)
+	{
+		size_t index;
+
+		for (index = 0; index < length && text[index] &&
+			(text[index] | 0x20) == prefix[index]; index++)
+		{
+		}
+		if (index == length)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* puts a new invite on the clipboard, and joins one found there when the
 game comes to the front */
 static void platform_invite_clipboard(BOOL look)
@@ -598,7 +638,9 @@ static void platform_invite_clipboard(BOOL look)
 		if (text && strcmp(text, seen) && strlen(text) < sizeof(seen))
 		{
 			snprintf(seen, sizeof(seen), "%s", text);
-			if (p2p_join_invite(text))
+			/* (a link, not a bare code: 64 hex digits alone are as often a
+			checksum copied for something else) */
+			if (platform_text_has_invite_link(text) && p2p_join_invite(text))
 			{
 #ifdef HALO_ANDROID
 				SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
@@ -607,6 +649,60 @@ static void platform_invite_clipboard(BOOL look)
 		}
 		SDL_free(text);
 	}
+}
+
+/* ---------- messages for the player */
+
+/* a message waiting for the event pump to show it (on the window's thread,
+between frames) */
+static pthread_mutex_t platform_message_lock = PTHREAD_MUTEX_INITIALIZER;
+static char platform_message_title[80];
+static char platform_message_text[600];
+static BOOL platform_message_pending;
+
+/* shows the player a message in a box of its own (the network code's: a
+host of another version), and logs it */
+void platform_show_message(const char *title, const char *message)
+{
+	platform_log("%s: %s", title, message);
+	/* (a run nobody watches: the log only) */
+	if (config_boolean("debug.hidden_window") || config_boolean("debug.null_renderer"))
+		return;
+	pthread_mutex_lock(&platform_message_lock);
+	snprintf(platform_message_title, sizeof(platform_message_title), "%s", title);
+	snprintf(platform_message_text, sizeof(platform_message_text), "%s", message);
+	platform_message_pending = TRUE;
+	pthread_mutex_unlock(&platform_message_lock);
+}
+
+static void platform_show_pending_message(void)
+{
+	char title[sizeof(platform_message_title)];
+	char text[sizeof(platform_message_text)];
+	BOOL pending;
+
+	pthread_mutex_lock(&platform_message_lock);
+	pending = platform_message_pending;
+	platform_message_pending = FALSE;
+	memcpy(title, platform_message_title, sizeof(title));
+	memcpy(text, platform_message_text, sizeof(text));
+	pthread_mutex_unlock(&platform_message_lock);
+	if (!pending)
+		return;
+#ifdef HALO_ANDROID
+	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, NULL);
+#else
+	{
+		/* (a box cannot show above a fullscreen game) */
+		int fullscreen = (SDL_GetWindowFlags(platform_window) & SDL_WINDOW_FULLSCREEN) != 0;
+
+		if (fullscreen)
+			SDL_SetWindowFullscreen(platform_window, false);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, platform_window);
+		if (fullscreen)
+			SDL_SetWindowFullscreen(platform_window, true);
+	}
+#endif
 }
 
 /* ---------- events */
@@ -636,6 +732,10 @@ void platform_pump_events(void)
 		platform_log("exiting after debug.exit_after");
 		exit(EXIT_SUCCESS);
 	}
+	platform_show_pending_message();
+#ifndef HALO_ANDROID
+	updater_poll(platform_window);
+#endif
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
 	{

@@ -5,7 +5,9 @@
     "posix_net.c",
     "memory_watch.c",
     "msvc_crt.c",
-    "msvc_wide.c"
+    "msvc_wide.c",
+    "posix_update.c",
+    "posix_upnp.c"
   ],
   "libraries": [
     "ws2_32",
@@ -13,6 +15,7 @@
     "bcrypt",
     "winmm",
     "user32",
-    "advapi32"
+    "advapi32",
+    "winhttp"
   ]
 }

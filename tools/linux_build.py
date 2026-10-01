@@ -1,10 +1,8 @@
 """Ninja rules for the native Linux build (``ninja linux``).
 
-This is independent of the byte-matching graph: it compiles the same game
-sources with clang for 32-bit x86 Linux, adds the platform layer in
-``port/linux/src``, and links an ELF executable at ``build/linux/halo``.
-Nothing here changes the MSVC objects, objdiff configuration or progress.
-See port/linux/README.md for the design.
+It compiles the game sources with clang for 32-bit x86 Linux, adds the
+platform layer in ``port/linux/src``, and links an ELF executable at
+``build/linux/halo``. See port/linux/README.md for the design.
 """
 
 import json
@@ -26,6 +24,26 @@ XDK_INCLUDE = Path("port/include/xdk")
 
 def xdk_headers() -> List[Path]:
     return sorted(XDK_INCLUDE.glob("*.h"))
+
+
+def game_sources(config: Dict[str, Any]) -> List[Path]:
+    """the game's C sources (port.json "game"): every one under its root but
+    those excluded"""
+    game = config["game"]
+    excluded = set(game.get("exclude", []))
+    return sorted(
+        source for source in Path(game["root"]).rglob("*.c")
+        if source.as_posix() not in excluded
+    )
+
+
+def game_defines_and_includes(config: Dict[str, Any]) -> str:
+    """the game sources' defines and include directories (port.json "game")"""
+    game = config["game"]
+    return " ".join(
+        [f"-D{define}" for define in game.get("defines", [])]
+        + [f"-I{_quote(Path(directory))}" for directory in game.get("include_dirs", [])]
+    )
 
 
 def compile_launcher(sln: Any) -> str:
@@ -62,6 +80,11 @@ LINUX_ABI_FLAGS = [
     # the game keeps EBP frames (MSVC /Oy-): get_return_eip and the stack
     # walker follow the frame chain
     "-fno-omit-frame-pointer",
+    # the same floating point results on every port (every machine in a
+    # system link game simulates it from the same inputs): no
+    # fused multiply-adds, which -march=native and ARM64 would otherwise
+    # emit (port/include/halo_math.h)
+    "-ffp-contract=off",
     OPTIMISATION,
     "-g",
     # glibc's wide string functions assume a 32-bit wchar_t; stop clang from
@@ -91,6 +114,30 @@ GAME_FLAGS = [
 # the TOML parser the platform layer reads config.toml with (port_config.c)
 TOML_DIR = Path("port/third_party/tomlc17")
 KCP_DIR = Path("port/third_party/kcp")
+MUSL_MATH_DIR = Path("port/third_party/musl-math")
+# the self-updater's TLS (port/linux/src/posix_update.c)
+MBEDTLS_DIR = Path("port/third_party/mbedtls")
+# internet play's UPnP (port/linux/src/posix_upnp.c)
+MINIUPNPC_DIR = Path("port/third_party/miniupnpc")
+# miniupnpc's own build's definitions (its Makefile), and a static library
+MINIUPNPC_DEFINES = ["-DMINIUPNP_STATICLIB", "-DMINIUPNPC_SET_SOCKET_TIMEOUT", "-DMINIUPNPC_GET_SRC_ADDR",
+                     "-D_BSD_SOURCE", "-D_DEFAULT_SOURCE"]
+
+
+def miniupnpc_sources() -> List[Path]:
+    """miniupnpc's library sources (port/third_party/miniupnpc/src)"""
+    return sorted((MINIUPNPC_DIR / "src").glob("*.c"))
+
+
+def updater_defines(release: bool) -> str:
+    """the self-updater's build (port/linux/src/updater.c): its number, from
+    HALO_BUILD_NUMBER (tools/ci_build.py gives it for builds of main; none
+    elsewhere, which never look for updates), and its configuration"""
+    number = os.environ.get("HALO_BUILD_NUMBER", "0")
+    if not number.isdigit():
+        number = "0"
+    flavor = "release" if release else "debug"
+    return f'-DHALO_BUILD_NUMBER={number} -DHALO_BUILD_FLAVOR=\\"{flavor}\\"'
 
 PLATFORM_FLAGS = [
     "-std=gnu11",
@@ -131,6 +178,17 @@ PROFILE_USE_FLAGS = [
     "-Wno-profile-instr-missing",
     "-Wno-backend-plugin",
 ]
+
+
+def musl_math_sources() -> List[Path]:
+    """musl's maths functions the game uses (port/third_party/musl-math)"""
+    return sorted((MUSL_MATH_DIR / "src").glob("*.c"))
+
+
+def musl_math_cflags(abi: str) -> str:
+    """their flags: the game's ABI, and the headers standing in for musl's"""
+    return " ".join([abi, "-std=gnu11", "-w", f"-I{MUSL_MATH_DIR}/include",
+                     f"-include {MUSL_MATH_DIR}/include/libm.h"])
 
 
 def march_flag(sln: Any) -> str:
@@ -223,7 +281,10 @@ def linux_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [PORT_CONFIG, Path(__file__), PORT_DIR / "src", PORT_DIR / "game", XDK_INCLUDE]
+    # (the folders of the game's sources, so that adding or removing one
+    # re-runs it)
+    game_folders = sorted({source.parent for source in game_sources(_load_port_config())})
+    return [PORT_CONFIG, Path(__file__), PORT_DIR / "src", PORT_DIR / "game", XDK_INCLUDE, *game_folders]
 
 
 def _quote(path: Any) -> str:
@@ -300,7 +361,6 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
-    excluded = set(config.get("exclude_sources", []))
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
@@ -327,37 +387,21 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 variables={"cflags": f"{cflags} {posix_extra if posix else extra}"},
             )
 
-        for proj in sln.projects:
-            if proj.name not in config["projects"]:
-                continue
-            options = proj.options
-            defines = " ".join(f"-D{d}" for d in options.get("defines") or [])
-            includes = " ".join(
-                f"-I{_quote(d)}"
-                for d in options.get("include_dirs") or []
-                if Path(d) != Path("xbox/include")
-            )
-            game_cflags = " ".join([
-                abi,
-                " ".join(GAME_FLAGS),
-                f"-include {prefix_header}",
-                f"-include {semantics_header}",
-                defines,
-                f"-I{port_include}",
-                includes,
-                sdk_flags,
-            ])
-            for obj in proj.objects:
-                name = str(obj.file_path).replace(os.sep, "/")
-                if obj.status.name == "Missing" or name in excluded:
-                    continue
-                if obj.file_path.suffix.lower() not in (".c",):
-                    continue
-                add_object(obj.file_path, game_cflags)
-            # Port-specific units that must see the game exactly as its own
-            # sources do (port/linux/game).
-            for source in sorted(Path(config["game_sources"]).glob("*.c")):
-                add_object(source, game_cflags)
+        game_cflags = " ".join([
+            abi,
+            " ".join(GAME_FLAGS),
+            f"-include {prefix_header}",
+            f"-include {semantics_header}",
+            f"-I{port_include}",
+            game_defines_and_includes(config),
+            sdk_flags,
+        ])
+        for source in game_sources(config):
+            add_object(source, game_cflags)
+        # Port-specific units that must see the game exactly as its own
+        # sources do (port/linux/game).
+        for source in sorted(Path(config["game_sources"]).glob("*.c")):
+            add_object(source, game_cflags)
 
         platform_dir = Path(config["platform_sources"])
         platform_cflags = " ".join([
@@ -373,16 +417,41 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             sdk_flags,
         ])
         posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"])
+        mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
         for source in sorted(platform_dir.glob("*.c")):
-            if source.name.startswith("posix_"):
+            if source.name == "posix_update.c":
+                add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
+            elif source.name == "posix_upnp.c":
+                add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
+            elif source.name.startswith("posix_"):
                 add_object(source, posix_cflags, posix=True)
+            elif source.name == "updater.c":
+                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             else:
                 add_object(source, platform_cflags)
+        # the self-updater's TLS (port/third_party/mbedtls), with the host's
+        # ABI as the posix_*.c that use it (and no loop turned into glibc's
+        # wcslen, which linux_link_check.py rejects: the game's wchar_t is
+        # 16-bit)
+        for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
+            add_object(source, " ".join(POSIX_FLAGS + [march_flag(sln), mbedtls_include,
+                                                       f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
+                                                       "-w"]), posix=True)
+        # internet play's UPnP (port/third_party/miniupnpc), with the host's
+        # ABI as posix_upnp.c, which uses it
+        for source in miniupnpc_sources():
+            add_object(source, " ".join(POSIX_FLAGS + [march_flag(sln), *MINIUPNPC_DEFINES,
+                                                       f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
+                                                       "-fno-builtin-wcslen", "-w"]), posix=True)
         # the settings file's parser (port/third_party/tomlc17), with the
         # platform layer's ABI (its structs hold doubles) and nothing else
         add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
         # internet play's reliable streams (port/third_party/kcp; p2p.c)
         add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+        # the game's sin, pow and the rest, the same on every port
+        # (port/include/halo_math.h)
+        for source in musl_math_sources():
+            add_object(source, musl_math_cflags(abi))
 
         n.build(
             outputs=output,

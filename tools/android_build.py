@@ -16,8 +16,6 @@ ordinary 64-bit Android app. This graph builds
 
 and stages both, with the SDL3 Java sources, for the Gradle project in
 port/android/app, which ``ninja android_apk`` then assembles.
-
-Like the Linux build, this is independent of the byte-matching graph.
 """
 
 import os
@@ -27,7 +25,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import LINUX_PROFILE, XDK_INCLUDE, compile_launcher, pgo_mode, pgo_profile, profile_use_flags, xdk_headers
+from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, XDK_INCLUDE,
+                          compile_launcher, game_defines_and_includes, game_sources, miniupnpc_sources,
+                          musl_math_sources, pgo_mode, pgo_profile,
+                          profile_use_flags, xdk_headers)
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/android")
@@ -405,7 +406,6 @@ def generate_android_build(n: Writer, sln: Any) -> None:
 
     # the game
     objects: List[Path] = []
-    excluded = set(config.get("exclude_sources", []))
     game_flags = [
         "-std=gnu89", "-D__STRICT_ANSI__", "-w",
         "-Wno-error=incompatible-pointer-types",
@@ -415,29 +415,18 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         "-Wno-error=implicit-int",
         "-Wno-error=return-type",
     ]
-    for proj in sln.projects:
-        if proj.name not in config["projects"]:
-            continue
-        options = proj.options
-        defines = " ".join(f"-D{d}" for d in options.get("defines") or [])
-        includes = " ".join(
-            f"-I{_quote(d)}" for d in options.get("include_dirs") or [] if Path(d) != Path("xbox/include")
-        )
-        game_cflags = " ".join([
-            guest_abi, guest_code, " ".join(game_flags), profile_flags,
-            f"-include {prefix_header}", f"-include {semantics_header}", defines,
-            f"-I{LINUX_DIR}/include", includes, *libc_includes, f"-idirafter {XDK_INCLUDE}",
-        ])
-        for obj in proj.objects:
-            name = str(obj.file_path).replace(os.sep, "/")
-            if obj.status.name == "Missing" or name in excluded or obj.file_path.suffix.lower() != ".c":
-                continue
-            cflags = game_cflags
-            if name in VARIADIC_PROTOTYPE_FILES:
-                cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
-            objects.append(guest_object(obj.file_path, cflags))
-        for source in sorted(Path(config["game_sources"]).glob("*.c")):
-            objects.append(guest_object(source, game_cflags))
+    game_cflags = " ".join([
+        guest_abi, guest_code, " ".join(game_flags), profile_flags,
+        f"-include {prefix_header}", f"-include {semantics_header}",
+        f"-I{LINUX_DIR}/include", game_defines_and_includes(config), *libc_includes, f"-idirafter {XDK_INCLUDE}",
+    ])
+    for source in game_sources(config):
+        cflags = game_cflags
+        if source.as_posix() in VARIADIC_PROTOTYPE_FILES:
+            cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
+        objects.append(guest_object(source, cflags))
+    for source in sorted(Path(config["game_sources"]).glob("*.c")):
+        objects.append(guest_object(source, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime
     platform_cflags = " ".join([
@@ -456,6 +445,14 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     objects.append(guest_object(TOML_DIR / "tomlc17.c", platform_cflags))
     # internet play's reliable streams (port/third_party/kcp; p2p.c)
     objects.append(guest_object(KCP_DIR / "ikcp.c", platform_cflags))
+    # the game's sin, pow and the rest, the same on every port
+    # (port/include/halo_math.h)
+    musl_math_cflags = " ".join([
+        guest_abi, "-std=gnu11", "-w", profile_flags, *libc_includes, f"-I{MUSL_MATH_DIR}/include",
+        f"-include {MUSL_MATH_DIR}/include/libm.h",
+    ])
+    for source in musl_math_sources():
+        objects.append(guest_object(source, musl_math_cflags))
     runtime_internal_cflags = " ".join([
         guest_abi, "-std=c99", "-ffreestanding", "-fno-common", "-D_XOPEN_SOURCE=700", "-D_GNU_SOURCE",
         f"-I{PORT_DIR}/guest/runtime", f"-I{PORT_DIR}/include",
@@ -504,6 +501,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
                  f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake "
                  f"-DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-{ANDROID_API} -DCMAKE_BUILD_TYPE=Release "
                  f"-DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF "
+                 # 16 KB pages (Android 15 and later), as the host library
+                 f"-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 "
                  f"> {BUILD}/sdl3-configure.log && ninja -C {sdl_build} > {BUILD}/sdl3-build.log"),
         description="ANDROID SDL3",
         pool="console",
@@ -534,6 +533,16 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     for source in host_sources:
         obj = host_obj_dir / (source.name + ".o")
         n.build(outputs=obj, rule="android_host_cc", inputs=source, variables={"cflags": host_cflags})
+        host_objects.append(obj)
+    # internet play's UPnP (posix_upnp.c, with port/third_party/miniupnpc),
+    # as the other posix_*.c in the host
+    miniupnpc_cflags = " ".join([host_cflags, f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
+                                 *MINIUPNPC_DEFINES])
+    for source in [LINUX_DIR / "src" / "posix_upnp.c", *miniupnpc_sources()]:
+        obj = host_obj_dir / ("miniupnpc_" + source.name + ".o" if source.parent.parent == MINIUPNPC_DIR
+                              else source.name + ".o")
+        n.build(outputs=obj, rule="android_host_cc", inputs=source,
+                variables={"cflags": miniupnpc_cflags + (" -w" if source.name != "posix_upnp.c" else "")})
         host_objects.append(obj)
     table_obj = host_obj_dir / "host_import_table.c.o"
     n.build(outputs=table_obj, rule="android_host_cc", inputs=host_table_c, variables={"cflags": host_cflags})

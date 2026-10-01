@@ -239,20 +239,14 @@ int host_sdl_rumble_gamepad(uint32_t gamepad, uint32_t low, uint32_t high, uint3
 
 /* SDL calls audio_callback on its own audio thread, which cannot run guest
 code; it passes each request to the stream's thread (audio_thread), which
-can, and waits for it to be done. SDL holds the stream's lock through the
-callback, so the data the game puts into the stream meanwhile, from the
-other thread, is gathered here and put in by SDL's thread once the game is
-done (SDL_PutAudioStreamData from audio_thread would wait for that lock
-for ever, and the game would never be heard). */
+can, and waits for it to be done. SDL holds the stream's lock throughout, so
+the audio the guest puts into the stream meanwhile (from audio_thread) is
+kept in the binding's buffer instead, and put in by audio_callback once the
+guest is done: audio_thread putting it in itself would wait for the lock
+forever */
 struct audio_binding
 {
 	uint32_t handle;
-	SDL_AudioStream *stream;
-	pthread_t thread;
-	int thread_known;
-	unsigned char *gathered;
-	size_t gathered_size;
-	size_t gathered_capacity;
 	uint32_t callback;
 	uint32_t userdata;
 	pthread_mutex_t lock;
@@ -261,15 +255,19 @@ struct audio_binding
 	int pending;
 	int additional;
 	int total;
+	unsigned char *buffer;
+	int buffer_length;
+	int buffer_size;
 };
+
+/* the binding whose callback this thread is running, if any */
+static __thread struct audio_binding *calling_back;
 
 static void *audio_thread(void *context)
 {
 	struct audio_binding *binding = context;
 
 	pthread_mutex_lock(&binding->lock);
-	binding->thread = pthread_self();
-	binding->thread_known = 1;
 	for (;;)
 	{
 		int additional, total;
@@ -279,7 +277,9 @@ static void *audio_thread(void *context)
 		additional = binding->additional;
 		total = binding->total;
 		pthread_mutex_unlock(&binding->lock);
+		calling_back = binding;
 		host_call_guest(binding->callback, binding->userdata, binding->handle, (uint32_t)additional, (uint32_t)total);
+		calling_back = NULL;
 		pthread_mutex_lock(&binding->lock);
 		binding->pending = 0;
 		pthread_cond_signal(&binding->done);
@@ -291,7 +291,6 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
 {
 	struct audio_binding *binding = userdata;
 
-	(void)stream;
 	pthread_mutex_lock(&binding->lock);
 	binding->additional = additional;
 	binding->total = total;
@@ -299,17 +298,34 @@ static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int 
 	pthread_cond_signal(&binding->requested);
 	while (binding->pending)
 		pthread_cond_wait(&binding->done, &binding->lock);
-	if (binding->gathered_size)
-	{
-		SDL_PutAudioStreamData(stream, binding->gathered, (int)binding->gathered_size);
-		binding->gathered_size = 0;
-	}
 	pthread_mutex_unlock(&binding->lock);
+	if (binding->buffer_length)
+	{
+		SDL_PutAudioStreamData(stream, binding->buffer, binding->buffer_length);
+		binding->buffer_length = 0;
+	}
 }
 
-#define AUDIO_BINDINGS 4
+/* audio the guest puts into its stream during the stream's callback, for
+audio_callback to put in; 1 on success */
+static int audio_keep(struct audio_binding *binding, const void *data, int length)
+{
+	if (length < 0)
+		return 0;
+	if (binding->buffer_length + length > binding->buffer_size)
+	{
+		int size = (binding->buffer_length + length) * 2;
+		unsigned char *buffer = SDL_realloc(binding->buffer, (size_t)size);
 
-static struct audio_binding *audio_bindings[AUDIO_BINDINGS];
+		if (!buffer)
+			return 0;
+		binding->buffer = buffer;
+		binding->buffer_size = size;
+	}
+	memcpy(binding->buffer + binding->buffer_length, data, (size_t)length);
+	binding->buffer_length += length;
+	return 1;
+}
 
 uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t callback, uint32_t userdata)
 {
@@ -330,54 +346,19 @@ uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t 
 	}
 	/* the device starts paused, so no callback can run before this */
 	binding->handle = handle_new(_handle_audio, stream);
-	binding->stream = stream;
 	if (callback && host_native_thread_create(audio_thread, binding, 256 * 1024) != 0)
 		host_fatal("cannot start the audio thread");
-	{
-		int index;
-
-		for (index = 0; index < AUDIO_BINDINGS; index++)
-		{
-			if (!audio_bindings[index])
-			{
-				audio_bindings[index] = binding;
-				break;
-			}
-		}
-	}
 	return binding->handle;
 }
 
 int host_sdl_put_audio_stream_data(uint32_t stream, const void *data, int length)
 {
 	SDL_AudioStream *object = handle_get(stream, _handle_audio);
-	int index;
 
-	if (!object || length < 0)
+	if (!object)
 		return 0;
-	/* from inside the stream's callback: gathered (struct audio_binding) */
-	for (index = 0; index < AUDIO_BINDINGS; index++)
-	{
-		struct audio_binding *binding = audio_bindings[index];
-
-		if (binding && binding->stream == object && binding->thread_known &&
-			pthread_equal(binding->thread, pthread_self()))
-		{
-			if (binding->gathered_size + (size_t)length > binding->gathered_capacity)
-			{
-				size_t capacity = (binding->gathered_size + (size_t)length) * 2;
-				unsigned char *grown = SDL_realloc(binding->gathered, capacity);
-
-				if (!grown)
-					return 0;
-				binding->gathered = grown;
-				binding->gathered_capacity = capacity;
-			}
-			memcpy(binding->gathered + binding->gathered_size, data, (size_t)length);
-			binding->gathered_size += (size_t)length;
-			return 1;
-		}
-	}
+	if (calling_back && calling_back->handle == stream)
+		return audio_keep(calling_back, data, length);
 	return SDL_PutAudioStreamData(object, data, length);
 }
 
@@ -406,4 +387,11 @@ void host_sdl_get_clipboard_text(char *buffer, uint32_t size)
 int host_sdl_show_toast(const char *message, int duration, int gravity, int x, int y)
 {
 	return SDL_ShowAndroidToast(message, duration, gravity, x, y) ? 1 : 0;
+}
+
+/* ---------- a message for the player (a host of another network version) */
+
+int host_sdl_show_simple_message_box(uint32_t flags, const char *title, const char *message)
+{
+	return SDL_ShowSimpleMessageBox((SDL_MessageBoxFlags)flags, title, message, NULL) ? 1 : 0;
 }

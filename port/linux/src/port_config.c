@@ -78,6 +78,10 @@ static const struct config_setting config_settings[] =
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second; false keeps the original 30 frames a second." },
+	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop,
+		"In first person, point the view where the player aims now instead of\n"
+		"where the last tick left it: the view turns the frame the mouse moves,\n"
+		"not up to two ticks (66 ms) later." },
 
 	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
 		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"
@@ -234,6 +238,18 @@ static const struct config_setting config_settings[] =
 		"How far the view turns for the mouse's movement." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_desktop,
 		"Moving the mouse forward looks down." },
+	{ "input.mouse_aim_assist", _config_boolean, "false", "HALO_MOUSE_AIM_ASSIST", _environment_value, _platform_desktop,
+		"Magnetism while aiming with the mouse, as with a controller: the view\n"
+		"slowed and dragged along by a target. The last of the mouse and the\n"
+		"right stick to move decides. The bullets' autoaim (bent toward the\n"
+		"target) stays either way." },
+
+	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
+		"What the game's console shows on screen of what it logs: \"important\"\n"
+		"(bans, players dropped for cheating, what refuses a command, and the\n"
+		"asserts that stop the game), \"all\" (every line, the game's own\n"
+		"chatter too), or \"none\" (the asserts that stop the game only). What\n"
+		"a command prints shows whatever this is, and debug.txt has every line." },
 
 	{ "game.language", _config_string, "\"\"", "HALO_LANGUAGE", _environment_value, _platform_all,
 		"The language the game asks the Xbox for: \"ja\", \"de\", \"fr\", \"es\" or \"it\";\n"
@@ -266,6 +282,11 @@ static const struct config_setting config_settings[] =
 	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all,
 		"The UDP port internet play uses; 0 picks one. A fixed one can be\n"
 		"forwarded on the router, for networks whose NAT stops connections." },
+	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
+		"Let internet play ask the router (UPnP) to forward its port, for\n"
+		"networks whose NAT stops connections: when a player joins this\n"
+		"machine's game, and when joining a game takes too long. False never\n"
+		"asks." },
 	{ "network.signalling_brokers", _config_string,
 		"\"broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883\"",
 		"HALO_NET_BROKERS", _environment_value, _platform_all,
@@ -280,6 +301,55 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
+	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
+		"Look for a new version when the game starts, and offer to update to it;\n"
+		"false never looks (the game's \"Do not ask again\" writes false here)." },
+
+	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
+		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"
+		"\"host:<map>\" hosts a game on that map, \"join\" joins the first game found;\n"
+		"empty for none." },
+	{ "debug.network_test_start", _config_real, "15.0", "HALO_NETWORK_TEST_START", _environment_value, _platform_all,
+		"Seconds after hosting that an automated test game starts." },
+	{ "debug.network_test_kill", _config_real, "0.0", "HALO_NETWORK_TEST_KILL", _environment_value, _platform_all,
+		"Every this many seconds an automated test host kills its last player; 0 never." },
+	{ "debug.network_test_score", _config_integer, "0", "HALO_NETWORK_TEST_SCORE", _environment_value, _platform_all,
+		"The score an automated test host's game type plays to (a short game, to\n"
+		"test the next); 0 the game type's own." },
+	{ "debug.network_test_shoot", _config_real, "0.0", "HALO_NETWORK_TEST_SHOOT", _environment_value, _platform_all,
+		"Every this many seconds each automated test player hits the next with\n"
+		"their weapon, within its reach (the host brings far players near the\n"
+		"first a second before); 0 never." },
+	{ "debug.network_test_vehicle", _config_real, "0.0", "HALO_NETWORK_TEST_VEHICLE", _environment_value, _platform_all,
+		"This many seconds into an automated test game the host seats its last\n"
+		"player as a vehicle's driver (and out 15 seconds on); 0 never." },
+	{ "debug.network_test_pickup", _config_real, "0.0", "HALO_NETWORK_TEST_PICKUP", _environment_value, _platform_all,
+		"This many seconds into an automated test game the host stands its last\n"
+		"player on a weapon, which a joining player then picks up; 0 never." },
+	{ "debug.network_test_pickup_weapon", _config_string, "\"\"", "HALO_NETWORK_TEST_PICKUP_WEAPON", _environment_value,
+		_platform_all,
+		"The weapon network_test_pickup stands the player on: the first whose tag\n"
+		"name has this in it (\"sniper\", say); empty any." },
+	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true, _platform_all,
+		"Listen on 127.0.0.1 (port telnet_console_port) for a script console that\n"
+		"runs what it is sent as the game's console does, with no password; false\n"
+		"none." },
+	{ "debug.telnet_console_port", _config_integer, "2323", "HALO_TELNET_CONSOLE_PORT", _environment_value,
+		_platform_all,
+		"The port of the script console (telnet_console); the Xbox's was 23, which\n"
+		"only the administrator can listen on." },
+	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value, _platform_all,
+		"Milliseconds everything received is held back (a round trip between two\n"
+		"machines of twice it), to test the netcode as over the internet; 0 none." },
+	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,
+		"Percent of datagrams received that are dropped, for the same; 0 none." },
+	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
+		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
+		"network tests); \"look:<seed>\" stands still, only turning and looking\n"
+		"up and down; empty for none." },
+	{ "debug.update_answer", _config_string, "\"\"", "HALO_UPDATE_ANSWER", _environment_value, _platform_desktop,
+		"The answer to the new version question, for automated tests: \"yes\",\n"
+		"\"no\" or \"never\" (do not ask again, confirmed); empty asks." },
 	{ "debug.exit_after", _config_real, "0.0", "HALO_EXIT_AFTER", _environment_value, _platform_all,
 		"Quit this many seconds after the window opens; 0 never." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,
@@ -842,6 +912,118 @@ static const struct config_value *config_value(const char *name, enum config_typ
 		return &none;
 	}
 	return &config_values[index];
+}
+
+/* ---------- writing a setting */
+
+/* the line's key, if it is "key = ..." (after spaces), in key */
+static int config_line_key(const char *line, const char *end, const char *key)
+{
+	size_t length = strlen(key);
+
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	if ((size_t)(end - line) <= length || strncmp(line, key, length) != 0)
+		return 0;
+	line += length;
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	return line < end && *line == '=';
+}
+
+/* the section the line opens, if it is "[section]" (after spaces) */
+static int config_line_section(const char *line, const char *end, char *section, size_t size)
+{
+	const char *close;
+
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	if (line >= end || *line != '[')
+		return 0;
+	close = memchr(line, ']', (size_t)(end - line));
+	if (!close || (size_t)(close - line - 1) >= size)
+		return 0;
+	memcpy(section, line + 1, (size_t)(close - line - 1));
+	section[close - line - 1] = 0;
+	return 1;
+}
+
+/* sets a boolean setting, for now and in config.toml: its line there is
+changed (or added), the rest of the file kept as it is */
+int config_write_boolean(const char *name, int value)
+{
+	const char *dot = strchr(name, '.');
+	long index = config_setting_index(name);
+	char section[64], key[64], wanted[80], current[64] = "", line_text[96], path[1024];
+	struct config_text out = { 0 };
+	size_t size = 0;
+	char *text;
+	const char *line;
+	int written = 0, in_section = 0, succeeded;
+
+	if (index < 0 || config_settings[index].type != _config_boolean || !dot || (size_t)(dot - name) >= sizeof(section))
+		return 0;
+	/* (the file read first, as the other settings are) */
+	config_boolean(name);
+	pthread_mutex_lock(&config_lock);
+	config_values[index].boolean = value != 0;
+	snprintf(section, sizeof(section), "%.*s", (int)(dot - name), name);
+	snprintf(key, sizeof(key), "%s", dot + 1);
+	snprintf(line_text, sizeof(line_text), "%s = %s\n", key, value ? "true" : "false");
+	snprintf(wanted, sizeof(wanted), "%s", section);
+	config_path(path, sizeof(path));
+	text = config_read_file(path, &size);
+	for (line = text ? text : ""; *line;)
+	{
+		const char *end = line + strcspn(line, "\n");
+		const char *next = *end ? end + 1 : end;
+
+		if (config_line_section(line, end, current, sizeof(current)))
+		{
+			/* (leaving the section without the key: it goes at its end) */
+			if (in_section && !written)
+			{
+				config_append(&out, line_text);
+				written = 1;
+			}
+			in_section = !strcmp(current, wanted);
+		}
+		else if (in_section && !written && config_line_key(line, end, key))
+		{
+			config_append(&out, line_text);
+			written = 1;
+			line = next;
+			continue;
+		}
+		{
+			char *copy = config_copy(line, (size_t)(next - line));
+
+			if (copy)
+			{
+				config_append(&out, copy);
+				free(copy);
+			}
+		}
+		line = next;
+	}
+	if (!written)
+	{
+		if (out.length && out.buffer[out.length - 1] != '\n')
+			config_append(&out, "\n");
+		if (!in_section)
+		{
+			char header[80];
+
+			snprintf(header, sizeof(header), "\n[%s]\n", section);
+			config_append(&out, header);
+		}
+		config_append(&out, line_text);
+	}
+	succeeded = out.buffer && config_write_file(path, out.buffer);
+	pthread_mutex_unlock(&config_lock);
+	free(out.buffer);
+	free(text);
+	return succeeded;
 }
 
 /* ---------- public code */

@@ -1,8 +1,7 @@
 """Ninja rules for the native Windows build (``ninja windows``).
 
-Like the Linux build (tools/linux_build.py), this is independent of the
-byte-matching graph: it compiles the same game sources with clang for 32-bit
-x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
+Like the Linux build (tools/linux_build.py), it compiles the game sources
+with clang for 32-bit x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
 Linux (``port/linux/src``) and the Windows parts in ``port/windows``, and
 links ``build/windows/halo.exe`` with lld. It is generated only when
 configure.py runs on Windows. See port/windows/README.md for the design.
@@ -19,8 +18,10 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LINUX_PROFILE, OPTIMISATION, WINDOWS_PROFILE, XDK_INCLUDE, lto_mode, march_flag, pgo_mode,
-                          compile_launcher, pgo_profile, profile_use_flags, xdk_headers)
+from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, WINDOWS_PROFILE, XDK_INCLUDE, lto_mode,
+                          march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
+                          game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
+                          xdk_headers)
 from .ninja_syntax import Writer
 
 LINUX_DIR = Path("port/linux")
@@ -49,6 +50,17 @@ SDL_DIR = THIRD_PARTY / f"SDL3-{SDL_VERSION}"
 TOML_DIR = Path("port/third_party/tomlc17")
 KCP_DIR = Path("port/third_party/kcp")
 
+
+def updater_defines(release: bool) -> str:
+    """the self-updater's build (port/linux/src/updater.c): its number, from
+    HALO_BUILD_NUMBER (tools/ci_build.py gives it for builds of main; none
+    elsewhere, which never look for updates), and its configuration"""
+    number = os.environ.get("HALO_BUILD_NUMBER", "0")
+    if not number.isdigit():
+        number = "0"
+    flavor = "release" if release else "debug"
+    return f'-DHALO_BUILD_NUMBER={number} -DHALO_BUILD_FLAVOR=\\"{flavor}\\"'
+
 WINDOWS_ABI_FLAGS = [
     "--target=i686-pc-windows-msvc",
     "-fms-extensions",
@@ -57,6 +69,10 @@ WINDOWS_ABI_FLAGS = [
     "-fwrapv",
     "-fno-delete-null-pointer-checks",
     "-fno-omit-frame-pointer",
+    # the same floating point results on every port (every machine in a
+    # system link game simulates it from the same inputs): no
+    # fused multiply-adds (port/include/halo_math.h)
+    "-ffp-contract=off",
     OPTIMISATION,
     "-g",
     "-gcodeview",
@@ -273,7 +289,6 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
 
     abi = " ".join(WINDOWS_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []))
     sdl_include = SDL_DIR / "include"
-    excluded = set(linux_config.get("exclude_sources", []))
     libs = " ".join(
         [_quote(SDL_DIR / "lib" / "x86" / "SDL3.lib")]
         + [f"-l{lib}" for lib in config.get("libraries", [])]
@@ -307,38 +322,22 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                 variables={"cflags": f"{cflags} {extra}"},
             )
 
-        for proj in sln.projects:
-            if proj.name not in linux_config["projects"]:
-                continue
-            options = proj.options
-            defines = " ".join(f"-D{d}" for d in options.get("defines") or [])
-            includes = " ".join(
-                f"-I{_quote(d)}"
-                for d in options.get("include_dirs") or []
-                if Path(d) != Path("xbox/include")
-            )
-            game_cflags = " ".join([
-                abi,
-                " ".join(GAME_FLAGS),
-                f"-include {prefix_header}",
-                f"-include {tags_header}",
-                defines,
-                f"-I{crt_include}",
-                f"-I{PORT_DIR / 'include'}",
-                includes,
-                # the Xbox SDK declarations (port/include/xdk) come before the
-                # Windows SDK, which has headers of the same names
-                f"-I{XDK_INCLUDE}",
-            ])
-            for obj in proj.objects:
-                name = str(obj.file_path).replace(os.sep, "/")
-                if obj.status.name == "Missing" or name in excluded:
-                    continue
-                if obj.file_path.suffix.lower() != ".c":
-                    continue
-                add_object(obj.file_path, game_cflags)
-            for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-                add_object(source, game_cflags)
+        game_cflags = " ".join([
+            abi,
+            " ".join(GAME_FLAGS),
+            f"-include {prefix_header}",
+            f"-include {tags_header}",
+            f"-I{crt_include}",
+            f"-I{PORT_DIR / 'include'}",
+            game_defines_and_includes(linux_config),
+            # the Xbox SDK declarations (port/include/xdk) come before the
+            # Windows SDK, which has headers of the same names
+            f"-I{XDK_INCLUDE}",
+        ])
+        for source in game_sources(linux_config):
+            add_object(source, game_cflags)
+        for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
+            add_object(source, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])
         platform_cflags = " ".join([
@@ -369,14 +368,30 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         for source in sorted(linux_platform.glob("*.c")):
             if source.name in replaced:
                 continue
-            add_object(source, platform_cflags)
+            if source.name == "updater.c":
+                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            else:
+                add_object(source, platform_cflags)
+        miniupnpc_include = f"-I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB"
         for source in sorted((PORT_DIR / "src").glob("*.c")):
-            add_object(source, win32_cflags if source.name.startswith("win32_") else platform_cflags)
+            if source.name == "win32_upnp.c":
+                add_object(source, f"{win32_cflags} {miniupnpc_include}")
+            else:
+                add_object(source, win32_cflags if source.name.startswith("win32_") else platform_cflags)
+        # internet play's UPnP (port/third_party/miniupnpc), on Winsock, as
+        # its own build has it
+        for source in miniupnpc_sources():
+            add_object(source, " ".join([abi, *WIN32_FLAGS, miniupnpc_include, f"-I{MINIUPNPC_DIR / 'src'}",
+                                         "-D_CRT_SECURE_NO_WARNINGS", "-D_WINSOCK_DEPRECATED_NO_WARNINGS", "-w"]))
         # the settings file's parser (port/third_party/tomlc17), with the
         # platform layer's ABI and nothing else
         add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
         # internet play's reliable streams (port/third_party/kcp; p2p.c)
         add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+        # the game's sin, pow and the rest, the same on every port
+        # (port/include/halo_math.h)
+        for source in musl_math_sources():
+            add_object(source, musl_math_cflags(abi))
 
         n.build(
             outputs=output,

@@ -73,6 +73,10 @@ void network_game_client_request_immediate_start(
 	void);
 boolean create_global_network_game_server(
 	void);
+/* a client of the distributed netcode (port/linux/NETCODE.md), which
+decides nothing the host does */
+boolean network_game_distributed_client(
+	void);
 
 /* ---------- globals */
 
