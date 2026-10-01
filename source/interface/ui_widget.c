@@ -5602,6 +5602,7 @@ int p2p_join_code(char *text, int size);
 int p2p_join_with_code(char const *typed);
 int p2p_join_code_status(void);
 void p2p_join_code_clear_status(void);
+int p2p_join_state(void);
 
 enum
 {
@@ -5613,6 +5614,17 @@ enum
 	_join_code_invalid,
 	_join_code_own,
 	_join_code_offline,
+};
+
+enum
+{
+	/* p2p.h's */
+	_join_state_none,
+	_join_state_reaching,
+	_join_state_connected,
+	_join_state_no_answer,
+	_join_state_blocked,
+	_join_state_lost,
 };
 
 static struct
@@ -5722,6 +5734,18 @@ static void ui_join_code_render(
 		case _join_code_invalid: status = "That is not a join code (8 letters and digits)"; break;
 		case _join_code_own: status = "That is this game's own code"; break;
 		case _join_code_offline: status = "Online play is off (network.online in config.toml)"; break;
+		}
+		/* (the code found, or a link: how reaching its host goes) */
+		if (!status || p2p_join_code_status() == _join_code_found)
+		{
+			switch (p2p_join_state())
+			{
+			case _join_state_reaching: status = "Reaching the online game's host..."; break;
+			case _join_state_connected: status = "Connected: the online game is in the list above"; break;
+			case _join_state_no_answer: status = "The host did not answer: it may have stopped hosting"; break;
+			case _join_state_blocked: status = "Blocked by the routers: allow UPnP on yours or the host's"; break;
+			case _join_state_lost: status = "Lost the connection to the online game's host"; break;
+			}
 		}
 		if (status)
 			ui_join_code_draw_line(392, status, FALSE, FALSE);

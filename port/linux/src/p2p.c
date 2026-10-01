@@ -331,6 +331,8 @@ static struct
 	unsigned char join_host_hash[P2P_KEY_HASH_SIZE];
 	unsigned char join_token[P2P_TOKEN_SIZE];
 	unsigned long join_time;
+	/* how the latest join goes, for the menus (p2p_join_state) */
+	int join_state;
 
 	char clipboard[P2P_LINK_SIZE];
 	int has_clipboard;
@@ -840,6 +842,12 @@ static void drop_peer(struct peer *peer, const char *reason)
 	struct retired_session *retired = &p2p.retired[p2p.retired_next++ % MAXIMUM_RETIRED_SESSIONS];
 	int ask_again = p2p.joining && peer->is_host && !memcmp(peer->identifier, p2p.join_host, P2P_IDENTIFIER_SIZE);
 
+	if (peer->is_host && !memcmp(peer->identifier, p2p.join_host, P2P_IDENTIFIER_SIZE) &&
+		p2p.join_state != P2P_JOIN_NONE)
+	{
+		p2p.join_state = peer->connected ? P2P_JOIN_LOST : P2P_JOIN_BLOCKED;
+	}
+
 	platform_log("Internet play: %s %s: %s", peer->is_host ? "host" : "player", peer->name, reason);
 	if (peer->connected)
 	{
@@ -1029,6 +1037,8 @@ static void peer_heard(struct peer *peer, unsigned long address, unsigned short 
 			address_text(address, port, text));
 		if (peer->is_host)
 		{
+			if (!memcmp(p2p.join_host, peer->identifier, P2P_IDENTIFIER_SIZE) && p2p.join_state != P2P_JOIN_NONE)
+				p2p.join_state = P2P_JOIN_CONNECTED;
 			if (p2p.joining && !memcmp(p2p.join_host, peer->identifier, P2P_IDENTIFIER_SIZE))
 			{
 				p2p.joining = 0;
@@ -2298,6 +2308,7 @@ static int join_invite(const char *text)
 	memcpy(p2p.join_host_hash, hash, sizeof(hash));
 	memcpy(p2p.join_token, token, sizeof(token));
 	p2p.join_requested = 1;
+	p2p.join_state = P2P_JOIN_REACHING;
 	return 1;
 }
 
@@ -2344,6 +2355,16 @@ int p2p_join_code_status(void)
 	return status;
 }
 
+int p2p_join_state(void)
+{
+	int state;
+
+	pthread_mutex_lock(&p2p_lock);
+	state = p2p.running ? p2p.join_state : P2P_JOIN_NONE;
+	pthread_mutex_unlock(&p2p_lock);
+	return state;
+}
+
 void p2p_join_code_clear_status(void)
 {
 	pthread_mutex_lock(&p2p_lock);
@@ -2381,6 +2402,8 @@ static void update_joining(void)
 	{
 		p2p.joining = 0;
 		p2p_signal_stop_joining();
+		if (p2p.join_state == P2P_JOIN_REACHING)
+			p2p.join_state = P2P_JOIN_NO_ANSWER;
 		platform_log("Internet play: no answer from the invite's host; it may have stopped hosting or quit");
 	}
 }

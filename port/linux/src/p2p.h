@@ -43,6 +43,19 @@ int p2p_join_code(char *text, int size);
 int p2p_join_with_code(const char *typed);
 int p2p_join_code_status(void);
 void p2p_join_code_clear_status(void);
+/* how the latest join of an invite or code goes (the VR port's, for the
+menus): reaching the host, connected (its game is in the system link list),
+or why not */
+enum
+{
+	P2P_JOIN_NONE,
+	P2P_JOIN_REACHING,
+	P2P_JOIN_CONNECTED,
+	P2P_JOIN_NO_ANSWER,
+	P2P_JOIN_BLOCKED,
+	P2P_JOIN_LOST,
+};
+int p2p_join_state(void);
 
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
