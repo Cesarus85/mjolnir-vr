@@ -5732,6 +5732,10 @@ boolean unit_update(
 							unit_throw_grenade_release(unit_index, FALSE);
 						break;
 					}
+					/* (a VR player of another machine: held while their
+					machine says, network_vr.c) */
+					if (halo_vr_network_grenade_held(unit->unit.player_index))
+						break;
 				}
 #endif
 				if (unit->unit.animation.state!=_unit_state_throw_grenade)
@@ -11065,8 +11069,11 @@ static void unit_throw_grenade_release(
 	boolean vr_thrown = FALSE;
 
 	/* VR: the grenade stays in the hand while the trigger holds it */
-	if (vr_local_player_index != NONE && halo_vr_grenade_held(vr_local_player_index))
+	if (vr_local_player_index != NONE ? halo_vr_grenade_held(vr_local_player_index) :
+		halo_vr_network_grenade_held(unit->unit.player_index))
+	{
 		return;
+	}
 #endif
 
 	if (unit->unit.grenade_throw_state==_unit_grenade_throw_in_hand)
@@ -11126,8 +11133,10 @@ static void unit_throw_grenade_release(
 					float vr_origin[3], vr_direction[3], vr_strength;
 
 					/* VR: thrown by the hand, from it, its way and as hard */
-					if (vr_local_player_index != NONE &&
-						halo_vr_grenade_throw(vr_local_player_index, vr_origin, vr_direction, &vr_strength))
+					if (vr_local_player_index != NONE ?
+						halo_vr_grenade_throw(vr_local_player_index, vr_origin, vr_direction, &vr_strength) :
+						halo_vr_network_grenade_throw(unit->unit.player_index, unit_index, vr_origin, vr_direction,
+							&vr_strength))
 					{
 						real_point3d origin;
 						real_vector3d direction;
@@ -11141,6 +11150,12 @@ static void unit_throw_grenade_release(
 						object_translate(grenade_index, &origin, NULL);
 						scale_vector3d(&direction, scale * vr_strength, &initial_velocity);
 						vr_thrown = TRUE;
+						/* (and the other machines throw it so too) */
+						if (vr_local_player_index != NONE)
+						{
+							halo_vr_network_grenade_thrown(vr_local_player_index, unit_index, vr_origin,
+								vr_direction, vr_strength);
+						}
 					}
 					else
 #endif

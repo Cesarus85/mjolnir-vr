@@ -62,6 +62,10 @@ enum
 	/* a client's Discord user, as its Discord told it (reliable, with its
 	ready: distributed_client_send_identity) */
 	_distributed_message_client_identity,
+	/* (the VR port's) a VR player's hands, every tick: a client's own to
+	the host, the host's of the others to each client (unreliable;
+	network_vr.c). Last, so that a build without it drops it. */
+	_distributed_message_vr_poses,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
@@ -225,5 +229,11 @@ void network_damage_client_tick(void);
 void network_damage_handle_events(void const *entries, short count);
 void network_damage_handle_reports(long machine_index, void const *entries, short count);
 word network_damage_entry_size(byte type);
+
+/* VR players' hands (network_vr.c) */
+void network_vr_new_game(void);
+void network_vr_tick(void);
+word network_vr_entry_size(void);
+void network_vr_handle_poses(long machine_index, void const *entries, short count);
 
 #endif // __NETWORK_DISTRIBUTED_H

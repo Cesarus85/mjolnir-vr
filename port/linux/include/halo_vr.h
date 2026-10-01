@@ -201,6 +201,23 @@ float halo_vr_enclosed_seat_raise(int hull);
 /* how strongly glass tints and reflects (1 as the game has it) */
 float halo_vr_glass_strength(void);
 
+/* VR players of other machines in a network game (port/linux/game/
+network_vr.c): their hands, as their machines send them, while they keep
+coming (each returns 0 otherwise, and for this machine's own players, and
+the game does as before):
+- where the weapon aims, on foot;
+- where its shots start (world units), from the unit's camera;
+- whether the left hand holds the grenade;
+- the hand's throw, once, as the grenade goes (as halo_vr_grenade_throw);
+and this machine's own VR player's throw, to send (units.c). */
+int halo_vr_network_aim(long player_index, float vector[3]);
+int halo_vr_network_weapon_origin(long player_index, long unit_index, float origin[3]);
+int halo_vr_network_grenade_held(long player_index);
+int halo_vr_network_grenade_throw(long player_index, long unit_index, float origin[3], float direction[3],
+	float *strength);
+void halo_vr_network_grenade_thrown(short local_player_index, long unit_index, const float origin[3],
+	const float direction[3], float strength);
+
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);
 void halo_vr_frame_begin(void);

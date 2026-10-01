@@ -3771,7 +3771,11 @@ void players_update_before_game(
 							control_data.looking_vector.j = vr_look[1];
 							control_data.looking_vector.k = vr_look[2];
 						}
-						if (halo_vr_aim_vector(player->local_player_index, vr_aim))
+						/* (a VR player of another machine: where their
+						machine says their weapon aims, network_vr.c) */
+						if (player->local_player_index != NONE ?
+							halo_vr_aim_vector(player->local_player_index, vr_aim) :
+							halo_vr_network_aim(iterator.datum_index, vr_aim))
 						{
 							control_data.aiming_vector.i = vr_aim[0];
 							control_data.aiming_vector.j = vr_aim[1];

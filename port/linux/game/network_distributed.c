@@ -3050,6 +3050,7 @@ void network_distributed_new_game(
 	update_queues_distributed_reset();
 	network_objects_new_game();
 	network_damage_new_game();
+	network_vr_new_game();
 }
 
 /* after each tick (game_time.c) */
@@ -3091,6 +3092,7 @@ void network_distributed_tick(
 			distributed_send_statistics(game_time_get() % STATISTICS_REFRESH_TICKS == 0);
 		distributed_statistics_due = FALSE;
 		distributed_host_send_players();
+		network_vr_tick();
 		distributed_send_pickups();
 		if (game_time_get() % GAME_STATE_INTERVAL_TICKS == 0)
 			distributed_send_game_state(NONE);
@@ -3099,6 +3101,7 @@ void network_distributed_tick(
 	{
 		distributed_note_own_positions();
 		distributed_client_send_inputs();
+		network_vr_tick();
 		distributed_client_send_predictions();
 		network_objects_client_tick();
 		network_damage_client_tick();
@@ -3128,6 +3131,7 @@ static boolean distributed_message_stale(
 	case _distributed_message_player_inputs:
 	case _distributed_message_relayed_actions:
 	case _distributed_message_damage_events:
+	case _distributed_message_vr_poses:
 		break;
 	default:
 		return FALSE;
@@ -3572,6 +3576,7 @@ void network_distributed_handle_message(
 	case _distributed_message_notice:
 	case _distributed_message_client_ready: entry_size = 0; break;
 	case _distributed_message_client_identity: entry_size = sizeof(struct distributed_client_identity); break;
+	case _distributed_message_vr_poses: entry_size = network_vr_entry_size(); break;
 	case _distributed_message_damage_events:
 	case _distributed_message_hit_reports: entry_size = network_damage_entry_size(header.type); break;
 	default: entry_size = network_objects_entry_size(header.type); break;
@@ -3583,7 +3588,19 @@ void network_distributed_handle_message(
 	}
 	distributed_statistics.received++;
 
-	/* (each kind from the host, or from a client) */
+	/* (each kind from the host, or from a client; a VR player's hands
+	both ways) */
+	if (header.type == _distributed_message_vr_poses)
+	{
+		if (machine_index == NONE ? game_connection() != _game_connection_network_client :
+				game_connection() != _game_connection_network_server)
+		{
+			return;
+		}
+		if (!distributed_message_stale(machine_index, &header))
+			network_vr_handle_poses(machine_index, entries, header.count);
+		return;
+	}
 	switch (header.type)
 	{
 	case _distributed_message_player_prediction:

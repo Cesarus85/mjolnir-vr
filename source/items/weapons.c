@@ -2272,8 +2272,12 @@ static void trigger_create_projectiles(
 					projectile is kept inside the level from the camera below,
 					so a hand through a wall does not fire through it */
 					real vr_origin[3];
+					short vr_local_player_index = player_get(player_index)->local_player_index;
 
-					if (halo_vr_weapon_origin(player_get(player_index)->local_player_index, vr_origin))
+					/* (a VR player of another machine: from the hand
+					their machine says, network_vr.c) */
+					if (vr_local_player_index != NONE ? halo_vr_weapon_origin(vr_local_player_index, vr_origin) :
+						halo_vr_network_weapon_origin(player_index, owner_object_index, vr_origin))
 					{
 						origin.x = vr_origin[0];
 						origin.y = vr_origin[1];
