@@ -49,8 +49,13 @@ enum
 
 /* how long a player's hands drive them after the last came (ticks): longer
 and they are driven as before (the hands stopped coming: the player left
-VR, or the network) */
+VR, or the network). Where the weapon aims and fires from is held a
+second, over the gaps of a network that delivers in bursts (as the input
+the netcode relays is); a grenade held, only a third of one, so that it
+does not hang in the hand after the hand let go. The host relays only
+hands as fresh as that. */
 #define VR_POSE_FRESH_TICKS 10
+#define VR_AIM_HOLD_TICKS 30
 /* how long a throw is sent after it (ticks), and taken after it came */
 #define VR_THROW_TICKS 30
 /* offsets from the unit's camera: in 1/4096 of a world unit, no further
@@ -152,7 +157,8 @@ static boolean network_vr_direction_unpack(
 
 /* a player of another machine whose hands came lately, or NULL */
 static struct network_vr_player *network_vr_remote_player(
-	long player_index)
+	long player_index,
+	long fresh_ticks)
 {
 	struct network_vr_player *vr_player;
 	long absolute_index;
@@ -163,7 +169,7 @@ static struct network_vr_player *network_vr_remote_player(
 	if (absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_PLAYERS)
 		return NULL;
 	vr_player = &network_vr_players[absolute_index];
-	if (!vr_player->valid || game_time_get() - vr_player->received_time > VR_POSE_FRESH_TICKS ||
+	if (!vr_player->valid || game_time_get() - vr_player->received_time > fresh_ticks ||
 		game_time_get() < vr_player->received_time)
 	{
 		return NULL;
@@ -395,7 +401,7 @@ void network_vr_handle_poses(
 
 int halo_vr_network_aim(long player_index, float vector[3])
 {
-	struct network_vr_player *vr_player = network_vr_remote_player(player_index);
+	struct network_vr_player *vr_player = network_vr_remote_player(player_index, VR_AIM_HOLD_TICKS);
 	real_vector3d aim;
 
 	if (!vr_player || !TEST_FLAG(vr_player->pose.flags, _vr_pose_aim_bit) ||
@@ -412,7 +418,7 @@ int halo_vr_network_aim(long player_index, float vector[3])
 
 int halo_vr_network_weapon_origin(long player_index, long unit_index, float origin[3])
 {
-	struct network_vr_player *vr_player = network_vr_remote_player(player_index);
+	struct network_vr_player *vr_player = network_vr_remote_player(player_index, VR_AIM_HOLD_TICKS);
 	real_vector3d offset;
 	real_point3d camera;
 
@@ -430,7 +436,7 @@ int halo_vr_network_weapon_origin(long player_index, long unit_index, float orig
 
 int halo_vr_network_grenade_held(long player_index)
 {
-	struct network_vr_player *vr_player = network_vr_remote_player(player_index);
+	struct network_vr_player *vr_player = network_vr_remote_player(player_index, VR_POSE_FRESH_TICKS);
 
 	return vr_player && TEST_FLAG(vr_player->pose.flags, _vr_pose_grenade_held_bit);
 }
@@ -438,7 +444,7 @@ int halo_vr_network_grenade_held(long player_index)
 int halo_vr_network_grenade_throw(long player_index, long unit_index, float origin[3], float direction[3],
 	float *strength)
 {
-	struct network_vr_player *vr_player = network_vr_remote_player(player_index);
+	struct network_vr_player *vr_player = network_vr_remote_player(player_index, VR_THROW_TICKS);
 	real_vector3d offset;
 	real_vector3d way;
 	real_point3d camera;
