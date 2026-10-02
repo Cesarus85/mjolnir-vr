@@ -17,6 +17,13 @@ way with the game's own pathfinding (ai/path.c: the maps' pathfinding
 surfaces), as the campaign's actors do: a path a few times a second, whose
 next point it walks to, looking where it goes; where no path is found it
 walks straight at the goal, jumping and turning off when it is stuck.
+
+Out of a fight, a bot goes for what lies near that is worth having: a
+weapon better than the worse of its two (and swaps that one for it, as a
+player holding the action button does), ammunition for one it has when it
+runs low, an overshield, camouflage, a health pack when hurt, grenades.
+In a fight it changes to its other weapon when the one in hand is empty,
+and now and then lobs a grenade at an enemy some way off.
 */
 
 #include "cseries.h"
@@ -28,6 +35,11 @@ walks straight at the goal, jumping and turning off when it is stuck.
 #include "physics/collisions.h"
 #include "ai/path.h"
 #include "units/bipeds.h"
+#include "items/items.h"
+#include "items/weapons.h"
+#include "tag_files/tag_files.h"
+
+#include <string.h>
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
@@ -46,7 +58,17 @@ enum
 	MAXIMUM_BOTS = 16,
 	/* how often a bot finds its path again (ticks) */
 	PATH_REFRESH_TICKS = 15,
+	/* how often it looks around for things to pick up (ticks) */
+	ITEM_LOOK_TICKS = 30,
+	/* the least time between its grenades (ticks) */
+	GRENADE_INTERVAL_TICKS = 150,
 };
+
+/* how far off it goes for things (world units) */
+#define BOT_ITEM_RANGE 25.0f
+/* a grenade's range: at least, at most (world units) */
+#define BOT_GRENADE_MINIMUM 6.0f
+#define BOT_GRENADE_MAXIMUM 20.0f
 
 /* how near a path's point counts as reached, and the goal (world units) */
 #define BOT_STEP_RADIUS 0.4f
@@ -80,6 +102,11 @@ struct bot
 	long goal_time;
 	long path_time;
 	struct path_result path;
+	/* the thing it goes for, and when it last looked */
+	long item_index;
+	long item_look_time;
+	long grenade_time;
+	long weapon_switch_time;
 };
 
 /* ---------- globals */
@@ -95,6 +122,9 @@ static struct
 	long logged_time;
 	long paths_found;
 	long paths_failed;
+	long grenades;
+	long pickups;
+	long switches;
 	/* how well they play (bots.skill, as the game began) */
 	short reaction_ticks;
 	real turn_rate;
@@ -317,6 +347,207 @@ static void bot_choose_goal(
 	bot->path_time = game_time_get() - PATH_REFRESH_TICKS;
 }
 
+/* ---------- things to pick up */
+
+/* how much a weapon is worth having, by its tag's name (0: not known) */
+static real bot_weapon_worth(
+	long definition_index)
+{
+	static struct
+	{
+		char const *name;
+		real worth;
+	} const weapons[] =
+	{
+		{ "rocket launcher", 9.0f }, { "sniper rifle", 8.0f }, { "fuel rod", 8.0f }, { "shotgun", 7.0f },
+		{ "flamethrower", 6.0f }, { "pistol", 6.0f }, { "plasma rifle", 5.0f }, { "assault rifle", 5.0f },
+		{ "needler", 4.0f }, { "plasma pistol", 4.0f },
+	};
+	char const *name = tag_get_name(definition_index);
+	short index;
+
+	if (!name)
+		return 0.0f;
+	/* (plasma pistol before pistol: the longer name first) */
+	if (strstr(name, "plasma pistol"))
+		return 4.0f;
+	for (index = 0; index < (short)NUMBEROF(weapons); index++)
+	{
+		if (strstr(name, weapons[index].name))
+			return weapons[index].worth;
+	}
+	return 3.0f;
+}
+
+/* how well a weapon suits a fight at that distance (world units) */
+static real bot_weapon_suits(
+	long definition_index,
+	real distance)
+{
+	char const *name = tag_get_name(definition_index);
+	real worth = bot_weapon_worth(definition_index);
+
+	if (!name)
+		return worth;
+	if (strstr(name, "shotgun") || strstr(name, "flamethrower"))
+		return distance < 6.0f ? worth + 5.0f : distance > 10.0f ? worth - 5.0f : worth;
+	if (strstr(name, "sniper rifle"))
+		return distance > 12.0f ? worth + 3.0f : worth - 4.0f;
+	if (strstr(name, "rocket launcher") || strstr(name, "fuel rod"))
+		return distance < 4.0f ? worth - 8.0f : worth + 1.0f;
+	if (strstr(name, "plasma pistol") || strstr(name, "needler"))
+		return worth;
+	if (strstr(name, "pistol"))
+		return distance > 10.0f ? worth + 2.0f : worth;
+	return worth;
+}
+
+/* whether a weapon has rounds left (a battery: charge) */
+static boolean bot_weapon_has_ammunition(
+	long weapon_index)
+{
+	struct weapon_datum *weapon = weapon_try_and_get(weapon_index);
+
+	if (!weapon)
+		return FALSE;
+	if (weapon->weapon.magazines[0].rounds_total > 0 || weapon->weapon.magazines[0].rounds_loaded > 0)
+		return TRUE;
+	/* (no magazine: a battery, spent when its age reaches 1) */
+	return weapon->weapon.magazines[0].rounds_loaded == 0 && weapon->weapon.magazines[0].rounds_total == 0 &&
+		weapon->weapon.age < 1.0f && weapon->weapon.magazines[0].original_time == 0;
+}
+
+/* how much the bot would gain by a thing lying there (0: nothing) */
+static real bot_item_worth(
+	struct unit_datum const *unit,
+	long item_index)
+{
+	struct object_datum *object = object_get(item_index);
+	char const *name = tag_get_name(object->definition_index);
+	short slot;
+
+	if (!name)
+		return 0.0f;
+	if (object->object.parent_object_index != NONE)
+		return 0.0f;
+	if (TEST_FLAG(_object_mask_equipment, object->object.type))
+	{
+		if (strstr(name, "over shield") || strstr(name, "overshield"))
+			return 9.0f;
+		if (strstr(name, "camouflage"))
+			return 8.0f;
+		if (strstr(name, "health"))
+			return unit->object.body_vitality < 0.7f ? 7.0f : 0.0f;
+		if (strstr(name, "frag grenade"))
+			return unit->unit.grenade_counts[0] < 2 ? 3.0f : 0.0f;
+		if (strstr(name, "plasma grenade"))
+			return NUMBER_OF_UNIT_GRENADE_TYPES > 1 && unit->unit.grenade_counts[1] < 2 ? 3.0f : 0.0f;
+		return 0.0f;
+	}
+	if (TEST_FLAG(_object_mask_weapon, object->object.type))
+	{
+		real worth = bot_weapon_worth(object->definition_index);
+		real worst = 1000.0f;
+		short carried = 0;
+
+		for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+		{
+			long carried_index = unit->unit.weapon_object_indices[slot];
+			struct object_datum *carried_weapon = carried_index != NONE ? object_try_and_get(carried_index) : NULL;
+
+			if (!carried_weapon)
+				continue;
+			carried++;
+			/* (one it has: worth its ammunition when it runs low) */
+			if (carried_weapon->definition_index == object->definition_index)
+				return bot_weapon_has_ammunition(carried_index) ? 0.0f : 4.0f;
+			worst = MIN(worst, bot_weapon_worth(carried_weapon->definition_index));
+		}
+		if (carried < 2)
+			return worth;
+		return worth - worst > 0.5f ? worth - worst : 0.0f;
+	}
+	return 0.0f;
+}
+
+/* the thing most worth going for near the bot, or NONE */
+static long bot_find_item(
+	struct unit_datum const *unit,
+	real_point3d const *position)
+{
+	struct object_iterator iterator;
+	long best = NONE;
+	real best_score = 0.0f;
+
+	object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment, 0);
+	while (object_iterator_next(&iterator))
+	{
+		real_point3d origin;
+		real distance;
+		real worth;
+		real score;
+
+		object_get_origin(iterator.index, &origin);
+		distance = distance3d(position, &origin);
+		if (distance > BOT_ITEM_RANGE)
+			continue;
+		worth = bot_item_worth(unit, iterator.index);
+		if (worth <= 0.0f)
+			continue;
+		score = worth / (1.0f + distance / 8.0f);
+		if (score > best_score)
+		{
+			best_score = score;
+			best = iterator.index;
+		}
+	}
+	return best;
+}
+
+/* near a weapon it wants: the worse of its two in hand (the one a swap
+leaves), and the action held while the game offers the weapon */
+static void bot_take_item(
+	struct bot *bot,
+	struct player_datum const *player,
+	struct unit_datum const *unit,
+	struct player_action *action)
+{
+	struct object_datum *item = object_try_and_get(bot->item_index);
+	short slot;
+	short worst_slot = NONE;
+	real worst = 1000.0f;
+	short carried = 0;
+
+	if (!item || !TEST_FLAG(_object_mask_weapon, item->object.type))
+		return;
+	for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+	{
+		long carried_index = unit->unit.weapon_object_indices[slot];
+		struct object_datum *carried_weapon = carried_index != NONE ? object_try_and_get(carried_index) : NULL;
+		real worth;
+
+		if (!carried_weapon)
+			continue;
+		carried++;
+		worth = bot_weapon_worth(carried_weapon->definition_index);
+		if (worth < worst)
+		{
+			worst = worth;
+			worst_slot = slot;
+		}
+	}
+	if (carried >= 2 && worst_slot != NONE)
+		action->desired_weapon_index = worst_slot;
+	if (player->action_object_index == bot->item_index &&
+		(player->action_result == _player_action_result_swap_for_weapon ||
+			player->action_result == _player_action_result_add_weapon_to_inventory) &&
+		(game_time_get() & 1))
+	{
+		SET_FLAG(action->control_flags, _unit_control_swap_weapons_bit, TRUE);
+		bots.pickups++;
+	}
+}
+
 /* the throttle that walks a unit facing yaw towards a point */
 static void bot_walk_to(
 	struct player_action *action,
@@ -361,6 +592,22 @@ static void bot_think(
 	}
 	action->desired_weapon_index = unit->unit.current_weapon_index;
 	action->desired_grenade_index = unit->unit.current_grenade_index;
+	/* (the weapon in hand empty: the other) */
+	if (unit->unit.current_weapon_index >= 0 &&
+		!bot_weapon_has_ammunition(unit->unit.weapon_object_indices[unit->unit.current_weapon_index]))
+	{
+		short slot;
+
+		for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+		{
+			if (slot != unit->unit.current_weapon_index && unit->unit.weapon_object_indices[slot] != NONE &&
+				bot_weapon_has_ammunition(unit->unit.weapon_object_indices[slot]))
+			{
+				action->desired_weapon_index = slot;
+				break;
+			}
+		}
+	}
 	unit_get_camera_position(player->unit_index, &eye);
 	object_get_origin(player->unit_index, &position);
 	/* (where it faces now, the first time) */
@@ -407,6 +654,36 @@ static void bot_think(
 		distance = (real)sqrt(dx * dx + dy * dy + dz * dz);
 		wanted_yaw = (real)atan2(dy, dx) + bot->aim_error_yaw;
 		wanted_pitch = (real)atan2(dz, flat) + bot->aim_error_pitch;
+		/* the weapon that suits the distance, if it has rounds (changed no
+		more than every two seconds) */
+		if (game_time_get() - bot->weapon_switch_time > 60 || game_time_get() < bot->weapon_switch_time)
+		{
+			short slot;
+			short best_slot = NONE;
+			real best = -1000.0f;
+
+			for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+			{
+				long weapon_index = unit->unit.weapon_object_indices[slot];
+				real suits;
+
+				if (weapon_index == NONE || !bot_weapon_has_ammunition(weapon_index))
+					continue;
+				suits = bot_weapon_suits(object_get(weapon_index)->definition_index, distance) +
+					(slot == unit->unit.current_weapon_index ? 1.0f : 0.0f);
+				if (suits > best)
+				{
+					best = suits;
+					best_slot = slot;
+				}
+			}
+			if (best_slot != NONE && best_slot != unit->unit.current_weapon_index)
+			{
+				action->desired_weapon_index = best_slot;
+				bot->weapon_switch_time = game_time_get();
+				bots.switches++;
+			}
+		}
 		/* closes on it along its way, weaving, until near */
 		bot->weave_phase++;
 		if (distance > BOT_CLOSE_RANGE)
@@ -425,14 +702,71 @@ static void bot_think(
 		/* (a melee blow when it is upon it) */
 		if (distance < 1.0f)
 			SET_FLAG(action->control_flags, _unit_control_use_equipment_bit, TRUE);
+		/* (a grenade now and then, lobbed at one some way off) */
+		if (distance > BOT_GRENADE_MINIMUM && distance < BOT_GRENADE_MAXIMUM &&
+			game_time_get() - bot->grenade_time > GRENADE_INTERVAL_TICKS && bot_random() < 0.02f)
+		{
+			short type;
+
+			for (type = 0; type < NUMBER_OF_UNIT_GRENADE_TYPES; type++)
+			{
+				if (unit->unit.grenade_counts[type] > 0)
+					break;
+			}
+			if (type < NUMBER_OF_UNIT_GRENADE_TYPES)
+			{
+				bot->grenade_time = game_time_get();
+				bots.grenades++;
+				action->desired_grenade_index = type;
+				wanted_pitch += PIN(distance * 0.02f, 0.05f, 0.4f);
+				SET_FLAG(action->control_flags, _unit_control_throw_grenade_bit, TRUE);
+				SET_FLAG(action->control_flags, _unit_control_weapon_secondary_trigger_bit, TRUE);
+				firing = FALSE;
+			}
+		}
 	}
 	else
 	{
 		real_point3d point;
 
+		/* something worth having near: there first */
+		if (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->item_look_time)
+		{
+			long item = bot_find_item(unit, &position);
+
+			bot->item_look_time = game_time_get();
+			if (item != bot->item_index)
+			{
+				bot->item_index = item;
+				if (item != NONE)
+				{
+					object_get_origin(item, &bot->goal);
+					bot->has_goal = TRUE;
+					bot->goal_time = game_time_get();
+					bot->path_time = game_time_get() - PATH_REFRESH_TICKS;
+				}
+			}
+		}
+		if (bot->item_index != NONE)
+		{
+			/* (taken or gone: on) */
+			if (!object_try_and_get(bot->item_index) || bot_item_worth(unit, bot->item_index) <= 0.0f)
+			{
+				bot->item_index = NONE;
+				bot->has_goal = FALSE;
+			}
+			else
+			{
+				object_get_origin(bot->item_index, &bot->goal);
+				bot->goal_time = game_time_get();
+				if (distance3d(&position, &bot->goal) < 2.0f)
+					bot_take_item(bot, player, unit, action);
+			}
+		}
 		/* hunts, or roams: along its way, looking where it goes */
-		if (!bot->has_goal || game_time_get() - bot->goal_time > 90 ||
-			distance3d(&position, &bot->goal) < BOT_GOAL_RADIUS)
+		if (bot->item_index == NONE &&
+			(!bot->has_goal || game_time_get() - bot->goal_time > 90 ||
+				distance3d(&position, &bot->goal) < BOT_GOAL_RADIUS))
 		{
 			bot_choose_goal(bot, player, &position);
 		}
@@ -512,6 +846,7 @@ static struct bot *bot_get(
 		csmemset(free_bot, 0, sizeof(*free_bot));
 		free_bot->player_index = player_index;
 		free_bot->target_unit_index = NONE;
+		free_bot->item_index = NONE;
 	}
 	return free_bot;
 }
@@ -580,7 +915,35 @@ void bots_tick(
 	if (count && game_time_get() - bots.logged_time >= 300)
 	{
 		bots.logged_time = game_time_get();
-		platform_log("bots: driving %d; paths found %ld, not %ld", (int)count, bots.paths_found, bots.paths_failed);
-		bots.paths_found = bots.paths_failed = 0;
+		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld",
+			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches);
+		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = 0;
+		for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+		{
+			struct player_datum *player = distributed_player(index);
+			struct unit_datum *unit;
+			short slot;
+			char text[160] = "";
+
+			if (!player || !network_game_server_is_bot_machine(player->network_player_data.machine_index) ||
+				!(unit = unit_try_and_get(player->unit_index)))
+			{
+				continue;
+			}
+			for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+			{
+				long weapon_index = unit->unit.weapon_object_indices[slot];
+				char const *name = weapon_index != NONE ? tag_get_name(object_get(weapon_index)->definition_index) : NULL;
+				char const *last = name ? strrchr(name, '\\') : NULL;
+
+				if (name)
+				{
+					strncat(text, last ? last + 1 : name, sizeof(text) - strlen(text) - 3);
+					strncat(text, slot == unit->unit.current_weapon_index ? "* " : " ", sizeof(text) - strlen(text) - 1);
+				}
+			}
+			platform_log("bots:   player %d carries %s, grenades %d/%d", index, text, unit->unit.grenade_counts[0],
+				unit->unit.grenade_counts[1]);
+		}
 	}
 }
