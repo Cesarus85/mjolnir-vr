@@ -131,6 +131,21 @@ int host_xr_copy_layer_array(int layer, unsigned int texture, int array_layer);
 /* darkens the eye images from their edges, strength 0..1 (0: off) */
 void host_xr_set_vignette(float strength);
 
+/* ---------- the voice chat (host_voice.c) */
+
+/* opens the voices' playback, and the microphone if asked (else closes
+it): their volume, and the level (0..1 of full scale) the microphone's
+sound must reach to be sent */
+int host_voice_start(int microphone, float volume, float threshold);
+void host_voice_stop(void);
+/* the microphone's speech since asked: Opus packets, each after a byte of
+its length; returns the bytes */
+int host_voice_take_packets(void *buffer, int size);
+/* the microphone's level (0..1000) */
+int host_voice_level(void);
+/* a speaker's packet (sequence numbered), played at these gains */
+void host_voice_play(int id, int sequence, const void *data, int length, float gain_left, float gain_right);
+
 /* ---------- Android */
 
 /* the storage directories the port uses, copied into buffer */

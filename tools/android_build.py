@@ -44,6 +44,10 @@ MUSL_URL = f"https://musl.libc.org/releases/musl-{MUSL_VERSION}.tar.gz"
 SDL_TAG = "release-3.4.16"
 SDL_DIR = THIRD_PARTY / "SDL3"
 SDL_URL = "https://github.com/libsdl-org/SDL.git"
+# Opus, the voice chat's codec (host_voice.c), built into the host library
+OPUS_TAG = "v1.5.2"
+OPUS_DIR = THIRD_PARTY / "opus"
+OPUS_URL = "https://github.com/xiph/opus.git"
 # the Khronos OpenXR loader for Android (the VR build, host_xr.c): its
 # headers and library are linked from here; the app packages the same AAR
 # through Gradle (port/android/app/build.gradle), which also merges the
@@ -177,6 +181,10 @@ def fetch_third_party() -> None:
     if not SDL_DIR.is_dir():
         print(f"Cloning SDL3 {SDL_TAG}")
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", SDL_TAG, SDL_URL, str(SDL_DIR)],
+                       check=True)
+    if not OPUS_DIR.is_dir():
+        print(f"Cloning Opus {OPUS_TAG}")
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", OPUS_TAG, OPUS_URL, str(OPUS_DIR)],
                        check=True)
     if not OPENXR_DIR.is_dir():
         print(f"Downloading {OPENXR_URL}")
@@ -509,6 +517,23 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     )
     n.build(outputs=libsdl, rule="android_sdl3", implicit=[SDL_DIR / "CMakeLists.txt"])
 
+    # ---------- Opus (the voice chat's codec, host_voice.c)
+
+    opus_build = BUILD / "opus-build"
+    libopus = opus_build / "libopus.a"
+    n.rule(
+        name="android_opus",
+        command=(f"cmake -S {OPUS_DIR} -B {opus_build} -G Ninja "
+                 f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake "
+                 f"-DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-{ANDROID_API} -DCMAKE_BUILD_TYPE=Release "
+                 f"-DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_BUILD_TESTING=OFF "
+                 f"-DOPUS_BUILD_PROGRAMS=OFF -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF "
+                 f"> {BUILD}/opus-configure.log && ninja -C {opus_build} > {BUILD}/opus-build.log"),
+        description="ANDROID OPUS",
+        pool="console",
+    )
+    n.build(outputs=libopus, rule="android_opus", implicit=[OPUS_DIR / "CMakeLists.txt"])
+
     # ---------- the host library
 
     host_objects: List[Path] = []
@@ -523,7 +548,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_cflags = " ".join([
         "-O2", "-g", "-fPIC", "-Wall", "-Wno-unused-function", "-D_GNU_SOURCE",
         f"-I{PORT_DIR}/include", f"-I{PORT_DIR}/host", f"-I{SDL_DIR}/include", f"-I{LINUX_DIR}/src",
-        f"-I{TOML_DIR}", f"-I{OPENXR_DIR}/include",
+        f"-I{TOML_DIR}", f"-I{OPENXR_DIR}/include", f"-I{OPUS_DIR}/include",
     ])
     host_sources = sorted((PORT_DIR / "host").glob("*.c")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c",
@@ -549,12 +574,12 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_objects.append(table_obj)
     n.rule(
         name="android_host_link",
-        command=(f"$android_host_cc -shared -o $out $in -L{sdl_build} -L{OPENXR_DIR}/lib -lopenxr_loader "
+        command=(f"$android_host_cc -shared -o $out $in {libopus} -L{sdl_build} -L{OPENXR_DIR}/lib -lopenxr_loader "
                  + " ".join(f"-l{lib}" for lib in HOST_LIBRARIES)
                  + " -Wl,-z,max-page-size=16384 -Wl,--no-undefined"),
         description="ANDROID HOST LINK $out",
     )
-    n.build(outputs=libmain, rule="android_host_link", inputs=host_objects, implicit=[libsdl])
+    n.build(outputs=libmain, rule="android_host_link", inputs=host_objects, implicit=[libsdl, libopus])
 
     # ---------- staging for Gradle
 

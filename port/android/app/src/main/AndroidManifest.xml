@@ -19,6 +19,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- the voice chat in multiplayer (host_voice.c) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- installing a new version of the game (Updater) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

@@ -66,6 +66,10 @@ enum
 	the host, the host's of the others to each client (unreliable;
 	network_vr.c). Last, so that a build without it drops it. */
 	_distributed_message_vr_poses,
+	/* (the VR port's) a player's speech, every tick while they speak: a
+	client's own to the host, the host's and the other clients' to each
+	client (unreliable; network_voice.c) */
+	_distributed_message_voice,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
@@ -235,5 +239,11 @@ void network_vr_new_game(void);
 void network_vr_tick(void);
 word network_vr_entry_size(void);
 void network_vr_handle_poses(long machine_index, void const *entries, short count);
+
+/* the voice chat (network_voice.c) */
+void network_voice_new_game(void);
+void network_voice_tick(void);
+word network_voice_entry_size(void);
+void network_voice_handle(long machine_index, void const *message, word size);
 
 #endif // __NETWORK_DISTRIBUTED_H
