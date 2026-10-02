@@ -746,6 +746,16 @@ static void render_vr_scope(
 	if (zoom_level == NONE || player_index == NONE || player_get(player_index)->unit_index == NONE)
 		return;
 	magnification = unit_get_zoom_magnification(player_get(player_index)->unit_index, zoom_level);
+	{
+		/* (a weapon whose body stands higher over the hand than a rifle's
+		has its scope's disc higher: the rocket launcher's tube) */
+		struct unit_datum *unit = unit_get(player_get(player_index)->unit_index);
+		long weapon_index = unit->unit.current_weapon_index >= 0 ?
+			unit->unit.weapon_object_indices[unit->unit.current_weapon_index] : NONE;
+		char const *name = weapon_index != NONE ? tag_get_name(object_get(weapon_index)->definition_index) : NULL;
+
+		halo_vr_set_scope_raise(name && strstr(name, "rocket launcher") ? 0.11f : 0.0f);
+	}
 	if (!halo_vr_scope(window->local_player_index, magnification, position, forward, up, &vertical_field_of_view))
 		return;
 	scope_window = *window;
