@@ -36,6 +36,7 @@ walks straight at the goal, jumping and turning off when it is stuck.
 #include <math.h>
 
 void platform_log(char const *format, ...);
+long config_integer(char const *name);
 boolean network_game_server_is_bot_machine(long machine_index);
 
 /* ---------- constants */
@@ -43,8 +44,6 @@ boolean network_game_server_is_bot_machine(long machine_index);
 enum
 {
 	MAXIMUM_BOTS = 16,
-	/* how long a bot takes to notice an enemy (ticks) */
-	REACTION_TICKS = 9,
 	/* how often a bot finds its path again (ticks) */
 	PATH_REFRESH_TICKS = 15,
 };
@@ -53,10 +52,7 @@ enum
 #define BOT_STEP_RADIUS 0.4f
 #define BOT_GOAL_RADIUS 1.0f
 
-/* radians a tick a bot turns at most */
-#define BOT_TURN_RATE (3.5f / 30.0f)
 /* how far a bot sees and shoots (world units), and how near it closes */
-#define BOT_SIGHT_RANGE 40.0f
 #define BOT_FIRE_RANGE 30.0f
 #define BOT_CLOSE_RANGE 3.0f
 /* how far off target it still fires (radians) */
@@ -99,7 +95,27 @@ static struct
 	long logged_time;
 	long paths_found;
 	long paths_failed;
+	/* how well they play (bots.skill, as the game began) */
+	short reaction_ticks;
+	real turn_rate;
+	real sight_range;
+	real aim_error;
 } bots;
+
+/* easy, normal, hard: the ticks a bot takes to notice an enemy, how fast it
+turns (radians a tick), how far it sees and how far off its aim wanders */
+static struct
+{
+	short reaction_ticks;
+	real turn_rate;
+	real sight_range;
+	real aim_error;
+} const bot_skills[] =
+{
+	{ 20, 2.2f / 30.0f, 25.0f, 3.0f },
+	{ 13, 2.8f / 30.0f, 32.0f, 1.8f },
+	{ 9, 3.5f / 30.0f, 40.0f, 1.0f },
+};
 
 /* ---------- private code */
 
@@ -145,7 +161,7 @@ static long bot_find_target(
 {
 	boolean teams = game_engine_has_teams();
 	long best = NONE;
-	real best_distance = BOT_SIGHT_RANGE;
+	real best_distance = bots.sight_range;
 	short index;
 
 	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
@@ -372,11 +388,11 @@ static void bot_think(
 	if (--bot->error_ticks <= 0)
 	{
 		bot->error_ticks = 10 + (short)(bot_random() * 20.0f);
-		bot->aim_error_yaw = (bot_random() - 0.5f) * 0.06f;
-		bot->aim_error_pitch = (bot_random() - 0.5f) * 0.04f;
+		bot->aim_error_yaw = (bot_random() - 0.5f) * 0.06f * bots.aim_error;
+		bot->aim_error_pitch = (bot_random() - 0.5f) * 0.04f * bots.aim_error;
 	}
 
-	if (bot->target_unit_index != NONE && bot->target_seen_ticks >= REACTION_TICKS)
+	if (bot->target_unit_index != NONE && bot->target_seen_ticks >= bots.reaction_ticks)
 	{
 		real_point3d head;
 		real dx, dy, dz, flat, distance;
@@ -444,8 +460,8 @@ static void bot_think(
 	{
 		real turn = bot_angle_difference(wanted_yaw, bot->yaw);
 
-		bot->yaw += PIN(turn, -BOT_TURN_RATE, BOT_TURN_RATE);
-		bot->pitch += PIN(wanted_pitch - bot->pitch, -BOT_TURN_RATE, BOT_TURN_RATE);
+		bot->yaw += PIN(turn, -bots.turn_rate, bots.turn_rate);
+		bot->pitch += PIN(wanted_pitch - bot->pitch, -bots.turn_rate, bots.turn_rate);
 		bot->pitch = PIN(bot->pitch, -1.4f, 1.4f);
 		while (bot->yaw > _pi)
 			bot->yaw -= 2.0f * _pi;
@@ -512,6 +528,14 @@ void bots_new_game(
 		bots.bots[index].player_index = NONE;
 	bots.seed = 12345;
 	bots.logged_time = 0;
+	{
+		long skill = PIN(config_integer("bots.skill"), 0, (long)NUMBEROF(bot_skills) - 1);
+
+		bots.reaction_ticks = bot_skills[skill].reaction_ticks;
+		bots.turn_rate = bot_skills[skill].turn_rate;
+		bots.sight_range = bot_skills[skill].sight_range;
+		bots.aim_error = bot_skills[skill].aim_error;
+	}
 }
 
 /* (the host) after each tick: each bot's input for the next */

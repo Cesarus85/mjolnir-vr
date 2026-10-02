@@ -5643,6 +5643,8 @@ struct ui_public_game
 void p2p_set_public_game(int public_game);
 int p2p_public_game(void);
 int p2p_public_games(struct ui_public_game *games, int maximum);
+long config_integer(char const *name);
+int config_write_integer(char const *name, long value);
 
 enum
 {
@@ -5661,7 +5663,17 @@ static struct
 	short scroll;
 	short game_count;
 	struct ui_public_game games[MAXIMUM_SHOWN_PUBLIC_GAMES];
+	/* the host options panel, over a hosted game's lobby */
+	boolean host_panel_open;
+	short host_selection;
 } ui_join_code_globals;
+
+enum
+{
+	/* the host options: public, bots, their skill */
+	HOST_PANEL_ROWS = 3,
+	MAXIMUM_BOTS_SHOWN = 15,
+};
 
 /* the multiplayer maps' names, as the menus show them */
 static char const *ui_join_code_map_name(
@@ -5762,15 +5774,94 @@ static void ui_join_code_panel_event(
 	}
 }
 
+/* the host options panel's input: the stick or the pad's arrows up and
+down choose a row, left and right (or A) change it, B or Y closes it */
+static void ui_join_code_host_panel_event(
+	struct event_record const *event)
+{
+	short move = 0;
+	short change = 0;
+
+	if (event->type == _event_type_left_stick)
+	{
+		if (event->data.stick.y == SHORT_MAX)
+			move = -1;
+		else if (event->data.stick.y == SHORT_MIN)
+			move = 1;
+		else if (event->data.stick.x == SHORT_MAX)
+			change = 1;
+		else if (event->data.stick.x == SHORT_MIN)
+			change = -1;
+	}
+	else if (event->type == _event_type_button && event->data.button.value == 1)
+	{
+		switch (event->data.button.index)
+		{
+		case _gamepad_binary_button_dpad_up: move = -1; break;
+		case _gamepad_binary_button_dpad_down: move = 1; break;
+		case _gamepad_binary_button_dpad_right:
+		case _gamepad_analog_button_a:
+			change = 1;
+			break;
+		case _gamepad_binary_button_dpad_left: change = -1; break;
+		case _gamepad_analog_button_b:
+		case _gamepad_analog_button_y:
+		case _gamepad_binary_button_back:
+			ui_join_code_globals.host_panel_open = FALSE;
+			break;
+		}
+	}
+	if (move)
+		ui_join_code_globals.host_selection = (short)PIN(ui_join_code_globals.host_selection + move, 0, HOST_PANEL_ROWS - 1);
+	if (!change)
+		return;
+	switch (ui_join_code_globals.host_selection)
+	{
+	case 0:
+		p2p_set_public_game(!p2p_public_game());
+		break;
+	case 1:
+	{
+		/* (A goes round: past the most, none) */
+		long count = config_integer("bots.count") + change;
+
+		if (count > MAXIMUM_BOTS_SHOWN)
+			count = event->type == _event_type_button && event->data.button.index == _gamepad_analog_button_a ? 0 :
+				MAXIMUM_BOTS_SHOWN;
+		config_write_integer("bots.count", PIN(count, 0, MAXIMUM_BOTS_SHOWN));
+		break;
+	}
+	case 2:
+	{
+		long skill = config_integer("bots.skill") + change;
+
+		if (skill > 2)
+			skill = event->type == _event_type_button && event->data.button.index == _gamepad_analog_button_a ? 0 : 2;
+		config_write_integer("bots.skill", PIN(skill, 0, 2));
+		break;
+	}
+	}
+}
+
 /* X on the screen of games to join: the panel of online games (and in it,
-everything); Y in a hosted game's lobby: whether the game is public. TRUE:
-the event is taken. */
+everything); Y in a hosted game's lobby: the host options (public, bots).
+TRUE: the event is taken. */
 static boolean ui_join_code_take_event(
 	struct widget_instance *widget,
 	struct event_record const *event)
 {
 	if (widget != widget_globals.active_widgets[0])
 		return FALSE;
+	if (ui_join_code_globals.host_panel_open)
+	{
+		if (!ui_join_code_screen_active("connected_pregame_screen") || !global_network_game_server_get())
+		{
+			ui_join_code_globals.host_panel_open = FALSE;
+			return FALSE;
+		}
+		ui_join_code_host_panel_event(event);
+		return TRUE;
+	}
 	if (ui_join_code_globals.panel_open)
 	{
 		if (!ui_join_code_screen_active("server_list_screen"))
@@ -5793,7 +5884,8 @@ static boolean ui_join_code_take_event(
 	if (event->data.button.index == _gamepad_analog_button_y &&
 		ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
 	{
-		p2p_set_public_game(!p2p_public_game());
+		ui_join_code_globals.host_panel_open = TRUE;
+		ui_join_code_globals.host_selection = 0;
 		return TRUE;
 	}
 	return FALSE;
@@ -5975,15 +6067,64 @@ static void ui_join_code_render(
 		if (status)
 			ui_join_code_draw_line(392, status, FALSE, FALSE);
 	}
-	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get() &&
-		p2p_join_code(code, sizeof(code)))
+	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
 	{
-		char line[96];
+		char line[128];
+		long bots = config_integer("bots.count");
+		char bots_text[24];
 
-		snprintf(line, sizeof(line), "Online join code: %s      %%y-button Public game: %s", code,
-			p2p_public_game() ? "Yes" : "No");
+		if (bots > 0)
+			snprintf(bots_text, sizeof(bots_text), "%ld bot%s", bots, bots == 1 ? "" : "s");
+		else
+			snprintf(bots_text, sizeof(bots_text), "no bots");
+		if (p2p_join_code(code, sizeof(code)))
+		{
+			snprintf(line, sizeof(line), "Online join code: %s      %%y-button Host options (%s, %s)", code,
+				p2p_public_game() ? "public" : "private", bots_text);
+		}
+		else
+		{
+			snprintf(line, sizeof(line), "%%y-button Host options (%s)", bots_text);
+		}
 		/* (under the buttons' key) */
 		ui_join_code_draw_line(448, line, TRUE, TRUE);
+		if (ui_join_code_globals.host_panel_open)
+		{
+			static char const *const skills[] = { "Easy", "Normal", "Hard" };
+			real_argb_color title_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+			real_argb_color text_color = { 1.0f, 0.85f, 0.85f, 0.85f };
+			short row;
+
+			ui_join_code_draw_quad(140, 150, 500, 330, 0xF0050A18);
+			ui_join_code_draw_quad(140, 150, 500, 152, 0xFF3A6EA5);
+			ui_join_code_draw_quad(140, 328, 500, 330, 0xFF3A6EA5);
+			ui_join_code_draw_text(156, 484, 158, "HOST OPTIONS", FALSE, 0, &title_color);
+			for (row = 0; row < HOST_PANEL_ROWS; row++)
+			{
+				short y = (short)(190 + row * 30);
+
+				if (row == ui_join_code_globals.host_selection)
+					ui_join_code_draw_quad(148, (short)(y - 3), 492, (short)(y + 21), 0x803A6EA5);
+				switch (row)
+				{
+				case 0:
+					snprintf(line, sizeof(line), "Public game: %s", p2p_public_game() ? "Yes (listed online)" : "No");
+					break;
+				case 1:
+					snprintf(line, sizeof(line), "Bots: %s", bots > 0 ? bots_text : "None");
+					break;
+				default:
+				{
+					long skill = PIN(config_integer("bots.skill"), 0, 2);
+
+					snprintf(line, sizeof(line), "Bot skill: %s", skills[skill]);
+					break;
+				}
+				}
+				ui_join_code_draw_text(160, 484, y, line, FALSE, 0, &text_color);
+			}
+			ui_join_code_draw_text(156, 484, 300, "%a-button Change   %b-button Done", TRUE, 0, &text_color);
+		}
 	}
 }
 
