@@ -275,17 +275,6 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
-	{ "voice.enabled", _config_boolean, "true", "HALO_VOICE_ENABLED", _environment_value, _platform_android,
-		"Voice chat in multiplayer: hear the other players (teammates over the\n"
-		"radio, the rest when near, from where they are)." },
-	{ "voice.microphone", _config_boolean, "true", "HALO_VOICE_MICROPHONE", _environment_value, _platform_android,
-		"Send your voice in multiplayer, whenever you speak (the headset's\n"
-		"microphone; Android asks for it once). False only listens." },
-	{ "voice.volume", _config_real, "1.0", "HALO_VOICE_VOLUME", _environment_value, _platform_android,
-		"The other players' voices' volume (1 as they come)." },
-	{ "voice.threshold", _config_real, "0.02", "HALO_VOICE_THRESHOLD", _environment_value, _platform_android,
-		"How loud the microphone must be to send (0..1 of full scale): higher\n"
-		"if it sends noise, lower if it cuts words off." },
 	{ "network.public_game", _config_boolean, "false", "HALO_NET_PUBLIC_GAME", _environment_value, _platform_all,
 		"Host games as public: listed for anyone among the online games (the\n"
 		"system link screen's X), as Y in a hosted game's lobby makes them." },
@@ -315,6 +304,17 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
+	{ "voice.enabled", _config_boolean, "true", "HALO_VOICE_ENABLED", _environment_value, _platform_android,
+		"Voice chat in multiplayer: hear the other players (teammates over the\n"
+		"radio, the rest when near, from where they are)." },
+	{ "voice.microphone", _config_boolean, "true", "HALO_VOICE_MICROPHONE", _environment_value, _platform_android,
+		"Send your voice in multiplayer, whenever you speak (the headset's\n"
+		"microphone; Android asks for it once). False only listens." },
+	{ "voice.volume", _config_real, "1.0", "HALO_VOICE_VOLUME", _environment_value, _platform_android,
+		"The other players' voices' volume (1 as they come)." },
+	{ "voice.threshold", _config_real, "0.02", "HALO_VOICE_THRESHOLD", _environment_value, _platform_android,
+		"How loud the microphone must be to send (0..1 of full scale): higher\n"
+		"if it sends noise, lower if it cuts words off." },
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
