@@ -754,7 +754,7 @@ static void render_vr_scope(
 			unit->unit.weapon_object_indices[unit->unit.current_weapon_index] : NONE;
 		char const *name = weapon_index != NONE ? tag_get_name(object_get(weapon_index)->definition_index) : NULL;
 
-		halo_vr_set_scope_raise(name && strstr(name, "rocket launcher") ? 0.11f : 0.0f);
+		halo_vr_set_scope_raise(name && strstr(name, "rocket launcher") ? 0.145f : 0.0f);
 	}
 	if (!halo_vr_scope(window->local_player_index, magnification, position, forward, up, &vertical_field_of_view))
 		return;
