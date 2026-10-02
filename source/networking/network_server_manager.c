@@ -696,6 +696,12 @@ typedef char network_game_server_countdown_state_offset_assert[
 	offsetof(struct network_game_server, countdown_state) ==
 		8 + HALO_PORT_NETWORK_GAME_SIZE + MAXIMUM_NETWORK_MACHINE_COUNT * 0x10 + 0xC ? 1 : -1];
 
+#ifdef HALO_ANDROID
+/* bots' machines (below: the VR port's bots) */
+static boolean network_game_server_bot_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
+static short network_game_server_bot_machine_count(struct network_game_server *server);
+#endif
+
 /* ---------- prototypes */
 
 void countdown_timer_increment(
@@ -2895,6 +2901,10 @@ boolean server_has_enough_machines(
 		}
 	}
 
+#ifdef HALO_ANDROID
+	/* (bots' machines count: the VR port's) */
+	machine_count += network_game_server_bot_machine_count(server);
+#endif
 	has_enough_machines = machine_count >= minimum_machine_count;
 
 	return has_enough_machines;
@@ -3548,7 +3558,11 @@ void network_game_server_update_countdown(
 				else
 				{
 					if (network_game_should_accept_remote_connections() == FALSE ||
-						network_game_server_get_client_machine_count(server) > 1)
+						network_game_server_get_client_machine_count(server)
+#ifdef HALO_ANDROID
+							+ network_game_server_bot_machine_count(server)
+#endif
+							> 1)
 					{
 						unsigned long countdown;
 
@@ -3815,6 +3829,11 @@ static boolean network_game_server_add_new_client(
 	{
 		for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 		{
+#ifdef HALO_ANDROID
+			/* (not a bot machine's slot) */
+			if (network_game_server_bot_machines[i] && server->game.machines[i].machine_index == i)
+				continue;
+#endif
 			if (server->client_machines[i].machine_index == NONE)
 			{
 				struct transport_address client_address = { 0 };
@@ -4184,6 +4203,221 @@ static boolean network_game_server_have_all_machines_have_precached(
 	return all_machines_have_precached;
 }
 
+#ifdef HALO_ANDROID
+/* ---------- bots (the VR port's: port/linux/game/bots.c)
+
+Bots are the players of machines of the host's own that nothing connects
+to: from the top slot down, four players each (a machine's most). The host
+drives them (bots_tick); every other machine sees them as any other
+machine's players. A new connection never takes a bot's slot, and in the
+lobby they count as machines, so that a game of the host and bots starts. */
+
+long config_integer(char const *name);
+
+static void network_game_server_bot_copy_name(
+	wchar_t *destination,
+	wchar_t const *source,
+	short size)
+{
+	short index;
+
+	for (index = 0; index < size - 1 && source[index]; index++)
+		destination[index] = source[index];
+	destination[index] = 0;
+}
+
+boolean network_game_server_is_bot_machine(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+		network_game_server_bot_machines[machine_index] &&
+		server->game.machines[machine_index].machine_index == machine_index;
+}
+
+static short network_game_server_bot_machine_count(
+	struct network_game_server *server)
+{
+	short count = 0;
+	long machine_index;
+
+	for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
+	{
+		if (network_game_server_bot_machines[machine_index] &&
+			server->game.machines[machine_index].machine_index == machine_index &&
+			network_game_server_machine_has_players(server, (short)machine_index))
+		{
+			count++;
+		}
+	}
+	return count;
+}
+
+static short network_game_server_bot_count(
+	struct network_game_server *server,
+	struct network_player **last)
+{
+	short count = 0;
+	long player_index;
+
+	*last = NULL;
+	for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
+	{
+		struct network_player *player = &server->game.players[player_index];
+
+		if (network_player_is_valid(player) && VALID_INDEX(player->machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+			network_game_server_bot_machines[(long)player->machine_index])
+		{
+			count++;
+			*last = player;
+		}
+	}
+	return count;
+}
+
+static boolean network_game_server_add_bot(
+	struct network_game_server *server,
+	short number)
+{
+	struct network_player bot;
+	long machine_index;
+	short controller_index;
+
+	if (!network_game_has_free_player_slot(&server->game))
+		return FALSE;
+	/* (a bot machine with room, else a new one from the top) */
+	for (machine_index = MAXIMUM_NETWORK_MACHINE_COUNT - 1; machine_index >= 0; machine_index--)
+	{
+		if (network_game_server_bot_machines[machine_index] &&
+			server->game.machines[machine_index].machine_index == machine_index)
+		{
+			for (controller_index = 0; controller_index < MAXIMUM_LOCAL_PLAYERS; controller_index++)
+			{
+				long player_index;
+				boolean taken = FALSE;
+
+				for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT && !taken; player_index++)
+				{
+					struct network_player *player = &server->game.players[player_index];
+
+					taken = network_player_is_valid(player) && player->machine_index == machine_index &&
+						player->controller_index == controller_index;
+				}
+				if (!taken)
+					goto found;
+			}
+		}
+	}
+	for (machine_index = MAXIMUM_NETWORK_MACHINE_COUNT - 1; machine_index >= 0; machine_index--)
+	{
+		if (!server->client_machines[machine_index].connection &&
+			server->client_machines[machine_index].machine_index == NONE &&
+			server->game.machines[machine_index].machine_index == NONE)
+		{
+			struct network_machine machine;
+
+			csmemset(&machine, 0, sizeof(machine));
+			network_game_server_bot_copy_name(machine.name, L"Bots", NUMBEROF(machine.name));
+			machine.machine_index = (char)machine_index;
+			if (!network_game_add_machine(&server->game, &machine))
+				return FALSE;
+			network_game_server_bot_machines[machine_index] = TRUE;
+			controller_index = 0;
+			goto found;
+		}
+	}
+	return FALSE;
+
+found:
+	csmemset(&bot, 0, sizeof(bot));
+	{
+		wchar_t name[NETWORK_PLAYER_NAME_LENGTH];
+		short length = 0;
+		short digits = number < 10 ? 1 : number < 100 ? 2 : 3;
+		short digit;
+
+		network_game_server_bot_copy_name(name, L"Bot ", NUMBEROF(name));
+		while (name[length])
+			length++;
+		for (digit = digits - 1; digit >= 0 && length + digit < NETWORK_PLAYER_NAME_LENGTH - 1; digit--)
+		{
+			name[length + digit] = (wchar_t)(L'0' + number % 10);
+			number /= 10;
+		}
+		name[length + digits] = 0;
+		network_game_server_bot_copy_name(bot.name, name, NUMBEROF(bot.name));
+	}
+	bot.machine_index = (char)machine_index;
+	bot.controller_index = (char)controller_index;
+	bot.primary_color_index = NONE;
+	bot.icon_index = 0;
+	{
+		long player_count_by_team[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
+		long player_index;
+
+		for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
+		{
+			struct network_player *other_player = &server->game.players[player_index];
+
+			if (network_player_is_valid(other_player) && VALID_INDEX(other_player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS))
+				player_count_by_team[other_player->team_index]++;
+		}
+		bot.team_index = player_count_by_team[1] < player_count_by_team[0] ? 1 : 0;
+	}
+	if (!player_name_is_unique(server, bot.name))
+		get_unique_random_name(server, &bot);
+	get_unique_random_color(server, &bot);
+	bot.player_list_index = NONE;
+	if (!network_game_add_player(&server->game, &bot))
+		return FALSE;
+	network_event("added a bot on machine %ld", machine_index);
+	return TRUE;
+}
+
+/* (the lobby) as many bots as bots.count asks for */
+static void network_game_server_update_bots(
+	struct network_game_server *server)
+{
+	long wanted = config_integer("bots.count");
+	struct network_player *last;
+	short count = network_game_server_bot_count(server, &last);
+	boolean changed = FALSE;
+	long machine_index;
+
+	/* (bot machines a new game no longer has) */
+	for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
+	{
+		if (network_game_server_bot_machines[machine_index] &&
+			server->game.machines[machine_index].machine_index != machine_index)
+		{
+			network_game_server_bot_machines[machine_index] = FALSE;
+		}
+	}
+	wanted = PIN(wanted, 0, 15);
+	while (count < wanted && network_game_server_add_bot(server, (short)(count + 1)))
+	{
+		count++;
+		changed = TRUE;
+	}
+	while (count > wanted && network_game_server_bot_count(server, &last) > 0 && last)
+	{
+		long bot_machine = last->machine_index;
+
+		network_game_remove_player(&server->game, last);
+		if (!network_game_server_machine_has_players(server, (short)bot_machine))
+		{
+			network_game_remove_machine(&server->game, &server->game.machines[bot_machine]);
+			network_game_server_bot_machines[bot_machine] = FALSE;
+		}
+		count--;
+		changed = TRUE;
+	}
+	if (changed)
+		network_game_server_send_game_data_pregame(server);
+}
+#endif
+
 static boolean network_game_server_idle_pregame_tasks(
 	struct network_game_server *server)
 {
@@ -4194,6 +4428,9 @@ static boolean network_game_server_idle_pregame_tasks(
 	{
 		long itr;
 
+#ifdef HALO_ANDROID
+		network_game_server_update_bots(server);
+#endif
 		/* send the lobby changes collected since the last settings update */
 		network_game_server_flush_game_data_pregame(server);
 

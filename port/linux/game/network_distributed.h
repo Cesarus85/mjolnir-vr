@@ -236,4 +236,8 @@ void network_vr_tick(void);
 word network_vr_entry_size(void);
 void network_vr_handle_poses(long machine_index, void const *entries, short count);
 
+/* bots (bots.c) */
+void bots_new_game(void);
+void bots_tick(void);
+
 #endif // __NETWORK_DISTRIBUTED_H

@@ -3051,6 +3051,7 @@ void network_distributed_new_game(
 	network_objects_new_game();
 	network_damage_new_game();
 	network_vr_new_game();
+	bots_new_game();
 }
 
 /* after each tick (game_time.c) */
@@ -3093,6 +3094,7 @@ void network_distributed_tick(
 		distributed_statistics_due = FALSE;
 		distributed_host_send_players();
 		network_vr_tick();
+		bots_tick();
 		distributed_send_pickups();
 		if (game_time_get() % GAME_STATE_INTERVAL_TICKS == 0)
 			distributed_send_game_state(NONE);
