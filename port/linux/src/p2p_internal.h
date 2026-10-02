@@ -111,6 +111,9 @@ int p2p_signal_connected(void);
 a message to a topic through every broker */
 void p2p_signal_sync_topics(void);
 void p2p_signal_publish(const char *topic, const unsigned char *payload, int size);
+/* the same, kept by the brokers for whoever listens later (empty: no
+longer) */
+void p2p_signal_publish_retained(const char *topic, const unsigned char *payload, int size);
 
 /* ---------- p2p_code.c: join codes (under p2p_lock) */
 
@@ -135,6 +138,21 @@ topic, nonzero if it was a code's; and each pass of the p2p thread */
 void p2p_code_topics(const char **host_topic, const char **look_topic);
 int p2p_code_received(const char *topic, const unsigned char *payload, int size);
 void p2p_code_update(void);
+
+/* ---------- p2p_list.c: public games (under p2p_lock) */
+
+/* hosting: whether the game is listed, and what it is */
+void p2p_list_set_public(int public_game);
+int p2p_list_public(void);
+void p2p_list_set_description(const char *name, const char *map, const char *mode, int players,
+	int maximum_players);
+/* the games listed lately; asking keeps this machine listening a while */
+int p2p_list_games(struct p2p_public_game *games, int maximum);
+/* (p2p_signal.c) the topic to listen on (empty: none); a message on one
+(nonzero if it was a listing's); and each pass, whether hosting */
+const char *p2p_list_topic(void);
+int p2p_list_received(const char *topic, const unsigned char *payload, int size);
+void p2p_list_update(int hosting);
 
 /* ---------- p2p_crypto.c */
 

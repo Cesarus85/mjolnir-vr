@@ -5593,10 +5593,12 @@ static boolean ui_mouse_menus_active(
 #ifdef HALO_ANDROID
 /* ---------- join codes (the VR port's)
 
-Internet play's join codes (port/linux/src/p2p_code.c): the host's lobby
-shows its game's code, and on the screen of games to join, X opens the
-keyboard to type one in, which then joins as an invite link does (the game
-shows up in the list once its host is reached). */
+Internet play's join codes (port/linux/src/p2p_code.c) and public games
+(p2p_list.c): the host's lobby shows its game's code, and Y there lists the
+game for anyone or not; on the screen of games to join, X opens a panel of
+the public games and a way to type a code in, either of which then joins as
+an invite link does (the game shows up in the list once its host is
+reached). */
 
 int p2p_join_code(char *text, int size);
 int p2p_join_with_code(char const *typed);
@@ -5627,11 +5629,62 @@ enum
 	_join_state_lost,
 };
 
+struct ui_public_game
+{
+	/* p2p.h's struct p2p_public_game */
+	char name[16];
+	char map[32];
+	char mode[24];
+	char code[12];
+	int players;
+	int maximum_players;
+};
+
+void p2p_set_public_game(int public_game);
+int p2p_public_game(void);
+int p2p_public_games(struct ui_public_game *games, int maximum);
+
+enum
+{
+	MAXIMUM_SHOWN_PUBLIC_GAMES = 32,
+	/* the online games panel's rows: "enter a code" and the games */
+	ONLINE_PANEL_ROWS = 11,
+};
+
 static struct
 {
 	boolean keyboard_launched;
 	wchar_t typed[12];
+	/* the panel of online games, over the screen of games to join */
+	boolean panel_open;
+	short selection;
+	short scroll;
+	short game_count;
+	struct ui_public_game games[MAXIMUM_SHOWN_PUBLIC_GAMES];
 } ui_join_code_globals;
+
+/* the multiplayer maps' names, as the menus show them */
+static char const *ui_join_code_map_name(
+	char const *map)
+{
+	static char const *const names[][2] = {
+		{ "beavercreek", "Battle Creek" }, { "bloodgulch", "Blood Gulch" }, { "boardingaction", "Boarding Action" },
+		{ "carousel", "Derelict" }, { "chillout", "Chill Out" }, { "damnation", "Damnation" },
+		{ "dangercanyon", "Danger Canyon" }, { "deathisland", "Death Island" }, { "gephyrophobia", "Gephyrophobia" },
+		{ "hangemhigh", "Hang 'Em High" }, { "icefields", "Ice Fields" }, { "infinity", "Infinity" },
+		{ "longest", "Longest" }, { "prisoner", "Prisoner" }, { "putput", "Chiron TL-34" },
+		{ "ratrace", "Rat Race" }, { "sidewinder", "Sidewinder" }, { "timberland", "Timberland" },
+		{ "wizard", "Wizard" },
+	};
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(names); index++)
+	{
+		if (!strcmp(map, names[index][0]))
+			return names[index][1];
+	}
+	return map;
+}
 
 static boolean ui_join_code_screen_active(
 	char const *name)
@@ -5640,28 +5693,110 @@ static boolean ui_join_code_screen_active(
 		strcmp(widget_globals.active_widgets[0]->name, name) == 0;
 }
 
-/* X on the screen of games to join: the keyboard, for a code (TRUE: the
-event is taken) */
-static boolean ui_join_code_take_event(
-	struct widget_instance *widget,
-	struct event_record const *event)
+static void ui_join_code_launch_keyboard(
+	void)
 {
-	if (event->type != _event_type_button || event->data.button.value != 1 ||
-		event->data.button.index != _gamepad_analog_button_x || widget != widget_globals.active_widgets[0] ||
-		!ui_join_code_screen_active("server_list_screen"))
-	{
-		return FALSE;
-	}
 	ui_join_code_globals.typed[0] = 0;
 	virtual_keyboard_set_caption(L"Enter the join code of an online game");
 	if (!virtual_keyboard_launch(ui_join_code_globals.typed, sizeof(ui_join_code_globals.typed), 8))
 	{
 		virtual_keyboard_set_caption(NULL);
-		return FALSE;
+		return;
 	}
 	p2p_join_code_clear_status();
 	ui_join_code_globals.keyboard_launched = TRUE;
-	return TRUE;
+}
+
+/* the panel's input: the stick or the pad's arrows choose a row, A takes
+it, B closes it */
+static void ui_join_code_panel_event(
+	struct event_record const *event)
+{
+	short rows = (short)(ui_join_code_globals.game_count + 1);
+	short move = 0;
+
+	if (event->type == _event_type_left_stick)
+	{
+		if (event->data.stick.y == SHORT_MAX)
+			move = -1;
+		else if (event->data.stick.y == SHORT_MIN)
+			move = 1;
+	}
+	else if (event->type == _event_type_button && event->data.button.value == 1)
+	{
+		switch (event->data.button.index)
+		{
+		case _gamepad_binary_button_dpad_up: move = -1; break;
+		case _gamepad_binary_button_dpad_down: move = 1; break;
+		case _gamepad_analog_button_b:
+		case _gamepad_binary_button_back:
+			ui_join_code_globals.panel_open = FALSE;
+			break;
+		case _gamepad_analog_button_x:
+			ui_join_code_globals.panel_open = FALSE;
+			ui_join_code_launch_keyboard();
+			break;
+		case _gamepad_analog_button_a:
+		case _gamepad_binary_button_start:
+			ui_join_code_globals.panel_open = FALSE;
+			if (ui_join_code_globals.selection == 0 ||
+				ui_join_code_globals.selection > ui_join_code_globals.game_count)
+			{
+				ui_join_code_launch_keyboard();
+			}
+			else
+			{
+				p2p_join_code_clear_status();
+				p2p_join_with_code(ui_join_code_globals.games[ui_join_code_globals.selection - 1].code);
+			}
+			break;
+		}
+	}
+	if (move)
+	{
+		ui_join_code_globals.selection = (short)PIN(ui_join_code_globals.selection + move, 0, rows - 1);
+		if (ui_join_code_globals.selection < ui_join_code_globals.scroll)
+			ui_join_code_globals.scroll = ui_join_code_globals.selection;
+		else if (ui_join_code_globals.selection >= ui_join_code_globals.scroll + ONLINE_PANEL_ROWS)
+			ui_join_code_globals.scroll = (short)(ui_join_code_globals.selection - ONLINE_PANEL_ROWS + 1);
+	}
+}
+
+/* X on the screen of games to join: the panel of online games (and in it,
+everything); Y in a hosted game's lobby: whether the game is public. TRUE:
+the event is taken. */
+static boolean ui_join_code_take_event(
+	struct widget_instance *widget,
+	struct event_record const *event)
+{
+	if (widget != widget_globals.active_widgets[0])
+		return FALSE;
+	if (ui_join_code_globals.panel_open)
+	{
+		if (!ui_join_code_screen_active("server_list_screen"))
+		{
+			ui_join_code_globals.panel_open = FALSE;
+			return FALSE;
+		}
+		ui_join_code_panel_event(event);
+		return TRUE;
+	}
+	if (event->type != _event_type_button || event->data.button.value != 1)
+		return FALSE;
+	if (event->data.button.index == _gamepad_analog_button_x && ui_join_code_screen_active("server_list_screen"))
+	{
+		ui_join_code_globals.panel_open = TRUE;
+		ui_join_code_globals.selection = 0;
+		ui_join_code_globals.scroll = 0;
+		return TRUE;
+	}
+	if (event->data.button.index == _gamepad_analog_button_y &&
+		ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
+	{
+		p2p_set_public_game(!p2p_public_game());
+		return TRUE;
+	}
+	return FALSE;
 }
 
 /* the keyboard closed: the code typed, looked up */
@@ -5687,17 +5822,20 @@ static void ui_join_code_update(
 	p2p_join_with_code(text);
 }
 
-static void ui_join_code_draw_line(
+/* text in bounds, left, right or centred (0, 1, 2) */
+static void ui_join_code_draw_text(
+	short x0,
+	short x1,
 	short y0,
 	char const *text,
 	boolean icons,
-	boolean centered)
+	short justification,
+	real_argb_color const *color)
 {
 	rectangle2d bounds;
 	wchar_t wide[96];
 	short index;
 	long font_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
-	real_argb_color color = { 1.0f, 0.85f, 0.85f, 0.85f };
 
 	if (font_index == NONE)
 		return;
@@ -5706,13 +5844,95 @@ static void ui_join_code_draw_line(
 	wide[index] = 0;
 	bounds.y0 = y0;
 	bounds.y1 = (short)(y0 + 20);
-	bounds.x0 = centered ? 0 : 48;
-	bounds.x1 = centered ? 640 : 600;
-	draw_string_set_draw_mode(font_index, NONE, centered ? 2 : 0, 0, &color);
+	bounds.x0 = x0;
+	bounds.x1 = x1;
+	draw_string_set_draw_mode(font_index, NONE, justification, 0, color);
 	if (icons)
 		draw_string_and_hack_in_icons(&bounds, &bounds, NULL, 0, wide, FALSE);
 	else
 		rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, wide);
+}
+
+static void ui_join_code_draw_line(
+	short y0,
+	char const *text,
+	boolean icons,
+	boolean centered)
+{
+	real_argb_color color = { 1.0f, 0.85f, 0.85f, 0.85f };
+
+	ui_join_code_draw_text((short)(centered ? 0 : 48), (short)(centered ? 640 : 600), y0, text, icons,
+		(short)(centered ? 2 : 0), &color);
+}
+
+static void ui_join_code_draw_quad(
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	unsigned long color)
+{
+	rectangle2d bounds;
+
+	bounds.x0 = x0;
+	bounds.y0 = y0;
+	bounds.x1 = x1;
+	bounds.y1 = y1;
+	draw_quad(&bounds, color);
+}
+
+/* the panel of online games: "enter a code", then the public games */
+static void ui_join_code_render_panel(
+	void)
+{
+	real_argb_color title_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+	real_argb_color text_color = { 1.0f, 0.85f, 0.85f, 0.85f };
+	real_argb_color dim_color = { 1.0f, 0.6f, 0.6f, 0.6f };
+	char line[64];
+	short row;
+
+	ui_join_code_globals.game_count =
+		(short)p2p_public_games(ui_join_code_globals.games, MAXIMUM_SHOWN_PUBLIC_GAMES);
+	ui_join_code_globals.selection =
+		(short)PIN(ui_join_code_globals.selection, 0, ui_join_code_globals.game_count);
+	ui_join_code_draw_quad(40, 72, 600, 410, 0xF0050A18);
+	ui_join_code_draw_quad(40, 72, 600, 74, 0xFF3A6EA5);
+	ui_join_code_draw_quad(40, 408, 600, 410, 0xFF3A6EA5);
+	snprintf(line, sizeof(line), "ONLINE GAMES (%d public)", (int)ui_join_code_globals.game_count);
+	ui_join_code_draw_text(56, 584, 80, line, FALSE, 0, &title_color);
+	ui_join_code_draw_text(56, 216, 104, "Name", FALSE, 0, &dim_color);
+	ui_join_code_draw_text(216, 376, 104, "Map", FALSE, 0, &dim_color);
+	ui_join_code_draw_text(376, 516, 104, "Game", FALSE, 0, &dim_color);
+	ui_join_code_draw_text(516, 584, 104, "Players", FALSE, 1, &dim_color);
+	for (row = 0; row < ONLINE_PANEL_ROWS; row++)
+	{
+		short index = (short)(ui_join_code_globals.scroll + row);
+		short y = (short)(128 + row * 22);
+
+		if (index > ui_join_code_globals.game_count)
+			break;
+		if (index == ui_join_code_globals.selection)
+			ui_join_code_draw_quad(48, y, 592, (short)(y + 21), 0x803A6EA5);
+		if (index == 0)
+		{
+			ui_join_code_draw_text(56, 584, (short)(y + 1), "Enter a join code...", FALSE, 0, &text_color);
+		}
+		else
+		{
+			struct ui_public_game const *game = &ui_join_code_globals.games[index - 1];
+
+			ui_join_code_draw_text(56, 212, (short)(y + 1), game->name, FALSE, 0, &text_color);
+			ui_join_code_draw_text(216, 372, (short)(y + 1), ui_join_code_map_name(game->map), FALSE, 0,
+				&text_color);
+			ui_join_code_draw_text(376, 512, (short)(y + 1), game->mode, FALSE, 0, &text_color);
+			snprintf(line, sizeof(line), "%d/%d", game->players, game->maximum_players);
+			ui_join_code_draw_text(516, 584, (short)(y + 1), line, FALSE, 1, &text_color);
+		}
+	}
+	if (!ui_join_code_globals.game_count)
+		ui_join_code_draw_text(56, 584, 152, "No public games right now", FALSE, 0, &dim_color);
+	ui_join_code_draw_text(56, 584, 384, "%a-button Join   %x-button Enter a code   %b-button Back", TRUE, 0,
+		&text_color);
 }
 
 /* over the screens, as they are drawn */
@@ -5725,7 +5945,12 @@ static void ui_join_code_render(
 	{
 		char const *status = NULL;
 
-		ui_join_code_draw_line(372, "%x-button Join an online game with its code", TRUE, FALSE);
+		if (ui_join_code_globals.panel_open)
+		{
+			ui_join_code_render_panel();
+			return;
+		}
+		ui_join_code_draw_line(372, "%x-button Online games: public ones, or join by a code", TRUE, FALSE);
 		switch (p2p_join_code_status())
 		{
 		case _join_code_looking: status = "Looking for the game of that code..."; break;
@@ -5753,11 +5978,12 @@ static void ui_join_code_render(
 	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get() &&
 		p2p_join_code(code, sizeof(code)))
 	{
-		char line[48];
+		char line[96];
 
-		snprintf(line, sizeof(line), "Online join code: %s", code);
+		snprintf(line, sizeof(line), "Online join code: %s      %%y-button Public game: %s", code,
+			p2p_public_game() ? "Yes" : "No");
 		/* (under the buttons' key) */
-		ui_join_code_draw_line(448, line, FALSE, TRUE);
+		ui_join_code_draw_line(448, line, TRUE, TRUE);
 	}
 }
 

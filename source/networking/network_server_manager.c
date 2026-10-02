@@ -475,6 +475,10 @@ symbols in this file:
 
 /* port: internet play's Discord presence (port/linux/src/p2p.c) */
 void p2p_set_game_player_counts(int count, int maximum);
+#ifdef HALO_ANDROID
+void p2p_set_game_description(char const *name, char const *map, char const *mode, int players,
+	int maximum_players);
+#endif
 
 /* ---------- constants */
 
@@ -1308,6 +1312,42 @@ boolean network_game_server_idle(
 
 	/* (what Discord shows of a game hosted for internet play) */
 	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);
+#ifdef HALO_ANDROID
+	/* (and what a public game's listing says: port/linux/src/p2p_list.c) */
+	{
+		char name[16], map[32], mode[24];
+		char const *map_name = server->game.map.name;
+		char const *separator;
+		short index;
+
+		for (index = 0; index < (short)(NUMBEROF(name) - 1) && server->game.name[index]; index++)
+			name[index] = server->game.name[index] < 128 ? (char)server->game.name[index] : '?';
+		name[index] = 0;
+		/* (the scenario's name, the last of its path) */
+		while ((separator = strpbrk(map_name, "\\/")) != NULL)
+			map_name = separator + 1;
+		csstrncpy(map, map_name, sizeof(map) - 1);
+		map[sizeof(map) - 1] = 0;
+		for (index = 0; index < (short)(NUMBEROF(mode) - 1) && index < 12 &&
+			server->game.variant.human_readable_game_description[index]; index++)
+		{
+			wchar_t character = server->game.variant.human_readable_game_description[index];
+
+			mode[index] = character < 128 ? (char)character : '?';
+		}
+		mode[index] = 0;
+		/* (a game type without a name of its own: its kind's) */
+		if (!mode[0])
+		{
+			static char const *const kinds[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race" };
+			long kind = server->game.variant.game_engine_index;
+
+			csstrncpy(mode, kind > 0 && kind < (long)NUMBEROF(kinds) ? kinds[kind] : "Custom", sizeof(mode) - 1);
+			mode[sizeof(mode) - 1] = 0;
+		}
+		p2p_set_game_description(name, map, mode, server->game.player_count, server->game.maximum_players);
+	}
+#endif
 
 	if (network_game_server_game_is_valid(server))
 	{

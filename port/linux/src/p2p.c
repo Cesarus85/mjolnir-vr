@@ -2355,6 +2355,41 @@ int p2p_join_code_status(void)
 	return status;
 }
 
+void p2p_set_public_game(int public_game)
+{
+	pthread_mutex_lock(&p2p_lock);
+	p2p_list_set_public(public_game);
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+int p2p_public_game(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p_list_public();
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+void p2p_set_game_description(const char *name, const char *map, const char *mode, int players,
+	int maximum_players)
+{
+	pthread_mutex_lock(&p2p_lock);
+	p2p_list_set_description(name, map, mode, players, maximum_players);
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+int p2p_public_games(struct p2p_public_game *games, int maximum)
+{
+	int count;
+
+	pthread_mutex_lock(&p2p_lock);
+	count = p2p.running ? p2p_list_games(games, maximum) : 0;
+	pthread_mutex_unlock(&p2p_lock);
+	return count;
+}
+
 int p2p_join_state(void)
 {
 	int state;

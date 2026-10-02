@@ -57,6 +57,30 @@ enum
 };
 int p2p_join_state(void);
 
+/* Public games (p2p_list.c): the hosted game listed for anyone or not, and
+what it is (the game's server, as it changes); and the games others list,
+joined by their codes (p2p_join_with_code) */
+enum
+{
+	P2P_PUBLIC_NAME_SIZE = 16,
+	P2P_PUBLIC_MAP_SIZE = 32,
+	P2P_PUBLIC_MODE_SIZE = 24,
+};
+struct p2p_public_game
+{
+	char name[P2P_PUBLIC_NAME_SIZE];
+	char map[P2P_PUBLIC_MAP_SIZE];
+	char mode[P2P_PUBLIC_MODE_SIZE];
+	char code[12];
+	int players;
+	int maximum_players;
+};
+void p2p_set_public_game(int public_game);
+int p2p_public_game(void);
+void p2p_set_game_description(const char *name, const char *map, const char *mode, int players,
+	int maximum_players);
+int p2p_public_games(struct p2p_public_game *games, int maximum);
+
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it

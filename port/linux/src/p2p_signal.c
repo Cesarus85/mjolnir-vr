@@ -157,6 +157,8 @@ struct broker
 	/* (join codes' topics: p2p_code.c) */
 	char code_host_topic[TOPIC_SIZE];
 	char code_look_topic[TOPIC_SIZE];
+	/* (public games': p2p_list.c) */
+	char list_topic[TOPIC_SIZE];
 	unsigned char input[BUFFER_SIZE];
 	int input_size;
 	unsigned char output[BUFFER_SIZE];
@@ -328,6 +330,7 @@ static void broker_close(struct broker *broker, int failed)
 	broker->join_topic[0] = 0;
 	broker->code_host_topic[0] = 0;
 	broker->code_look_topic[0] = 0;
+	broker->list_topic[0] = 0;
 	if (failed)
 		broker->failures++;
 }
@@ -417,8 +420,8 @@ static void broker_publish(struct broker *broker, const char *topic, const unsig
 /* the topics a ready broker should be subscribed to */
 static void broker_sync_topics(struct broker *broker)
 {
-	const char *wanted[4];
-	char *had[4];
+	const char *wanted[5];
+	char *had[5];
 	int index;
 
 	if (broker->state != _broker_ready)
@@ -426,11 +429,13 @@ static void broker_sync_topics(struct broker *broker)
 	wanted[0] = signalling.hosting ? signalling.host_topic : "";
 	wanted[1] = signalling.joining ? signalling.join_topic : "";
 	p2p_code_topics(&wanted[2], &wanted[3]);
+	wanted[4] = p2p_list_topic();
 	had[0] = broker->host_topic;
 	had[1] = broker->join_topic;
 	had[2] = broker->code_host_topic;
 	had[3] = broker->code_look_topic;
-	for (index = 0; index < 4; index++)
+	had[4] = broker->list_topic;
+	for (index = 0; index < 5; index++)
 	{
 		if (!strcmp(wanted[index], had[index]))
 			continue;
@@ -949,7 +954,7 @@ static void publish_received(struct broker *broker, const char *topic, const uns
 
 	if (size > MAXIMUM_MESSAGE_SIZE + P2P_SEAL_OVERHEAD)
 		return;
-	if (p2p_code_received(topic, payload, size))
+	if (p2p_code_received(topic, payload, size) || p2p_list_received(topic, payload, size))
 		return;
 	if (signalling.hosting && !strcmp(topic, signalling.host_topic))
 	{
@@ -1203,6 +1208,7 @@ void p2p_signal_update(const int *read, int read_count, const int *write, int wr
 	if (signalling.joining && elapsed(signalling.join_sent_time, JOIN_INTERVAL))
 		send_join();
 	p2p_code_update();
+	p2p_list_update(signalling.hosting);
 }
 
 int p2p_signal_connected(void)
@@ -1234,6 +1240,28 @@ void p2p_signal_publish(const char *topic, const unsigned char *payload, int siz
 {
 	if (size <= MAXIMUM_MESSAGE_SIZE + P2P_SEAL_OVERHEAD)
 		publish_everywhere(topic, payload, size);
+}
+
+void p2p_signal_publish_retained(const char *topic, const unsigned char *payload, int size)
+{
+	unsigned char body[2 + TOPIC_SIZE + MAXIMUM_MESSAGE_SIZE];
+	int index;
+
+	if (size > MAXIMUM_MESSAGE_SIZE)
+		return;
+	for (index = 0; index < signalling.broker_count; index++)
+	{
+		struct broker *broker = &signalling.brokers[index];
+		int body_size;
+
+		if (broker->state != _broker_ready)
+			continue;
+		body_size = put_string(body, topic);
+		if (size)
+			memcpy(body + body_size, payload, (size_t)size);
+		/* (PUBLISH, at most once, retained: an empty one clears it) */
+		broker_send(broker, 0x31, body, body_size + size);
+	}
 }
 
 void p2p_signal_host(const unsigned char *token)
