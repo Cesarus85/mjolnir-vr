@@ -24,6 +24,14 @@ player holding the action button does), ammunition for one it has when it
 runs low, an overshield, camouflage, a health pack when hurt, grenades.
 In a fight it changes to its other weapon when the one in hand is empty,
 and now and then lobs a grenade at an enemy some way off.
+
+In the objective games a bot plays for the objective, fighting on the way:
+- capture the flag: the carrier of the enemy's flag runs it home; the rest
+  hunt whoever carries their own flag, return it where it lies dropped, or
+  else go for the enemy's flag (every third bot stays to guard its own);
+- king of the hill: to the hill, and around in it;
+- oddball: to the ball (taken as a weapon is), hunting whoever carries it;
+  with it, away from the enemy, striking those who come near.
 */
 
 #include "cseries.h"
@@ -38,6 +46,7 @@ and now and then lobs a grenade at an enemy some way off.
 #include "items/items.h"
 #include "items/weapons.h"
 #include "tag_files/tag_files.h"
+#include "scenario/scenario_definitions.h"
 
 #include <string.h>
 #include "scenario/scenario.h"
@@ -107,6 +116,28 @@ struct bot
 	long item_look_time;
 	long grenade_time;
 	long weapon_switch_time;
+	/* the objective, as it played it this tick: where it goes, whom it
+	hunts first, and whether it carries the flag or ball (no firing) */
+	boolean has_objective;
+	real_point3d objective;
+	long objective_unit_index;
+	boolean carrying;
+};
+
+/* the objective game's things this tick: the flags or balls (weapons), whose
+team or ball number, where, and who carries them */
+enum
+{
+	MAXIMUM_OBJECTIVE_ITEMS = 8,
+};
+
+struct objective_item
+{
+	long item_index;
+	short owner;
+	real_point3d position;
+	long carrier_player_index;
+	boolean handled;
 };
 
 /* ---------- globals */
@@ -125,6 +156,9 @@ static struct
 	long grenades;
 	long pickups;
 	long switches;
+	/* the objective game's things (bots_update_objectives) */
+	short objective_item_count;
+	struct objective_item objective_items[MAXIMUM_OBJECTIVE_ITEMS];
 	/* how well they play (bots.skill, as the game began) */
 	short reaction_ticks;
 	real turn_rate;
@@ -270,6 +304,18 @@ static boolean bot_next_point(
 {
 	if (!bot->has_goal)
 		return FALSE;
+	/* (the last steps: straight there, over what the path goes round, as
+	a flag on its stand, where a carrier must step to score) */
+	{
+		real dx = bot->goal.x - position->x;
+		real dy = bot->goal.y - position->y;
+
+		if (dx * dx + dy * dy < 3.0f * 3.0f && fabsf(bot->goal.z - position->z) < 1.0f)
+		{
+			*point = bot->goal;
+			return TRUE;
+		}
+	}
 	if (game_time_get() - bot->path_time >= PATH_REFRESH_TICKS || game_time_get() < bot->path_time)
 	{
 		bot->path_time = game_time_get();
@@ -548,6 +594,249 @@ static void bot_take_item(
 	}
 }
 
+/* ---------- objectives */
+
+static long bots_game_type(
+	void)
+{
+	return game_engine ? game_engine->type : NONE;
+}
+
+/* the flags or balls this tick (once for all bots) */
+static void bots_update_objectives(
+	void)
+{
+	struct object_iterator iterator;
+	long type = bots_game_type();
+
+	bots.objective_item_count = 0;
+	if (type != game_engine_ctf && type != game_engine_oddball)
+		return;
+	object_iterator_new(&iterator, _object_mask_weapon, 0);
+	while (object_iterator_next(&iterator) && bots.objective_item_count < MAXIMUM_OBJECTIVE_ITEMS)
+	{
+		struct weapon_datum *weapon;
+		struct objective_item *item;
+		short index;
+
+		if (!weapon_is_flag(iterator.index))
+			continue;
+		weapon = weapon_get(iterator.index);
+		item = &bots.objective_items[bots.objective_item_count++];
+		item->item_index = iterator.index;
+		item->owner = weapon->object.owner_team_index;
+		/* (bit 6: the flag was taken from its stand, game_engine_ctf.c) */
+		item->handled = TEST_FLAG(weapon->weapon.flags, 6);
+		item_get_position_even_if_in_inventory(iterator.index, &item->position);
+		item->carrier_player_index = NONE;
+		for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+		{
+			struct player_datum *player = distributed_player(index);
+
+			if (player && player->unit_index != NONE && unit_has_weapon(player->unit_index, iterator.index))
+			{
+				item->carrier_player_index = DATUM_INDEX_NEW(index, player->identifier);
+				break;
+			}
+		}
+	}
+}
+
+/* a team's flag stand (FALSE: none) */
+static boolean bots_ctf_base(
+	long team_index,
+	real_point3d *position)
+{
+	struct scenario *scenario = global_scenario_get();
+	struct game_variant *variant = game_engine_get_variant();
+	long slot = variant && variant->game_engine_variant.ctf.assault ? (team_index + 1) % 2 : team_index;
+	long index;
+
+	if (!scenario)
+		return FALSE;
+	for (index = 0; index < scenario->netgame_flags.count; index++)
+	{
+		struct scenario_netgame_flag *flag =
+			TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, index, struct scenario_netgame_flag);
+
+		if (flag->type == _netgame_flag_ctf_flag && flag->team_index == slot)
+		{
+			*position = flag->position;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* what the objective asks of the bot now (bot->has_objective and the rest) */
+static void bot_play_objective_now(
+	struct bot *bot,
+	struct player_datum const *player,
+	long player_index,
+	real_point3d const *position);
+
+static void bot_play_objective(
+	struct bot *bot,
+	struct player_datum const *player,
+	long player_index,
+	real_point3d const *position)
+{
+	boolean was_carrying = bot->carrying;
+
+	bot_play_objective_now(bot, player, player_index, position);
+	if (bot->carrying != was_carrying)
+	{
+		platform_log("bots: player %ld %s", DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index),
+			bot->carrying ? "has taken the flag or ball" : "no longer carries it");
+	}
+}
+
+static void bot_play_objective_now(
+	struct bot *bot,
+	struct player_datum const *player,
+	long player_index,
+	real_point3d const *position)
+{
+	long type = bots_game_type();
+	short index;
+
+	bot->has_objective = FALSE;
+	bot->objective_unit_index = NONE;
+	bot->carrying = FALSE;
+	if (type == game_engine_king)
+	{
+		if (game_engine_get_goal_in_use(0))
+		{
+			real_point3d center;
+			real dx, dy;
+
+			game_engine_get_goal_position(&center, 0);
+			center.z -= 0.63f;
+			dx = center.x - position->x;
+			dy = center.y - position->y;
+			bot->has_objective = TRUE;
+			bot->objective = center;
+			/* (on the hill: about in it, not on its middle) */
+			if (dx * dx + dy * dy < 1.5f * 1.5f)
+			{
+				bot->objective.x += (real)cos(bot->weave_phase * 0.05f) * 1.0f;
+				bot->objective.y += (real)sin(bot->weave_phase * 0.05f) * 1.0f;
+			}
+		}
+		return;
+	}
+	if (type == game_engine_ctf)
+	{
+		struct objective_item *own = NULL;
+		struct objective_item *enemy = NULL;
+		real_point3d base;
+
+		for (index = 0; index < bots.objective_item_count; index++)
+		{
+			struct objective_item *item = &bots.objective_items[index];
+
+			if (item->owner == player->team_index)
+				own = item;
+			else
+				enemy = item;
+		}
+		/* carrying theirs: home */
+		if (enemy && enemy->carrier_player_index == player_index)
+		{
+			bot->carrying = TRUE;
+			if (bots_ctf_base(player->team_index, &base))
+			{
+				bot->has_objective = TRUE;
+				bot->objective = base;
+			}
+			return;
+		}
+		/* ours carried off: after its carrier */
+		if (own && own->carrier_player_index != NONE)
+		{
+			struct player_datum *carrier = player_try_and_get(own->carrier_player_index);
+
+			bot->has_objective = TRUE;
+			bot->objective = own->position;
+			bot->objective_unit_index = carrier ? carrier->unit_index : NONE;
+			return;
+		}
+		/* ours dropped: touched, it goes home */
+		if (own && own->handled)
+		{
+			bot->has_objective = TRUE;
+			bot->objective = own->position;
+			return;
+		}
+		/* (every third guards its own) */
+		if ((DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) % 3) == 2 && bots_ctf_base(player->team_index, &base))
+		{
+			bot->has_objective = TRUE;
+			bot->objective = base;
+			if (distance3d(position, &base) < 4.0f)
+			{
+				bot->objective.x += (real)cos(bot->weave_phase * 0.03f) * 3.0f;
+				bot->objective.y += (real)sin(bot->weave_phase * 0.03f) * 3.0f;
+			}
+			return;
+		}
+		/* theirs: to take it, or to cover its carrier */
+		if (enemy)
+		{
+			bot->has_objective = TRUE;
+			bot->objective = enemy->position;
+		}
+		return;
+	}
+	if (type == game_engine_oddball)
+	{
+		struct objective_item *nearest = NULL;
+		real nearest_distance = 1000000.0f;
+
+		for (index = 0; index < bots.objective_item_count; index++)
+		{
+			struct objective_item *item = &bots.objective_items[index];
+			real distance;
+
+			if (item->carrier_player_index == player_index)
+			{
+				bot->carrying = TRUE;
+				return;
+			}
+			/* (one a teammate carries: not to be chased) */
+			if (item->carrier_player_index != NONE && game_engine_has_teams())
+			{
+				struct player_datum *carrier = player_try_and_get(item->carrier_player_index);
+
+				if (carrier && carrier->team_index == player->team_index)
+					continue;
+			}
+			distance = distance3d(position, &item->position);
+			if (distance < nearest_distance)
+			{
+				nearest_distance = distance;
+				nearest = item;
+			}
+		}
+		if (nearest)
+		{
+			bot->has_objective = TRUE;
+			bot->objective = nearest->position;
+			if (nearest->carrier_player_index != NONE)
+			{
+				struct player_datum *carrier = player_try_and_get(nearest->carrier_player_index);
+
+				bot->objective_unit_index = carrier ? carrier->unit_index : NONE;
+			}
+			else
+			{
+				/* (lying there: taken as a weapon is) */
+				bot->item_index = nearest->item_index;
+			}
+		}
+	}
+}
+
 /* the throttle that walks a unit facing yaw towards a point */
 static void bot_walk_to(
 	struct player_action *action,
@@ -617,9 +906,22 @@ static void bot_think(
 		bot->wander_yaw = bot->yaw;
 	}
 
-	/* the enemy: noticed after a moment, kept while in sight */
+	/* what the objective game asks */
+	bot_play_objective(bot, player, bot->player_index, &position);
+
+	/* the enemy: noticed after a moment, kept while in sight (the one the
+	objective hunts first, when it is in sight) */
 	{
 		long target = bot_find_target(player, &eye);
+
+		if (bot->objective_unit_index != NONE)
+		{
+			real_point3d head;
+
+			unit_get_camera_position(bot->objective_unit_index, &head);
+			if (distance3d(&eye, &head) < bots.sight_range && bot_can_see(player->unit_index, &eye, &head))
+				target = bot->objective_unit_index;
+		}
 
 		if (target != bot->target_unit_index)
 		{
@@ -686,7 +988,29 @@ static void bot_think(
 		}
 		/* closes on it along its way, weaving, until near */
 		bot->weave_phase++;
-		if (distance > BOT_CLOSE_RANGE)
+		if (bot->has_objective && bot->objective_unit_index != bot->target_unit_index)
+		{
+			/* (the objective first: it fights on the way) */
+			real_point3d point;
+
+			bot->goal = bot->objective;
+			bot->has_goal = TRUE;
+			if (bot_next_point(bot, player->unit_index, &position, &point))
+			{
+				bot_walk_to(action, bot->yaw, &position, &point);
+				/* (carrying it: looking where it runs, unless struck at) */
+				if (bot->carrying && distance > 1.5f)
+				{
+					real dx = point.x - position.x;
+					real dy = point.y - position.y;
+
+					if (dx * dx + dy * dy > 0.0001f)
+						wanted_yaw = (real)atan2(dy, dx);
+					wanted_pitch = 0.0f;
+				}
+			}
+		}
+		else if (distance > BOT_CLOSE_RANGE)
 		{
 			real_point3d point;
 
@@ -696,14 +1020,14 @@ static void bot_think(
 				bot_walk_to(action, bot->yaw, &position, &point);
 		}
 		action->throttle.j += (real)sin(bot->weave_phase * 0.08f) * 0.6f;
-		firing = distance < BOT_FIRE_RANGE &&
+		firing = !bot->carrying && distance < BOT_FIRE_RANGE &&
 			fabsf(bot_angle_difference(wanted_yaw, bot->yaw)) < BOT_FIRE_CONE &&
 			fabsf(wanted_pitch - bot->pitch) < BOT_FIRE_CONE;
 		/* (a melee blow when it is upon it) */
 		if (distance < 1.0f)
 			SET_FLAG(action->control_flags, _unit_control_use_equipment_bit, TRUE);
 		/* (a grenade now and then, lobbed at one some way off) */
-		if (distance > BOT_GRENADE_MINIMUM && distance < BOT_GRENADE_MAXIMUM &&
+		if (!bot->carrying && distance > BOT_GRENADE_MINIMUM && distance < BOT_GRENADE_MAXIMUM &&
 			game_time_get() - bot->grenade_time > GRENADE_INTERVAL_TICKS && bot_random() < 0.02f)
 		{
 			short type;
@@ -729,8 +1053,20 @@ static void bot_think(
 	{
 		real_point3d point;
 
+		/* the objective: there (and the ball, taken there) */
+		if (bot->has_objective)
+		{
+			bot->goal = bot->objective;
+			bot->has_goal = TRUE;
+			bot->goal_time = game_time_get();
+			if (bots_game_type() == game_engine_oddball && bot->item_index != NONE &&
+				distance3d(&position, &bot->goal) < 2.0f)
+			{
+				bot_take_item(bot, player, unit, action);
+			}
+		}
 		/* something worth having near: there first */
-		if (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->item_look_time)
+		else if (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->item_look_time)
 		{
 			long item = bot_find_item(unit, &position);
 
@@ -747,7 +1083,7 @@ static void bot_think(
 				}
 			}
 		}
-		if (bot->item_index != NONE)
+		if (bot->item_index != NONE && !bot->has_objective)
 		{
 			/* (taken or gone: on) */
 			if (!object_try_and_get(bot->item_index) || bot_item_worth(unit, bot->item_index) <= 0.0f)
@@ -764,7 +1100,7 @@ static void bot_think(
 			}
 		}
 		/* hunts, or roams: along its way, looking where it goes */
-		if (bot->item_index == NONE &&
+		if (bot->item_index == NONE && !bot->has_objective &&
 			(!bot->has_goal || game_time_get() - bot->goal_time > 90 ||
 				distance3d(&position, &bot->goal) < BOT_GOAL_RADIUS))
 		{
@@ -779,6 +1115,18 @@ static void bot_think(
 			if (dx * dx + dy * dy > 0.0001f)
 				bot->wander_yaw = wanted_yaw = (real)atan2(dy, dx);
 			bot_walk_to(action, bot->yaw, &position, &point);
+		}
+		if (bot->carrying && !bot->has_objective &&
+			(game_time_get() - bot->goal_time > 60 || distance3d(&position, &bot->goal) < BOT_GOAL_RADIUS))
+		{
+			/* (the ball: away, somewhere) */
+			real angle = bot_random() * 2.0f * _pi;
+
+			bot->goal = position;
+			bot->goal.x += (real)cos(angle) * 8.0f;
+			bot->goal.y += (real)sin(angle) * 8.0f;
+			bot->has_goal = TRUE;
+			bot->goal_time = game_time_get();
 		}
 		if (bot->stuck_ticks > 20)
 		{
@@ -891,6 +1239,7 @@ void bots_tick(
 				bsp->pathfinding_surfaces.count, bsp->pathfinding_edges.count);
 		}
 	}
+	bots_update_objectives();
 	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
 	{
 		struct player_datum *player = distributed_player(index);
@@ -942,8 +1291,22 @@ void bots_tick(
 					strncat(text, slot == unit->unit.current_weapon_index ? "* " : " ", sizeof(text) - strlen(text) - 1);
 				}
 			}
-			platform_log("bots:   player %d carries %s, grenades %d/%d", index, text, unit->unit.grenade_counts[0],
-				unit->unit.grenade_counts[1]);
+			{
+				struct bot *bot = bot_get(DATUM_INDEX_NEW(index, player->identifier));
+
+				platform_log("bots:   player %d (team %ld) carries %s, grenades %d/%d%s%s", index, player->team_index, text,
+					unit->unit.grenade_counts[0], unit->unit.grenade_counts[1],
+					bot && bot->has_objective ? ", to the objective" : "", bot && bot->carrying ? ", CARRYING" : "");
+				if (bot && bot->carrying && bot->has_objective)
+				{
+					real_point3d origin;
+
+					object_get_origin(player->unit_index, &origin);
+					platform_log("bots:     carrier at (%.1f %.1f %.1f), goal (%.1f %.1f %.1f), %.2f off; path %s",
+						origin.x, origin.y, origin.z, bot->objective.x, bot->objective.y, bot->objective.z,
+						distance3d(&origin, &bot->objective), bot->path.valid ? "found" : "none");
+				}
+			}
 		}
 	}
 }
