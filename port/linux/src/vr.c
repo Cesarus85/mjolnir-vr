@@ -1957,6 +1957,14 @@ The world around it stays as it is (zooming the whole view sickens). */
 #define SCOPE_ABOVE_HAND 0.07f
 #define SCOPE_AHEAD_OF_HAND 0.22f
 
+/* (the weapon in hand's: halo_vr_set_scope_raise) */
+static float scope_raise;
+
+void halo_vr_set_scope_raise(float metres)
+{
+	scope_raise = metres;
+}
+
 int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view)
 {
@@ -1975,7 +1983,7 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	game_to_local(right, local_right);
 	for (axis = 0; axis < 3; axis++)
 	{
-		vr.scope_pose.position[axis] = hand->aim.position[axis] + local_up[axis] * SCOPE_ABOVE_HAND +
+		vr.scope_pose.position[axis] = hand->aim.position[axis] + local_up[axis] * (SCOPE_ABOVE_HAND + scope_raise) +
 			local_forward[axis] * SCOPE_AHEAD_OF_HAND;
 	}
 	if (barrel_known())
@@ -2167,6 +2175,7 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	return 0;
 }
 int halo_vr_scope_pass(void) { return 0; }
+void halo_vr_set_scope_raise(float metres) { (void)metres; }
 void halo_vr_capture_scope(float left, float top, float right, float bottom)
 {
 	(void)left; (void)top; (void)right; (void)bottom;
