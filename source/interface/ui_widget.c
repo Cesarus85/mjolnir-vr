@@ -5643,12 +5643,16 @@ struct ui_public_game
 void p2p_set_public_game(int public_game);
 int p2p_public_game(void);
 int p2p_public_games(struct ui_public_game *games, int maximum);
+int config_boolean(char const *name);
+int config_write_boolean(char const *name, int value);
 
 enum
 {
 	MAXIMUM_SHOWN_PUBLIC_GAMES = 32,
-	/* the online games panel's rows: "enter a code" and the games */
+	/* the online games panel's rows: "enter a code", the voice chat's
+	switches, and the games */
 	ONLINE_PANEL_ROWS = 11,
+	ONLINE_PANEL_FIXED_ROWS = 3,
 };
 
 static struct
@@ -5712,7 +5716,7 @@ it, B closes it */
 static void ui_join_code_panel_event(
 	struct event_record const *event)
 {
-	short rows = (short)(ui_join_code_globals.game_count + 1);
+	short rows = (short)(ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS);
 	short move = 0;
 
 	if (event->type == _event_type_left_stick)
@@ -5738,16 +5742,28 @@ static void ui_join_code_panel_event(
 			break;
 		case _gamepad_analog_button_a:
 		case _gamepad_binary_button_start:
+			/* (the voice chat's switches, kept in config.toml) */
+			if (ui_join_code_globals.selection == 1)
+			{
+				config_write_boolean("voice.enabled", !config_boolean("voice.enabled"));
+				break;
+			}
+			if (ui_join_code_globals.selection == 2)
+			{
+				config_write_boolean("voice.microphone", !config_boolean("voice.microphone"));
+				break;
+			}
 			ui_join_code_globals.panel_open = FALSE;
 			if (ui_join_code_globals.selection == 0 ||
-				ui_join_code_globals.selection > ui_join_code_globals.game_count)
+				ui_join_code_globals.selection >= ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS)
 			{
 				ui_join_code_launch_keyboard();
 			}
 			else
 			{
 				p2p_join_code_clear_status();
-				p2p_join_with_code(ui_join_code_globals.games[ui_join_code_globals.selection - 1].code);
+				p2p_join_with_code(
+					ui_join_code_globals.games[ui_join_code_globals.selection - ONLINE_PANEL_FIXED_ROWS].code);
 			}
 			break;
 		}
@@ -5894,7 +5910,7 @@ static void ui_join_code_render_panel(
 	ui_join_code_globals.game_count =
 		(short)p2p_public_games(ui_join_code_globals.games, MAXIMUM_SHOWN_PUBLIC_GAMES);
 	ui_join_code_globals.selection =
-		(short)PIN(ui_join_code_globals.selection, 0, ui_join_code_globals.game_count);
+		(short)PIN(ui_join_code_globals.selection, 0, ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS - 1);
 	ui_join_code_draw_quad(40, 72, 600, 410, 0xF0050A18);
 	ui_join_code_draw_quad(40, 72, 600, 74, 0xFF3A6EA5);
 	ui_join_code_draw_quad(40, 408, 600, 410, 0xFF3A6EA5);
@@ -5909,7 +5925,7 @@ static void ui_join_code_render_panel(
 		short index = (short)(ui_join_code_globals.scroll + row);
 		short y = (short)(128 + row * 22);
 
-		if (index > ui_join_code_globals.game_count)
+		if (index >= ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS)
 			break;
 		if (index == ui_join_code_globals.selection)
 			ui_join_code_draw_quad(48, y, 592, (short)(y + 21), 0x803A6EA5);
@@ -5917,9 +5933,20 @@ static void ui_join_code_render_panel(
 		{
 			ui_join_code_draw_text(56, 584, (short)(y + 1), "Enter a join code...", FALSE, 0, &text_color);
 		}
+		else if (index == 1)
+		{
+			ui_join_code_draw_text(56, 584, (short)(y + 1),
+				config_boolean("voice.enabled") ? "Voice chat: On" : "Voice chat: Off", FALSE, 0, &text_color);
+		}
+		else if (index == 2)
+		{
+			ui_join_code_draw_text(56, 584, (short)(y + 1),
+				config_boolean("voice.microphone") ? "Microphone: On (sent while you speak)" :
+					"Microphone: Off (listening only)", FALSE, 0, &text_color);
+		}
 		else
 		{
-			struct ui_public_game const *game = &ui_join_code_globals.games[index - 1];
+			struct ui_public_game const *game = &ui_join_code_globals.games[index - ONLINE_PANEL_FIXED_ROWS];
 
 			ui_join_code_draw_text(56, 212, (short)(y + 1), game->name, FALSE, 0, &text_color);
 			ui_join_code_draw_text(216, 372, (short)(y + 1), ui_join_code_map_name(game->map), FALSE, 0,
@@ -5930,9 +5957,9 @@ static void ui_join_code_render_panel(
 		}
 	}
 	if (!ui_join_code_globals.game_count)
-		ui_join_code_draw_text(56, 584, 152, "No public games right now", FALSE, 0, &dim_color);
-	ui_join_code_draw_text(56, 584, 384, "%a-button Join   %x-button Enter a code   %b-button Back", TRUE, 0,
-		&text_color);
+		ui_join_code_draw_text(56, 584, 196, "No public games right now", FALSE, 0, &dim_color);
+	ui_join_code_draw_text(56, 584, 384, "%a-button Join or switch   %x-button Enter a code   %b-button Back", TRUE,
+		0, &text_color);
 }
 
 /* over the screens, as they are drawn */

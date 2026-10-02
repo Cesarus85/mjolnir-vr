@@ -58,6 +58,11 @@ host_xr_copy_layer_region
 host_xr_end_frame
 host_xr_haptic
 host_xr_set_vignette
+host_voice_start
+host_voice_stop
+host_voice_take_packets
+host_voice_level
+host_voice_play
 host_xr_copy_layer_array
 host_android_path
 

@@ -278,6 +278,17 @@ static const struct config_setting config_settings[] =
 	{ "bots.count", _config_integer, "0", "HALO_BOTS_COUNT", _environment_value, _platform_android,
 		"Bots in the multiplayer games this machine hosts (0 to 15): players it\n"
 		"drives itself, which every machine sees as players." },
+	{ "voice.enabled", _config_boolean, "true", "HALO_VOICE_ENABLED", _environment_value, _platform_android,
+		"Voice chat in multiplayer: hear the other players (teammates over the\n"
+		"radio, the rest when near, from where they are)." },
+	{ "voice.microphone", _config_boolean, "true", "HALO_VOICE_MICROPHONE", _environment_value, _platform_android,
+		"Send your voice in multiplayer, whenever you speak (the headset's\n"
+		"microphone; Android asks for it once). False only listens." },
+	{ "voice.volume", _config_real, "1.0", "HALO_VOICE_VOLUME", _environment_value, _platform_android,
+		"The other players' voices' volume (1 as they come)." },
+	{ "voice.threshold", _config_real, "0.02", "HALO_VOICE_THRESHOLD", _environment_value, _platform_android,
+		"How loud the microphone must be to send (0..1 of full scale): higher\n"
+		"if it sends noise, lower if it cuts words off." },
 	{ "network.public_game", _config_boolean, "false", "HALO_NET_PUBLIC_GAME", _environment_value, _platform_all,
 		"Host games as public: listed for anyone among the online games (the\n"
 		"system link screen's X), as Y in a hosted game's lobby makes them." },

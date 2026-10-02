@@ -1,7 +1,10 @@
 package com.halo.decomp;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -35,6 +38,7 @@ import java.nio.channels.FileChannel;
  */
 public class LauncherActivity extends Activity {
     private static final int PICK_IMAGE = 1;
+    private static final int ASK_MICROPHONE = 2;
 
     private File dataRoot;
     private TextView status;
@@ -53,10 +57,35 @@ public class LauncherActivity extends Activity {
         passOnHardwareId();
         passOnInvite(getIntent());
         if (haveData()) {
-            startGame();
+            if (!askForMicrophone())
+                startGame();
             return;
         }
         buildInterface();
+    }
+
+    /**
+     * The voice chat's microphone (port/android/host/host_voice.c), asked
+     * for here, once, on this flat panel, before the game starts: in the
+     * game, the question would stop it. Returns true if it asked (the game
+     * starts on the answer).
+     */
+    private boolean askForMicrophone() {
+        SharedPreferences preferences = getSharedPreferences("launcher", MODE_PRIVATE);
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            || preferences.getBoolean("asked_microphone", false))
+            return false;
+        preferences.edit().putBoolean("asked_microphone", true).apply();
+        requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, ASK_MICROPHONE);
+        return true;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == ASK_MICROPHONE)
+            startGame();
     }
 
     /**
@@ -111,6 +140,23 @@ public class LauncherActivity extends Activity {
             partial.delete();
     }
 
+    /**
+     * Whether the microphone may be used, for the game (port/linux/src/
+     * voice.c), which opens it only then: opening it otherwise would have
+     * Android ask in the middle of the game.
+     */
+    private void passOnMicrophonePermission() {
+        if (dataRoot == null)
+            return;
+        boolean granted =
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        try (OutputStream out = new FileOutputStream(new File(dataRoot, "microphone_permission.txt"))) {
+            out.write((granted ? "1" : "0").getBytes("UTF-8"));
+        } catch (java.io.IOException e) {
+            // the game then does without the microphone
+        }
+    }
+
     /** The game data, or the marker file of the VR self-test (host_xr.c). */
     private boolean haveData() {
         return dataRoot != null && (new File(dataRoot, "maps/ui.map").isFile() ||
@@ -118,6 +164,7 @@ public class LauncherActivity extends Activity {
     }
 
     private void startGame() {
+        passOnMicrophonePermission();
         startActivity(new Intent(this, HaloActivity.class));
         finish();
     }
