@@ -275,9 +275,6 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
-	{ "bots.count", _config_integer, "0", "HALO_BOTS_COUNT", _environment_value, _platform_android,
-		"Bots in the multiplayer games this machine hosts (0 to 15): players it\n"
-		"drives itself, which every machine sees as players." },
 	{ "network.public_game", _config_boolean, "false", "HALO_NET_PUBLIC_GAME", _environment_value, _platform_all,
 		"Host games as public: listed for anyone among the online games (the\n"
 		"system link screen's X), as Y in a hosted game's lobby makes them." },
@@ -307,6 +304,9 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
+	{ "bots.count", _config_integer, "0", "HALO_BOTS_COUNT", _environment_value, _platform_android,
+		"Bots in the multiplayer games this machine hosts (0 to 15): players it\n"
+		"drives itself, which every machine sees as players." },
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
