@@ -316,8 +316,11 @@ static const struct config_setting config_settings[] =
 		"How loud the microphone must be to send (0..1 of full scale): higher\n"
 		"if it sends noise, lower if it cuts words off." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS_COUNT", _environment_value, _platform_android,
-		"Bots in the multiplayer games this machine hosts (0 to 15): players it\n"
-		"drives itself, which every machine sees as players." },
+		"Bots in the multiplayer games this machine hosts (0 to 15; 0: none):\n"
+		"players it drives itself, which every machine sees as players. Set in\n"
+		"the lobby's host options (Y)." },
+	{ "bots.skill", _config_integer, "1", "HALO_BOTS_SKILL", _environment_value, _platform_android,
+		"How well the bots play: 0 easy, 1 normal, 2 hard." },
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
@@ -967,7 +970,9 @@ static int config_line_section(const char *line, const char *end, char *section,
 
 /* sets a boolean setting, for now and in config.toml: its line there is
 changed (or added), the rest of the file kept as it is */
-int config_write_boolean(const char *name, int value)
+/* a boolean's or an integer's new value, kept and written into the file
+(the line of its key replaced, else added to its section) */
+static int config_write_value(const char *name, int type, long value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
@@ -978,15 +983,24 @@ int config_write_boolean(const char *name, int value)
 	const char *line;
 	int written = 0, in_section = 0, succeeded;
 
-	if (index < 0 || config_settings[index].type != _config_boolean || !dot || (size_t)(dot - name) >= sizeof(section))
+	if (index < 0 || config_settings[index].type != type || !dot || (size_t)(dot - name) >= sizeof(section))
 		return 0;
 	/* (the file read first, as the other settings are) */
-	config_boolean(name);
+	if (type == _config_boolean)
+		config_boolean(name);
+	else
+		config_integer(name);
 	pthread_mutex_lock(&config_lock);
-	config_values[index].boolean = value != 0;
+	if (type == _config_boolean)
+		config_values[index].boolean = value != 0;
+	else
+		config_values[index].integer = value;
 	snprintf(section, sizeof(section), "%.*s", (int)(dot - name), name);
 	snprintf(key, sizeof(key), "%s", dot + 1);
-	snprintf(line_text, sizeof(line_text), "%s = %s\n", key, value ? "true" : "false");
+	if (type == _config_boolean)
+		snprintf(line_text, sizeof(line_text), "%s = %s\n", key, value ? "true" : "false");
+	else
+		snprintf(line_text, sizeof(line_text), "%s = %ld\n", key, value);
 	snprintf(wanted, sizeof(wanted), "%s", section);
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
@@ -1041,6 +1055,16 @@ int config_write_boolean(const char *name, int value)
 	free(out.buffer);
 	free(text);
 	return succeeded;
+}
+
+int config_write_boolean(const char *name, int value)
+{
+	return config_write_value(name, _config_boolean, value != 0);
+}
+
+int config_write_integer(const char *name, long value)
+{
+	return config_write_value(name, _config_integer, value);
 }
 
 /* ---------- public code */
