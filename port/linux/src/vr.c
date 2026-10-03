@@ -132,6 +132,7 @@ static struct
 	unsigned long long last_frame_ms;
 
 	/* settings (config.toml, [vr]) */
+	unsigned long settings_read_at; /* config_changes() when the live ones were read */
 	int smooth_turn;
 	float snap_turn_degrees;
 	float smooth_turn_degrees_per_second;
@@ -418,22 +419,33 @@ static void world_to_local(const float world[3], float local[3])
 
 /* ---------- platform side */
 
+/* the settings the VR options (ui_widget.c) change while the game runs:
+read at the start, and again whenever one changes */
+static void vr_read_live_settings(void)
+{
+	vr.settings_read_at = config_changes();
+	vr.smooth_turn = config_boolean("vr.smooth_turn");
+	vr.snap_turn_degrees = (float)config_real("vr.snap_turn_degrees");
+	vr.smooth_turn_degrees_per_second = (float)config_real("vr.smooth_turn_speed");
+	vr.motion_tracker_on_wrist = config_boolean("vr.motion_tracker_on_wrist");
+	vr.crosshair = config_boolean("vr.crosshair");
+	vr.laser = config_boolean("vr.laser");
+	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
+	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
+}
+
 void halo_vr_initialize(void)
 {
 	if (vr.active || !getenv("HALO_VR"))
 		return;
-	vr.smooth_turn = config_boolean("vr.smooth_turn");
-	vr.snap_turn_degrees = (float)config_real("vr.snap_turn_degrees");
-	vr.smooth_turn_degrees_per_second = (float)config_real("vr.smooth_turn_speed");
+	vr_read_live_settings();
 	vr.cinematics_3d = config_boolean("vr.cinematics_in_3d");
 	vr.hud_distance = (float)config_real("vr.hud_distance");
 	vr.hud_width = 2.0f * vr.hud_distance * tanf((float)config_real("vr.hud_field_of_view") * PI / 360.0f);
 	vr.screen_distance = (float)config_real("vr.screen_distance");
 	vr.screen_width = (float)config_real("vr.screen_width");
 	vr.positional_tracking = config_boolean("vr.positional_tracking");
-	vr.motion_tracker_on_wrist = config_boolean("vr.motion_tracker_on_wrist");
 	vr.scope_size = (float)config_real("vr.scope_size");
-	vr.crosshair = config_boolean("vr.crosshair");
 	vr.motion_tracker_size = (float)config_real("vr.motion_tracker_size");
 	vr.motion_tracker_turn = (float)config_real("vr.motion_tracker_turn");
 	vr.motion_tracker_right = (float)config_real("vr.motion_tracker_right");
@@ -443,7 +455,6 @@ void halo_vr_initialize(void)
 	vr.rise_limit = 0.25f;
 	vr.log_performance = config_boolean("vr.log_performance");
 	vr.aim_with_controller = strcmp(config_string("vr.aim_with"), "head") != 0;
-	vr.laser = config_boolean("vr.laser");
 	vr.weapon_offset[0] = (float)config_real("vr.weapon_forward");
 	vr.weapon_offset[1] = (float)config_real("vr.weapon_right");
 	vr.weapon_offset[2] = (float)config_real("vr.weapon_down");
@@ -465,13 +476,11 @@ void halo_vr_initialize(void)
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_gun_steer_angle = (float)config_real("vr.vehicle_gun_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
-	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
 	vr.vehicle_wheel_angle = (float)config_real("vr.vehicle_wheel_degrees") * PI / 180.0f;
 	if (vr.vehicle_wheel_angle < 10.0f * PI / 180.0f)
 		vr.vehicle_wheel_angle = 10.0f * PI / 180.0f;
 	vr.vehicle_steer_curve = (float)config_real("vr.vehicle_steer_curve");
 	vr.vehicle_steer_smoothing = (float)config_real("vr.vehicle_steer_smoothing");
-	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
 	vr.grenade_scale = (float)config_real("vr.grenade_scale");
 	vr.grenade_offset[0] = (float)config_real("vr.grenade_right");
 	vr.grenade_offset[1] = 0.0f;
@@ -1191,6 +1200,8 @@ void halo_vr_frame_begin(void)
 		vr.recentre_frames--;
 		vr_recentre();
 	}
+	if (vr.settings_read_at != config_changes())
+		vr_read_live_settings();
 	turn_update();
 	wheel_update();
 	vignette_update();
