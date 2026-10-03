@@ -81,6 +81,20 @@ void vehicle_render_debug(
 
 /* ---------- public code */
 
+/* port: how the VR port's bots (port/linux/game/bots.c) drive a vehicle:
+turned to where its driver faces (a jeep, a scout), moved where he pushes
+from where he faces (a tank), or not at all (the rest) */
+enum
+{
+	_vehicle_bot_drive_none = 0,
+	_vehicle_bot_drive_facing,
+	_vehicle_bot_drive_relative,
+};
+short vehicle_bot_drive_kind(
+	long vehicle_index);
+boolean vehicle_is_flipped(
+	long vehicle_index);
+
 #ifdef HALO_ANDROID
 /* VR: whether the vehicle's driver steers it by where he faces (the jeep,
 boat, plane, scout and fighter: the right stick steers them), as opposed to
