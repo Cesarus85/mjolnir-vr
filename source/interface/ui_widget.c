@@ -6789,8 +6789,8 @@ static void ui_vr_controls_render(
 		ui_vr_controls_line(right, y + 66, "Grip", "Melee (or punch");
 		ui_vr_controls_line(right, y + 84, "", "forward)");
 		ui_vr_controls_line(right, y + 106, "A", "Jump");
-		ui_vr_controls_line(right, y + 128, "B", "Flashlight; held:");
-		ui_vr_controls_line(right, y + 146, "", "switch grenades");
+		ui_vr_controls_line(right, y + 128, "B", "Flashlight");
+		ui_vr_controls_line(right, y + 150, "B held", "Switch grenades");
 		ui_vr_controls_note(320, "Motion tracker: turn the back of your left wrist towards you.");
 		ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
 		ui_vr_controls_note(360, "Hold the Meta button to recentre the view.");
