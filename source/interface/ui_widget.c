@@ -677,6 +677,9 @@ struct widget_instance;
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "ui_widget.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -5421,7 +5424,15 @@ static void ui_mouse_note_target(
 		struct widget_instance *sibling;
 		rectangle2d label_bounds;
 		short best_distance = 17;
+#ifdef HALO_ANDROID
+		/* (VR: a controller points less steadily than a mouse: the label a
+		little further off is the button's too) */
+		short most_distance = halo_vr_active() ? 40 : 17;
+#else
+		short most_distance = 17;
+#endif
 
+		best_distance = most_distance;
 		kind = _ui_mouse_target_button;
 		for (sibling = parent ? parent->child : NULL; sibling; sibling = sibling->next)
 		{
@@ -5445,12 +5456,22 @@ static void ui_mouse_note_target(
 				label_bounds = sibling_bounds;
 			}
 		}
-		if (best_distance < 17)
+		if (best_distance < most_distance)
 		{
 			bounds.x1 = MAX(bounds.x1, label_bounds.x1);
 			bounds.y0 = MIN(bounds.y0, label_bounds.y0);
 			bounds.y1 = MAX(bounds.y1, label_bounds.y1);
 		}
+#ifdef HALO_ANDROID
+		/* (and a margin about it) */
+		if (halo_vr_active())
+		{
+			bounds.x0 -= 6;
+			bounds.x1 += 6;
+			bounds.y0 -= 6;
+			bounds.y1 += 6;
+		}
+#endif
 	}
 	else if (parent && ui_mouse_list_shows_several(parent))
 	{
@@ -5941,6 +5962,9 @@ static boolean ui_join_code_take_pointer(
 {
 	struct event_record press;
 	short row;
+	/* (a click where it was clicked, which may be a moment before) */
+	short x = pointer->left_clicks ? pointer->click_x : pointer->x;
+	short y = pointer->left_clicks ? pointer->click_y : pointer->y;
 
 	csmemset(&press, 0, sizeof(press));
 	press.type = _event_type_button;
@@ -5948,9 +5972,9 @@ static boolean ui_join_code_take_pointer(
 	press.data.button.value = 1;
 	if (ui_join_code_globals.panel_open)
 	{
-		if (pointer->x >= 48 && pointer->x < 592 && pointer->y >= 128 && pointer->y < 128 + ONLINE_PANEL_ROWS * 22)
+		if (x >= 48 && x < 592 && y >= 128 && y < 128 + ONLINE_PANEL_ROWS * 22)
 		{
-			row = (short)(ui_join_code_globals.scroll + (pointer->y - 128) / 22);
+			row = (short)(ui_join_code_globals.scroll + (y - 128) / 22);
 			if (row < ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS)
 			{
 				ui_join_code_globals.selection = row;
@@ -5962,9 +5986,9 @@ static boolean ui_join_code_take_pointer(
 	}
 	if (ui_join_code_globals.host_panel_open)
 	{
-		if (pointer->x >= 148 && pointer->x < 492 && pointer->y >= 187 && pointer->y < 187 + HOST_PANEL_ROWS * 30)
+		if (x >= 148 && x < 492 && y >= 187 && y < 187 + HOST_PANEL_ROWS * 30)
 		{
-			ui_join_code_globals.host_selection = (short)((pointer->y - 187) / 30);
+			ui_join_code_globals.host_selection = (short)((y - 187) / 30);
 			if (pointer->left_clicks)
 				ui_join_code_host_panel_event(&press);
 		}
