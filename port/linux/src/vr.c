@@ -1980,6 +1980,9 @@ where names drawn on it hung before the eyes. */
 #define NAME_SLOT_LEFT 240
 #define NAME_SLOT_WIDTH 160
 #define NAME_SLOT_HEIGHT 30
+/* how large a name looks against the HUD's text (smaller: over a head, not
+on the screen before the eyes) */
+#define NAME_SCALE 0.6f
 
 int halo_vr_names_apart(void)
 {
@@ -2036,8 +2039,8 @@ static int name_pose(const float point[3], struct halo_xr_pose *pose, float *wid
 		return 0;
 	cross3(z, x, y);
 	quaternion_from_axes(x, y, z, pose->orientation);
-	/* (as wide as the slot looks on the HUD) */
-	angle = (float)NAME_SLOT_WIDTH / 640.0f * vr.hud_width / vr.hud_distance;
+	/* (as wide as the slot looks on the HUD, smaller) */
+	angle = (float)NAME_SLOT_WIDTH / 640.0f * vr.hud_width / vr.hud_distance * NAME_SCALE;
 	*width = 2.0f * distance * tanf(angle * 0.5f);
 	return 1;
 }
