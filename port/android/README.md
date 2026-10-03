@@ -168,7 +168,8 @@ the Xbox:
 - The HUD stays at the edges of the screen.
 - The menus, the loading bar and the screens after a game have 640
   columns, at the center of the screen.
-- Black bars and fades cover all of the screen.
+- Black bars and fades cover all of the screen, and so do the menus' dims
+  and backgrounds (the pause menu's dim, dialogs, the menus' gradient).
 
 ## VR
 

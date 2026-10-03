@@ -140,6 +140,13 @@ long halo_screen_width(void)
 	return screen_width;
 }
 
+/* the display's pixels for each of the 480 lines (text_hires.c) */
+float halo_screen_pixel_scale(void)
+{
+	halo_screen_width();
+	return screen_scale[1];
+}
+
 void halo_screen_ui_offset(unsigned char centered)
 {
 	ui_offset = centered ? (halo_screen_width() - 640) / 2 : 0;
@@ -397,6 +404,9 @@ struct gl_device
 	had caught up */
 	GLuint visibility_results_buffer;
 	volatile GLuint *visibility_results;
+	/* a pipeline flush every flush_every draws (draw_flush), 0 never */
+	unsigned long flush_every;
+	unsigned long flush_draws;
 #endif
 
 	unsigned long frame;
@@ -1163,6 +1173,18 @@ static void gl_initialize(void)
 		GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
 	if (!device.visibility_results)
 		platform_log("cannot map the visibility test results; tests wait for the GPU");
+	{
+		long every = config_integer("debug.gpu_flush_draws");
+		const char *renderer = (const char *)glGetString(GL_RENDERER);
+
+		if (every < 0)
+			every = renderer && strstr(renderer, "Mesa Intel") ? 3 : 0;
+		if (every > 0)
+		{
+			device.flush_every = (unsigned long)every;
+			platform_log("GPU: a pipeline flush every %ld draws", every);
+		}
+	}
 #endif
 #ifdef HALO_ANDROID
 	if (xgpu_capabilities.atomic_counters)
@@ -2254,29 +2276,36 @@ static GLenum address_mode(DWORD mode)
 	}
 }
 
-static void configure_sampler(int stage, BOOL mipmapped)
+/* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
+filtered and from its mip levels whatever the game asks: the HUD's meters are
+point sampled for one player, to keep the Xbox bitmaps' texels sharp */
+static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 {
 	/* the texture stage state each sampler was last configured from */
-	static DWORD configured[D3DTSS_MAXSTAGES][10];
+	static DWORD configured[D3DTSS_MAXSTAGES][11];
 	static BOOL configured_valid[D3DTSS_MAXSTAGES];
 	GLuint sampler = device.samplers[stage];
 	DWORD *state = D3D__TextureState[stage];
-	DWORD min_filter = state[D3DTSS_MINFILTER];
-	DWORD mip_filter = mipmapped ? state[D3DTSS_MIPFILTER] : D3DTEXF_NONE;
+	DWORD min_filter = hires ? D3DTEXF_LINEAR : state[D3DTSS_MINFILTER];
+	DWORD mip_filter = hires ? D3DTEXF_LINEAR : mipmapped ? state[D3DTSS_MIPFILTER] : D3DTEXF_NONE;
+	DWORD mag_filter = hires ? D3DTEXF_LINEAR : state[D3DTSS_MAGFILTER];
+	DWORD maximum_mip_level = hires ? 0 : state[D3DTSS_MAXMIPLEVEL];
+	DWORD lod_bias = hires ? 0 : state[D3DTSS_MIPMAPLODBIAS];
 	GLenum minification;
 	float border[4];
-	DWORD inputs[10];
+	DWORD inputs[11];
 
 	inputs[0] = min_filter;
 	inputs[1] = mip_filter;
-	inputs[2] = state[D3DTSS_MAGFILTER];
+	inputs[2] = mag_filter;
 	inputs[3] = state[D3DTSS_ADDRESSU];
 	inputs[4] = state[D3DTSS_ADDRESSV];
 	inputs[5] = state[D3DTSS_ADDRESSW];
-	inputs[6] = state[D3DTSS_MIPMAPLODBIAS];
-	inputs[7] = state[D3DTSS_MAXMIPLEVEL];
+	inputs[6] = lod_bias;
+	inputs[7] = maximum_mip_level;
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
+	inputs[10] = hires;
 	if (configured_valid[stage] && !memcmp(configured[stage], inputs, sizeof(inputs)))
 		return;
 	memcpy(configured[stage], inputs, sizeof(inputs));
@@ -2289,14 +2318,14 @@ static void configure_sampler(int stage, BOOL mipmapped)
 		minification = mip_filter == D3DTEXF_NONE ? GL_LINEAR :
 			mip_filter == D3DTEXF_POINT ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR;
 	glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, (GLint)minification);
-	glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, state[D3DTSS_MAGFILTER] == D3DTEXF_POINT ? GL_NEAREST : GL_LINEAR);
+	glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, mag_filter == D3DTEXF_POINT ? GL_NEAREST : GL_LINEAR);
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, (GLint)address_mode(state[D3DTSS_ADDRESSU]));
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, (GLint)address_mode(state[D3DTSS_ADDRESSV]));
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, (GLint)address_mode(state[D3DTSS_ADDRESSW]));
 #ifdef HALO_ANDROID
 	/* ES has no sampler LOD bias; the pixel shader applies it
 	(texture_lod_bias) */
-	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)state[D3DTSS_MAXMIPLEVEL]);
+	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)maximum_mip_level);
 	if (xgpu_capabilities.anisotropy)
 		glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY_EXT,
 			(min_filter == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1) ? (float)state[D3DTSS_MAXANISOTROPY] : 1.0f);
@@ -2306,8 +2335,8 @@ static void configure_sampler(int stage, BOOL mipmapped)
 		glSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, border);
 	}
 #else
-	glSamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, dword_to_float(state[D3DTSS_MIPMAPLODBIAS]));
-	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)state[D3DTSS_MAXMIPLEVEL]);
+	glSamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, dword_to_float(lod_bias));
+	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)maximum_mip_level);
 	glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY,
 		(min_filter == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1) ? (float)state[D3DTSS_MAXANISOTROPY] : 1.0f);
 	color_to_vec4(state[D3DTSS_BORDERCOLOR], border);
@@ -2491,7 +2520,9 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 			}
 			state_texture(stage, gl_target, gl_texture);
 			state_sampler(stage, device.samplers[stage]);
-			configure_sampler(stage, description.levels > 1);
+			configure_sampler(stage, description.levels > 1, description.hires);
+			if (stage == 0)
+				key->coverage_alpha = description.hires_coverage != FALSE;
 			key->sampler_type[stage] = gl_target == GL_TEXTURE_CUBE_MAP ? _xgpu_sampler_cube :
 				gl_target == GL_TEXTURE_3D ? _xgpu_sampler_3d : _xgpu_sampler_2d;
 		}
@@ -2744,6 +2775,25 @@ static void uniform_float(GLint location, float *shadow, float value)
 	glUniform1f(location, value);
 }
 
+/* Intel's graphics with Mesa's driver can hang the GPU in a long run of
+draws with no pipeline flush between them, which the game's effects make
+(hundreds of small draws in a row): the command streamer stops at a draw,
+and the reset that follows takes the desktop's other programs with it.
+Intel's workaround for a hang of this kind on their DG2 graphics
+(Wa_16014538804) is a flush at least every 3 draws, which Mesa does not
+apply to the others. A memory barrier is one (and only that: nothing
+here writes images). */
+static void draw_flush(void)
+{
+#ifndef HALO_ANDROID
+	if (device.flush_every && ++device.flush_draws >= device.flush_every)
+	{
+		device.flush_draws = 0;
+		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+	}
+#endif
+}
+
 static struct program_entry *prepare_draw(BOOL immediate)
 {
 	struct vertex_shader_object *program = current_program();
@@ -2790,6 +2840,10 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		key.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
 		key.color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
 	}
+	/* (only with the meter's blend: hud_hires.h, nv2a_pixel_shader_key) */
+	key.coverage_alpha = key.coverage_alpha && D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
+		D3D__RenderState[D3DRS_SRCBLEND] == D3DBLEND_CONSTANTCOLOR &&
+		D3D__RenderState[D3DRS_DESTBLEND] == D3DBLEND_SRCALPHA;
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
@@ -2809,6 +2863,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		stats.immediate_draws++;
 	else
 		stats.draws++;
+	draw_flush();
 	state_program(entry->program);
 #ifdef HALO_ANDROID
 	if (targets_multiview && entry->mv_rows >= 0 && entry->mv_serial != multiview.serial)
