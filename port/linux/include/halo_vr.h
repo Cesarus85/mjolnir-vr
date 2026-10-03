@@ -144,7 +144,7 @@ int halo_vr_scope_pass(void);
 controller points on the menus' screen, in their 640x480, whether that
 moved since asked, and the trigger's clicks since (nonzero while it points
 at the screen); and where it points this frame, to draw it (render.c) */
-int halo_vr_menu_pointer(int *x, int *y, int *moved, int *clicks);
+int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved, int *clicks);
 int halo_vr_menu_pointer_at(int *x, int *y);
 /* Players' names over their heads (hud.c, render.c): whether they are drawn
 apart this frame; the slot a name is drawn into (left, top, right, bottom

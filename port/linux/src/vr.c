@@ -1985,6 +1985,13 @@ static struct
 	int hand;
 	int trigger_down[HALO_XR_HAND_COUNT];
 	int clicks;
+	/* where it pointed the last few frames: a click is taken where it
+	pointed a moment before the trigger went down (pulling it tips the
+	controller) */
+	float history[8][2];
+	int history_valid[8];
+	int history_next;
+	float click_x, click_y;
 } menu_pointer;
 
 static void menu_pointer_update(void)
@@ -1998,6 +2005,7 @@ static void menu_pointer_update(void)
 	if (!vr.active || vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN || !vr.frame.focused)
 	{
 		menu_pointer.trigger_down[0] = menu_pointer.trigger_down[1] = 0;
+		memset(menu_pointer.history_valid, 0, sizeof(menu_pointer.history_valid));
 		return;
 	}
 	/* (the hand that clicked last points; a click counts as it goes down) */
@@ -2033,11 +2041,36 @@ static void menu_pointer_update(void)
 	menu_pointer.y = (0.5f - hit_y / height) * 480.0f;
 	menu_pointer.valid = menu_pointer.x >= 0.0f && menu_pointer.x < 640.0f && menu_pointer.y >= 0.0f &&
 		menu_pointer.y < 480.0f;
+	/* (the click where it pointed about a tenth of a second before) */
+	{
+		int oldest = menu_pointer.history_next;
+		int slot;
+
+		menu_pointer.click_x = menu_pointer.x;
+		menu_pointer.click_y = menu_pointer.y;
+		for (slot = 0; slot < 8; slot++)
+		{
+			int index = (oldest + slot) % 8;
+
+			if (slot >= 2 && menu_pointer.history_valid[index])
+			{
+				menu_pointer.click_x = menu_pointer.history[index][0];
+				menu_pointer.click_y = menu_pointer.history[index][1];
+				break;
+			}
+		}
+		menu_pointer.history[menu_pointer.history_next][0] = menu_pointer.x;
+		menu_pointer.history[menu_pointer.history_next][1] = menu_pointer.y;
+		menu_pointer.history_valid[menu_pointer.history_next] = menu_pointer.valid;
+		menu_pointer.history_next = (menu_pointer.history_next + 1) % 8;
+	}
 }
 
-int halo_vr_menu_pointer(int *x, int *y, int *moved, int *clicks)
+int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved, int *clicks)
 {
 	menu_pointer_update();
+	*click_x = (int)menu_pointer.click_x;
+	*click_y = (int)menu_pointer.click_y;
 	*clicks = menu_pointer.clicks;
 	if (menu_pointer.clicks)
 		host_xr_haptic(menu_pointer.hand, 0.3f, 0.02f);
@@ -2366,9 +2399,9 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	return 0;
 }
 int halo_vr_scope_pass(void) { return 0; }
-int halo_vr_menu_pointer(int *x, int *y, int *moved, int *clicks)
+int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved, int *clicks)
 {
-	(void)x; (void)y; (void)moved; *clicks = 0;
+	(void)x; (void)y; (void)click_x; (void)click_y; (void)moved; *clicks = 0;
 	return 0;
 }
 int halo_vr_menu_pointer_at(int *x, int *y) { (void)x; (void)y; return 0; }

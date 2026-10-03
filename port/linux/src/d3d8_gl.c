@@ -1368,15 +1368,15 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 /* the controller pointing at the menus' screen in VR (halo_vr_menu_pointer) */
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
-	int x, y, moved, clicks;
+	int x, y, click_x, click_y, moved, clicks;
 
-	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &moved, &clicks))
+	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &click_x, &click_y, &moved, &clicks))
 		return 0;
 	memset(pointer, 0, sizeof(*pointer));
 	pointer->x = (short)(x - (halo_screen_width() - 640) / 2);
 	pointer->y = (short)y;
-	pointer->click_x = pointer->x;
-	pointer->click_y = pointer->y;
+	pointer->click_x = (short)(click_x - (halo_screen_width() - 640) / 2);
+	pointer->click_y = (short)click_y;
 	pointer->moved = (unsigned char)(moved != 0);
 	pointer->left_clicks = (unsigned char)(clicks < 255 ? clicks : 255);
 	return 1;
