@@ -238,6 +238,7 @@ this list to generate the guest's entry points */
 	X(glBeginQuery) \
 	X(glEndQuery) \
 	X(glGetQueryObjectuiv) \
+	X(glMemoryBarrier) \
 	X(glDebugMessageCallback)
 #endif
 
@@ -455,6 +456,7 @@ pointers, sees the declarations without these aliases */
 #define glBeginQuery halo_glBeginQuery
 #define glEndQuery halo_glEndQuery
 #define glGetQueryObjectuiv halo_glGetQueryObjectuiv
+#define glMemoryBarrier halo_glMemoryBarrier
 #define glDebugMessageCallback halo_glDebugMessageCallback
 
 #endif
