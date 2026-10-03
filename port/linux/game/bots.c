@@ -444,7 +444,9 @@ static real bot_weapon_suits(
 	if (strstr(name, "plasma pistol") || strstr(name, "needler"))
 		return worth;
 	if (strstr(name, "pistol"))
-		return distance > 10.0f ? worth + 2.0f : worth;
+		return distance > 10.0f ? worth + 1.0f : worth - 0.5f;
+	if (strstr(name, "assault rifle") || strstr(name, "plasma rifle"))
+		return distance < 12.0f ? worth + 1.5f : worth;
 	return worth;
 }
 
@@ -509,9 +511,11 @@ static real bot_item_worth(
 				return bot_weapon_has_ammunition(carried_index) ? 0.0f : 4.0f;
 			worst = MIN(worst, bot_weapon_worth(carried_weapon->definition_index));
 		}
+		/* (with two, worth what it betters the worse by, and a little for a
+		change of weapon) */
 		if (carried < 2)
 			return worth;
-		return worth - worst > 0.5f ? worth - worst : 0.0f;
+		return worth - worst > 0.5f ? worth - worst + 1.5f : 0.0f;
 	}
 	return 0.0f;
 }
@@ -519,7 +523,9 @@ static real bot_item_worth(
 /* the thing most worth going for near the bot, or NONE */
 static long bot_find_item(
 	struct unit_datum const *unit,
-	real_point3d const *position)
+	real_point3d const *position,
+	real range,
+	real least_worth)
 {
 	struct object_iterator iterator;
 	long best = NONE;
@@ -535,12 +541,13 @@ static long bot_find_item(
 
 		object_get_origin(iterator.index, &origin);
 		distance = distance3d(position, &origin);
-		if (distance > BOT_ITEM_RANGE)
+		if (distance > range)
 			continue;
 		worth = bot_item_worth(unit, iterator.index);
-		if (worth <= 0.0f)
+		if (worth <= 0.0f || worth < least_worth)
 			continue;
-		score = worth / (1.0f + distance / 8.0f);
+		/* (the strong ones worth a longer way) */
+		score = worth * worth / (1.0f + distance / 15.0f);
 		if (score > best_score)
 		{
 			best_score = score;
@@ -986,9 +993,30 @@ static void bot_think(
 				bots.switches++;
 			}
 		}
-		/* closes on it along its way, weaving, until near */
 		bot->weave_phase++;
-		if (bot->has_objective && bot->objective_unit_index != bot->target_unit_index)
+		/* (a good weapon or powerup close by: taken in the fight too) */
+		if (!bot->carrying && (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS / 2 ||
+			game_time_get() < bot->item_look_time))
+		{
+			bot->item_look_time = game_time_get();
+			bot->item_index = bot_find_item(unit, &position, 10.0f, 4.0f);
+		}
+		if (bot->item_index != NONE && !bot->carrying && object_try_and_get(bot->item_index) &&
+			bot_item_worth(unit, bot->item_index) > 0.0f)
+		{
+			real_point3d item_position;
+			real_point3d point;
+
+			object_get_origin(bot->item_index, &item_position);
+			bot->goal = item_position;
+			bot->has_goal = TRUE;
+			if (bot_next_point(bot, player->unit_index, &position, &point))
+				bot_walk_to(action, bot->yaw, &position, &point);
+			if (distance3d(&position, &item_position) < 2.0f)
+				bot_take_item(bot, player, unit, action);
+		}
+		/* closes on it along its way, weaving, until near */
+		else if (bot->has_objective && bot->objective_unit_index != bot->target_unit_index)
 		{
 			/* (the objective first: it fights on the way) */
 			real_point3d point;
@@ -1068,7 +1096,7 @@ static void bot_think(
 		/* something worth having near: there first */
 		else if (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->item_look_time)
 		{
-			long item = bot_find_item(unit, &position);
+			long item = bot_find_item(unit, &position, BOT_ITEM_RANGE, 0.0f);
 
 			bot->item_look_time = game_time_get();
 			if (item != bot->item_index)

@@ -111,6 +111,7 @@ symbols in this file:
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "halo_vr.h"
 
 /* ---------- constants */
 
@@ -1032,6 +1033,13 @@ static short hud_player_names_setting(
 		}
 	}
 
+#ifdef HALO_ANDROID
+	/* (the VR port's: in VR the HUD is a screen at a fixed distance before
+	the eyes, so names drawn on it hang there, not over the heads; none
+	until they are drawn into each eye's picture) */
+	if (halo_vr_active())
+		return _player_names_none;
+#endif
 	return setting;
 }
 
