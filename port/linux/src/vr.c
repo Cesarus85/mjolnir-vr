@@ -1969,6 +1969,99 @@ static int crosshair_pose(struct halo_xr_pose *pose, float *size)
 	return 1;
 }
 
+/* ---------- the menus' pointer
+
+In the menus (the screen fixed in the room), a controller points at the
+screen and its trigger clicks, as the desktop builds' mouse does
+(halo_ui_pointer.h): where its aim's line meets the screen, in the menus'
+640x480. The hand whose trigger was pressed last points; a click gives a
+short tick of the hand's rumble. */
+
+static struct
+{
+	int valid;
+	float x, y;
+	float reported_x, reported_y;
+	int hand;
+	int trigger_down[HALO_XR_HAND_COUNT];
+	int clicks;
+} menu_pointer;
+
+static void menu_pointer_update(void)
+{
+	static const float forward[3] = { 0.0f, 0.0f, -1.0f };
+	const struct halo_xr_hand *hand;
+	float direction[3], t, hit_x, hit_y, width, height;
+	int index;
+
+	menu_pointer.valid = 0;
+	if (!vr.active || vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN || !vr.frame.focused)
+	{
+		menu_pointer.trigger_down[0] = menu_pointer.trigger_down[1] = 0;
+		return;
+	}
+	/* (the hand that clicked last points; a click counts as it goes down) */
+	for (index = 0; index < HALO_XR_HAND_COUNT; index++)
+	{
+		int down = vr.frame.hands[index].active && (vr.frame.hands[index].buttons & HALO_XR_BUTTON_TRIGGER);
+
+		if (down && !menu_pointer.trigger_down[index])
+		{
+			menu_pointer.hand = index;
+			menu_pointer.clicks++;
+		}
+		menu_pointer.trigger_down[index] = down;
+	}
+	hand = &vr.frame.hands[menu_pointer.hand];
+	if (!hand->active || !(hand->flags & HALO_XR_POSE_VALID))
+	{
+		hand = &vr.frame.hands[1 - menu_pointer.hand];
+		if (!hand->active || !(hand->flags & HALO_XR_POSE_VALID))
+			return;
+	}
+	quaternion_rotate(hand->aim.orientation, forward, direction);
+	if (direction[2] > -1e-3f)
+		return;
+	t = (-vr.screen_distance - hand->aim.position[2]) / direction[2];
+	if (t <= 0.0f)
+		return;
+	hit_x = hand->aim.position[0] + direction[0] * t;
+	hit_y = hand->aim.position[1] + direction[1] * t;
+	width = vr.screen_width;
+	height = vr.screen_width * 0.75f;
+	menu_pointer.x = (hit_x / width + 0.5f) * 640.0f;
+	menu_pointer.y = (0.5f - hit_y / height) * 480.0f;
+	menu_pointer.valid = menu_pointer.x >= 0.0f && menu_pointer.x < 640.0f && menu_pointer.y >= 0.0f &&
+		menu_pointer.y < 480.0f;
+}
+
+int halo_vr_menu_pointer(int *x, int *y, int *moved, int *clicks)
+{
+	menu_pointer_update();
+	*clicks = menu_pointer.clicks;
+	if (menu_pointer.clicks)
+		host_xr_haptic(menu_pointer.hand, 0.3f, 0.02f);
+	menu_pointer.clicks = 0;
+	if (!menu_pointer.valid)
+		return 0;
+	*x = (int)menu_pointer.x;
+	*y = (int)menu_pointer.y;
+	*moved = fabsf(menu_pointer.x - menu_pointer.reported_x) >= 1.0f ||
+		fabsf(menu_pointer.y - menu_pointer.reported_y) >= 1.0f;
+	menu_pointer.reported_x = menu_pointer.x;
+	menu_pointer.reported_y = menu_pointer.y;
+	return 1;
+}
+
+int halo_vr_menu_pointer_at(int *x, int *y)
+{
+	if (!menu_pointer.valid)
+		return 0;
+	*x = (int)menu_pointer.x;
+	*y = (int)menu_pointer.y;
+	return 1;
+}
+
 /* ---------- players' names
 
 Names over the heads (hud.c) are drawn into slots of a region of the back
@@ -2273,6 +2366,12 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	return 0;
 }
 int halo_vr_scope_pass(void) { return 0; }
+int halo_vr_menu_pointer(int *x, int *y, int *moved, int *clicks)
+{
+	(void)x; (void)y; (void)moved; *clicks = 0;
+	return 0;
+}
+int halo_vr_menu_pointer_at(int *x, int *y) { (void)x; (void)y; return 0; }
 int halo_vr_names_apart(void) { return 0; }
 void halo_vr_name_slot(int slot, short bounds[4]) { (void)slot; (void)bounds; }
 int halo_vr_add_name(const float point[3]) { (void)point; return -1; }
