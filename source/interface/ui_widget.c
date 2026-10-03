@@ -5427,7 +5427,7 @@ static void ui_mouse_note_target(
 #ifdef HALO_ANDROID
 		/* (VR: a controller points less steadily than a mouse: the label a
 		little further off is the button's too) */
-		short most_distance = halo_vr_active() ? 40 : 17;
+		short most_distance = halo_vr_active() ? 25 : 17;
 #else
 		short most_distance = 17;
 #endif
@@ -5463,13 +5463,14 @@ static void ui_mouse_note_target(
 			bounds.y1 = MAX(bounds.y1, label_bounds.y1);
 		}
 #ifdef HALO_ANDROID
-		/* (and a margin about it) */
+		/* (and a margin about it: above and below, little to the sides,
+		where the next key is) */
 		if (halo_vr_active())
 		{
-			bounds.x0 -= 6;
-			bounds.x1 += 6;
-			bounds.y0 -= 6;
-			bounds.y1 += 6;
+			bounds.x0 -= 2;
+			bounds.x1 += 2;
+			bounds.y0 -= 4;
+			bounds.y1 += 4;
 		}
 #endif
 	}
