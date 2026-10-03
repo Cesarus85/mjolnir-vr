@@ -853,6 +853,25 @@ done:
 	return !no_vehicles_moving;
 }
 
+short vehicle_bot_drive_kind(
+	long vehicle_index)
+{
+	struct vehicle_datum *vehicle = vehicle_datum_get(vehicle_index);
+	struct vehicle_definition *definition = vehicle_specific_definition_get(
+		vehicle->definition_index);
+
+	switch (definition->vehicle_type)
+	{
+		case _vehicle_type_human_jeep:
+		case _vehicle_type_alien_scout:
+			return _vehicle_bot_drive_facing;
+		case _vehicle_type_human_tank:
+			return _vehicle_bot_drive_relative;
+		default:
+			return _vehicle_bot_drive_none;
+	}
+}
+
 #ifdef HALO_ANDROID
 boolean vehicle_vr_steered_by_facing(
 	long vehicle_index)

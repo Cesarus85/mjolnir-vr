@@ -18,6 +18,13 @@ struct race_globals;
 
 void race_flags_make_unique(
 	void);
+/* port: the race flag a player is to touch next, the one of those it may
+touch nearest the point (the VR port's bots, port/linux/game/bots.c);
+FALSE: none */
+boolean game_engine_race_next_flag(
+	long player_index,
+	real_point3d const *from,
+	real_point3d *position);
 
 /* ---------- globals */
 
