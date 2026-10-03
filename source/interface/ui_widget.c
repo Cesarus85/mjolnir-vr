@@ -5272,6 +5272,8 @@ struct ui_mouse_target
 	rectangle2d bounds;
 	short kind;
 	short button_index;
+	/* (a button's: where its icon begins) */
+	short icon_x0;
 };
 
 static struct ui_mouse_target ui_mouse_targets[UI_MOUSE_MAXIMUM_TARGETS];
@@ -5406,6 +5408,7 @@ static void ui_mouse_note_target(
 	rectangle2d bounds = definition->bounds;
 	short button_index;
 	short kind;
+	short icon_x0;
 
 	if (!ui_mouse_noting_targets ||
 		ui_mouse_target_count >= UI_MOUSE_MAXIMUM_TARGETS ||
@@ -5418,6 +5421,7 @@ static void ui_mouse_note_target(
 	bounds.y0 += offset.y;
 	bounds.y1 += offset.y;
 	button_index = ui_mouse_key_button(widget);
+	icon_x0 = bounds.x0;
 	if (button_index != NONE)
 	{
 		/* the icon and its label: the text beginning just right of it */
@@ -5504,6 +5508,7 @@ static void ui_mouse_note_target(
 	target->bounds = bounds;
 	target->kind = kind;
 	target->button_index = button_index;
+	target->icon_x0 = icon_x0;
 
 	return;
 }
@@ -5514,16 +5519,33 @@ static struct ui_mouse_target *ui_mouse_target_at(
 	short y)
 {
 	long index;
+	struct ui_mouse_target *button = NULL;
 
 	for (index = ui_mouse_target_count - 1; index >= 0; index--)
 	{
-		rectangle2d const *bounds = &ui_mouse_targets[index].bounds;
+		struct ui_mouse_target *target = &ui_mouse_targets[index];
+		rectangle2d const *bounds = &target->bounds;
 
-		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
-			return &ui_mouse_targets[index];
+		if (!(x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1))
+			continue;
+		/* port: a key's label's text box can be far wider than its text, over
+		the next key: of keys under the point, the one whose icon is nearest
+		on its left (each key from its icon to the next one's) */
+		if (target->kind == _ui_mouse_target_button)
+		{
+			if (!button ||
+				(target->icon_x0 <= x + 2 && (button->icon_x0 > x + 2 || target->icon_x0 > button->icon_x0)))
+			{
+				button = target;
+			}
+			continue;
+		}
+		if (!button)
+			return target;
+		break;
 	}
 
-	return NULL;
+	return button;
 }
 
 static boolean ui_mouse_widget_has_focus(
