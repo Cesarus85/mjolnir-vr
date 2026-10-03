@@ -546,6 +546,7 @@ In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 #include "halo_xr_abi.h"
 
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus);
+int halo_vr_wheel_held(void);
 
 static SHORT vr_stick(float value)
 {
@@ -592,7 +593,9 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	}
 	merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_X, (left->buttons & HALO_XR_BUTTON_A) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 || halo_vr_melee());
+	/* (the grips holding a Warthog's wheel are not a blow) */
+	merge_button(pad, XINPUT_GAMEPAD_B,
+		((right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 && !halo_vr_wheel_held()) || halo_vr_melee());
 	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
 	{
 		/* B: a tap is the flashlight, holding it switches grenades; the
