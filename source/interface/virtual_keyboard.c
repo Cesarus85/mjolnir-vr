@@ -1355,6 +1355,21 @@ static void virtual_keyboard_process_internal(
 			}
 			if (pointer.left_clicks && key != NONE)
 				action = _event_key_select;
+			/* (the keys' hints under the keyboard, in its picture: B = BACK
+			cancels, A = ENTER finishes, as Done does) */
+			if (pointer.left_clicks && key == NONE && y >= 412 && y < 448)
+			{
+				if (x >= 380 && x < 480)
+				{
+					action = _event_cancel;
+				}
+				else if (x >= 488 && x < 600)
+				{
+					virtual_keyboard_globals.row = 0;
+					virtual_keyboard_globals.column = 0;
+					action = _event_key_select;
+				}
+			}
 		}
 	}
 #endif
