@@ -27,7 +27,10 @@ enum
 	HALO_XR_LAYER_WRIST = 3,   /* the motion tracker, on the left wrist */
 	HALO_XR_LAYER_SCOPE = 4,   /* the zoomed view, a disc over the weapon */
 	HALO_XR_LAYER_CROSSHAIR = 5, /* the weapon's crosshair, where it aims */
-	HALO_XR_LAYER_COUNT = 6,
+	HALO_XR_LAYER_NAMES = 6,   /* players' names, each a quad over a head */
+	HALO_XR_LAYER_COUNT = 7,
+	/* the names layer's slots, one a name, stacked from its top */
+	HALO_XR_MAXIMUM_NAMES = 8,
 
 	/* host_xr_copy_layer's clear_alpha: the source's alpha kept, made
 	opaque, or cut to a disc (premultiplied) */
@@ -147,6 +150,12 @@ struct halo_xr_submit
 	int crosshair;
 	float crosshair_size;
 	struct halo_xr_pose crosshair_pose;
+	/* the names layer was filled: its first name_count slots, each shown
+	this wide (metres, a slot's height following from its shape), here in
+	LOCAL space, facing the eyes */
+	int name_count;
+	float name_widths[HALO_XR_MAXIMUM_NAMES];
+	struct halo_xr_pose name_poses[HALO_XR_MAXIMUM_NAMES];
 };
 
 #endif

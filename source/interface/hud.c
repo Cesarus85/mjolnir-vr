@@ -1033,13 +1033,6 @@ static short hud_player_names_setting(
 		}
 	}
 
-#ifdef HALO_ANDROID
-	/* (the VR port's: in VR the HUD is a screen at a fixed distance before
-	the eyes, so names drawn on it hang there, not over the heads; none
-	until they are drawn into each eye's picture) */
-	if (halo_vr_active())
-		return _player_names_none;
-#endif
 	return setting;
 }
 
@@ -1134,7 +1127,8 @@ static void hud_draw_player_name(
 	long player_index,
 	boolean ally,
 	boolean indicator,
-	real enemy_range)
+	real enemy_range,
+	boolean vr_apart)
 {
 	struct player_datum const *player = player_get(player_index);
 	long font_index = hud_get_font_index();
@@ -1164,10 +1158,35 @@ static void hud_draw_player_name(
 	/* (where the game draws a teammate's triangle) */
 	head_position.z += 0.30000001f;
 	matrix4x3_transform_point(&render.frustum.world_to_view, &head_position, &view_position);
-	if (!render_camera_view_to_screen(&render.camera, &render.frustum, &view_position, &screen_position))
-		return;
-	x = (short)fast_ftol(screen_position.x) - render.camera.viewport_bounds.x0;
-	y = (short)fast_ftol(screen_position.y) - render.camera.viewport_bounds.y0;
+#ifdef HALO_ANDROID
+	if (vr_apart)
+	{
+		/* (VR: in a slot of its own, shown over the head: halo_vr.h) */
+		float point[3];
+		short slot_bounds[4];
+		int slot;
+
+		point[0] = head_position.x;
+		point[1] = head_position.y;
+		point[2] = head_position.z + (indicator ? 0.15f : 0.0f);
+		slot = halo_vr_add_name(point);
+		if (slot < 0)
+			return;
+		halo_vr_name_slot(slot, slot_bounds);
+		x = (short)((slot_bounds[0] + slot_bounds[2]) / 2);
+		y = (short)(slot_bounds[3] - 4);
+		/* (an ally's whole at any distance it is drawn at) */
+		view_position.z = -1.0f;
+		indicator = FALSE;
+	}
+	else
+#endif
+	{
+		if (!render_camera_view_to_screen(&render.camera, &render.frustum, &view_position, &screen_position))
+			return;
+		x = (short)fast_ftol(screen_position.x) - render.camera.viewport_bounds.x0;
+		y = (short)fast_ftol(screen_position.y) - render.camera.viewport_bounds.y0;
+	}
 	if (indicator)
 	{
 		struct bitmap_data *bitmap = bitmap_group_get_bitmap_from_sequence(
@@ -1209,8 +1228,32 @@ static void hud_draw_player_name(
 	return;
 }
 
+static void hud_draw_player_names_now(
+	boolean vr_apart);
+
 static void hud_draw_player_names(
 	void)
+{
+#ifdef HALO_ANDROID
+	/* (VR: apart, before the HUD: hud_draw_player_names_vr) */
+	if (halo_vr_active())
+		return;
+#endif
+	hud_draw_player_names_now(FALSE);
+}
+
+#ifdef HALO_ANDROID
+/* VR: the names drawn into their slots, each then shown over its player's
+head (render.c, before the HUD; halo_vr_names_apart) */
+void hud_draw_player_names_vr(
+	void)
+{
+	hud_draw_player_names_now(TRUE);
+}
+#endif
+
+static void hud_draw_player_names_now(
+	boolean vr_apart)
 {
 	short setting = hud_player_names_setting();
 	long player_index = local_player_get_player_index(render.local_player_index);
@@ -1235,7 +1278,7 @@ static void hud_draw_player_names(
 			continue;
 		if ((ally && setting == _player_names_enemies) || (!ally && setting == _player_names_allies))
 			continue;
-		hud_draw_player_name(iterator.datum_index, ally, ally && indicators, enemy_range);
+		hud_draw_player_name(iterator.datum_index, ally, ally && indicators, enemy_range, vr_apart);
 	}
 
 	return;

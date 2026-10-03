@@ -134,6 +134,11 @@ static struct
 	float scope_size;
 	int crosshair;
 	int crosshair_captured;  /* this frame (halo_vr_capture_crosshair) */
+	/* players' names this frame (halo_vr_add_name), and whether their
+	slots were taken (halo_vr_capture_names) */
+	int name_count;
+	float name_points[HALO_XR_MAXIMUM_NAMES][3];
+	int names_captured;
 	/* the barrel of the weapon as drawn (halo_vr_set_barrel): where shots,
 	the crosshair and the laser start */
 	float barrel[3];
@@ -242,6 +247,7 @@ the target), keeping the size it has in the HUD: this part of the HUD. */
 static void cross3(const float a[3], const float b[3], float out[3]);
 static float normalize3(float v[3]);
 static int crosshair_pose(struct halo_xr_pose *pose, float *size);
+static int name_pose(const float point[3], struct halo_xr_pose *pose, float *width);
 static int weapon_hand_tracked(short local_player_index);
 static void controller_axes(float forward[3], float up[3], float right[3]);
 static void hand_offset(float out[3]);
@@ -1021,6 +1027,8 @@ void halo_vr_frame_begin(void)
 	vr.eyes_captured = 0;
 	vr.scope_captured = 0;
 	vr.crosshair_captured = 0;
+	vr.name_count = 0;
+	vr.names_captured = 0;
 	vr.overlay_mode = HALO_XR_OVERLAY_SCREEN;
 	vr.overlay_blend = 0;
 	if (vr.frame.recentred)
@@ -1087,6 +1095,20 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	weapon aims */
 	if (vr.crosshair_captured && vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED)
 		submit.crosshair = crosshair_pose(&submit.crosshair_pose, &submit.crosshair_size);
+	/* the names, each over its player's head */
+	if (vr.names_captured && submit.eyes && vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED)
+	{
+		int name;
+
+		for (name = 0; name < vr.name_count; name++)
+		{
+			if (name_pose(vr.name_points[name], &submit.name_poses[submit.name_count],
+				&submit.name_widths[submit.name_count]))
+			{
+				submit.name_count++;
+			}
+		}
+	}
 	if (vr.scope_captured && submit.eyes)
 	{
 		submit.scope = 1;
@@ -1947,6 +1969,79 @@ static int crosshair_pose(struct halo_xr_pose *pose, float *size)
 	return 1;
 }
 
+/* ---------- players' names
+
+Names over the heads (hud.c) are drawn into slots of a region of the back
+buffer, one under another, before the HUD, and each slot is shown on a quad
+of its own over its player's head, facing the eyes, as wide as the name
+looks at the HUD's distance: in VR the HUD is a screen at one distance,
+where names drawn on it hung before the eyes. */
+
+#define NAME_SLOT_LEFT 240
+#define NAME_SLOT_WIDTH 160
+#define NAME_SLOT_HEIGHT 30
+
+int halo_vr_names_apart(void)
+{
+	return vr.active && halo_vr_stereo_frame();
+}
+
+void halo_vr_name_slot(int slot, short bounds[4])
+{
+	bounds[0] = NAME_SLOT_LEFT;
+	bounds[1] = (short)(slot * NAME_SLOT_HEIGHT);
+	bounds[2] = NAME_SLOT_LEFT + NAME_SLOT_WIDTH;
+	bounds[3] = (short)((slot + 1) * NAME_SLOT_HEIGHT);
+}
+
+int halo_vr_add_name(const float point[3])
+{
+	int slot = vr.name_count;
+
+	if (slot >= HALO_XR_MAXIMUM_NAMES)
+		return -1;
+	memcpy(vr.name_points[slot], point, sizeof(vr.name_points[slot]));
+	vr.name_count++;
+	return slot;
+}
+
+void halo_vr_capture_names(void)
+{
+	if (vr.name_count > 0)
+	{
+		vr.names_captured = host_xr_copy_layer_region(HALO_XR_LAYER_NAMES, d3d8_back_buffer_texture(),
+			HALO_XR_COPY_ALPHA, NAME_SLOT_LEFT / 640.0f, 0.0f, (NAME_SLOT_LEFT + NAME_SLOT_WIDTH) / 640.0f,
+			HALO_XR_MAXIMUM_NAMES * NAME_SLOT_HEIGHT / 480.0f);
+	}
+	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
+}
+
+static int name_pose(const float point[3], struct halo_xr_pose *pose, float *width)
+{
+	static const float world_up[3] = { 0.0f, 1.0f, 0.0f };
+	float x[3], y[3], z[3];
+	float distance;
+	float angle;
+	int axis;
+
+	world_to_local(point, pose->position);
+	for (axis = 0; axis < 3; axis++)
+		z[axis] = vr.frame.head.position[axis] - pose->position[axis];
+	distance = normalize3(z);
+	/* (facing the eyes, upright) */
+	if (distance < 0.05f)
+		return 0;
+	cross3(world_up, z, x);
+	if (normalize3(x) < 1e-4f)
+		return 0;
+	cross3(z, x, y);
+	quaternion_from_axes(x, y, z, pose->orientation);
+	/* (as wide as the slot looks on the HUD) */
+	angle = (float)NAME_SLOT_WIDTH / 640.0f * vr.hud_width / vr.hud_distance;
+	*width = 2.0f * distance * tanf(angle * 0.5f);
+	return 1;
+}
+
 /* ---------- the scope
 
 Zoomed in, the weapon shows its view on a disc over the barrel, like a
@@ -2175,6 +2270,10 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	return 0;
 }
 int halo_vr_scope_pass(void) { return 0; }
+int halo_vr_names_apart(void) { return 0; }
+void halo_vr_name_slot(int slot, short bounds[4]) { (void)slot; (void)bounds; }
+int halo_vr_add_name(const float point[3]) { (void)point; return -1; }
+void halo_vr_capture_names(void) {}
 void halo_vr_set_scope_raise(float metres) { (void)metres; }
 void halo_vr_capture_scope(float left, float top, float right, float bottom)
 {

@@ -29,6 +29,11 @@ struct hud_scripted_globals_definition
 /* ---------- prototypes/HUD.C */
 
 #ifdef HALO_ANDROID
+#ifdef HALO_ANDROID
+/* VR: players' names drawn into their slots (halo_vr_names_apart) */
+void hud_draw_player_names_vr(
+	void);
+#endif
 void hud_draw_crosshair(
 	void);
 #endif
