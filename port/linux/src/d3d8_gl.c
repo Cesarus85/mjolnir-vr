@@ -1365,11 +1365,21 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 /* ---------- the menus' pointer */
 
 #ifdef HALO_ANDROID
+/* the controller pointing at the menus' screen in VR (halo_vr_menu_pointer) */
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
-	(void)menus_active;
-	(void)pointer;
-	return 0;
+	int x, y, moved, clicks;
+
+	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &moved, &clicks))
+		return 0;
+	memset(pointer, 0, sizeof(*pointer));
+	pointer->x = (short)(x - (halo_screen_width() - 640) / 2);
+	pointer->y = (short)y;
+	pointer->click_x = pointer->x;
+	pointer->click_y = pointer->y;
+	pointer->moved = (unsigned char)(moved != 0);
+	pointer->left_clicks = (unsigned char)(clicks < 255 ? clicks : 255);
+	return 1;
 }
 #else
 /* a point in the window, as SDL reports it, in the menus' coordinates: the

@@ -5948,6 +5948,45 @@ static boolean ui_join_code_take_event(
 	return FALSE;
 }
 
+/* the pointer over the VR port's panels: the row under it chosen, and a
+click on it as A (TRUE: a panel is open and took it) */
+static boolean ui_join_code_take_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	struct event_record press;
+	short row;
+
+	csmemset(&press, 0, sizeof(press));
+	press.type = _event_type_button;
+	press.data.button.index = _gamepad_analog_button_a;
+	press.data.button.value = 1;
+	if (ui_join_code_globals.panel_open)
+	{
+		if (pointer->x >= 48 && pointer->x < 592 && pointer->y >= 128 && pointer->y < 128 + ONLINE_PANEL_ROWS * 22)
+		{
+			row = (short)(ui_join_code_globals.scroll + (pointer->y - 128) / 22);
+			if (row < ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS)
+			{
+				ui_join_code_globals.selection = row;
+				if (pointer->left_clicks)
+					ui_join_code_panel_event(&press);
+			}
+		}
+		return TRUE;
+	}
+	if (ui_join_code_globals.host_panel_open)
+	{
+		if (pointer->x >= 148 && pointer->x < 492 && pointer->y >= 187 && pointer->y < 187 + HOST_PANEL_ROWS * 30)
+		{
+			ui_join_code_globals.host_selection = (short)((pointer->y - 187) / 30);
+			if (pointer->left_clicks)
+				ui_join_code_host_panel_event(&press);
+		}
+		return TRUE;
+	}
+	return FALSE;
+}
+
 /* the keyboard closed: the code typed, looked up */
 static void ui_join_code_update(
 	void)
@@ -6222,6 +6261,11 @@ static void ui_widgets_process_mouse(
 	}
 	else
 	{
+#ifdef HALO_ANDROID
+		/* (the VR port's panels over the menus take the pointer themselves) */
+		if (ui_join_code_take_pointer(&pointer))
+			return;
+#endif
 		if (pointer.moved)
 		{
 			ui_mouse_hover_pending = TRUE;
