@@ -1166,6 +1166,25 @@ static boolean virtual_keyboard_select(
 	return TRUE;
 }
 
+#ifdef HALO_ANDROID
+/* the key drawn at a point of the menus' 640x480, or NONE */
+static short virtual_keyboard_key_at(
+	short x,
+	short y)
+{
+	short key;
+
+	for (key = 0; key < NUMBER_OF_VIRTUAL_KEYS; key++)
+	{
+		rectangle2d const *bounds = &keyboard_rect[key];
+
+		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
+			return key;
+	}
+	return NONE;
+}
+#endif
+
 static void virtual_keyboard_process_internal(
 	void)
 {
@@ -1304,6 +1323,41 @@ static void virtual_keyboard_process_internal(
 		}
 	}
 
+#ifdef HALO_ANDROID
+	/* the VR port's: the controller's pointer (halo_ui_pointer.h) picks the
+	key under it, and its click types it */
+	{
+		struct halo_ui_pointer pointer;
+
+		if (halo_ui_pointer_update(TRUE, &pointer))
+		{
+			short x = pointer.left_clicks ? pointer.click_x : pointer.x;
+			short y = pointer.left_clicks ? pointer.click_y : pointer.y;
+			short key = virtual_keyboard_key_at(x, y);
+
+			if (key != NONE && (pointer.moved || pointer.left_clicks))
+			{
+				short row, column;
+				boolean found = FALSE;
+
+				for (row = 0; row < VIRTUAL_KEYBOARD_ROW_COUNT && !found; row++)
+				{
+					for (column = 0; column < VIRTUAL_KEYBOARD_COLUMN_COUNT && !found; column++)
+					{
+						if (virtual_keyboard_layout_table[row][column] == key)
+						{
+							virtual_keyboard_globals.row = row;
+							virtual_keyboard_globals.column = column;
+							found = TRUE;
+						}
+					}
+				}
+			}
+			if (pointer.left_clicks && key != NONE)
+				action = _event_key_select;
+		}
+	}
+#endif
 	if (action != NONE)
 	{
 		virtual_keyboard_globals.last_key = virtual_keyboard_layout_table[
