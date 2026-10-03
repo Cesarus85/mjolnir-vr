@@ -571,7 +571,8 @@ static void grenade_update(void)
 	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
 	unsigned long long now = now_us();
 	int valid = hand->active && (hand->flags & HALO_XR_POSE_VALID);
-	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN &&
+	/* (at a wheel the left trigger brakes: xinput_sdl.c) */
+	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && !vr.wheel_hands &&
 		hand->trigger > (vr.grenade_held ? 0.2f : 0.3f);
 	int count = vr.grenade_sample_count;
 
