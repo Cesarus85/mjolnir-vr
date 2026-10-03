@@ -509,6 +509,47 @@ boolean render_object_vr_seated_body(
 		vehicle_vr_encloses_riders(object->object.parent_object_index));
 }
 
+/* at an open wheel (a Warthog's): where the driver's hands hold it, as the
+seat's animation has them this frame (vr.c: the player's own hands turn
+it) */
+boolean render_object_vr_wheel_hands(
+	long object_index,
+	real_point3d *left,
+	real_point3d *right)
+{
+	struct object_datum *object;
+	struct model *model;
+	real_matrix4x3 *nodes;
+	short node_index;
+	short left_index = NONE;
+	short right_index = NONE;
+
+	if (!render_object_vr_seated_body(object_index))
+		return FALSE;
+	object = object_get(object_index);
+	if (!TEST_FLAG(_object_mask_vehicle, object_get(object->object.parent_object_index)->object.type))
+		return FALSE;
+	model = model_definition_get(object_definition_get(object->definition_index)->object.model.index);
+	nodes = render_interpolation_object_node_matrices(object_index);
+	if (!nodes)
+		nodes = object_get_node_matrices(object_index);
+	for (node_index = 0; node_index < model->nodes.count; node_index++)
+	{
+		char const *name = TAG_BLOCK_GET_ELEMENT(&model->nodes, node_index, struct model_node)->name;
+		size_t length = strlen(name);
+
+		if (length >= 6 && !strcmp(name + length - 6, "l hand"))
+			left_index = node_index;
+		if (length >= 6 && !strcmp(name + length - 6, "r hand"))
+			right_index = node_index;
+	}
+	if (left_index == NONE || right_index == NONE)
+		return FALSE;
+	*left = nodes[left_index].position;
+	*right = nodes[right_index].position;
+	return TRUE;
+}
+
 /* its node matrices with the head's shrunk to nothing, which takes the
 helmet out of the eyes' way */
 static real_matrix4x3 *object_vr_headless_node_matrices(

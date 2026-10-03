@@ -107,6 +107,16 @@ static struct
 	float vehicle_steer_angle;  /* radians */
 	float vehicle_gun_steer_angle; /* radians: steering that aims guns too */
 	float vehicle_pitch_angle;
+	/* the wheel of an open vehicle (a Warthog's: wheel_update) */
+	int vehicle_wheel;          /* vr.vehicle_wheel: the hands turn it */
+	float vehicle_wheel_angle;  /* radians: turned this far, it steers fully */
+	int wheel_valid;            /* where it is, as last drawn */
+	float wheel_hands_drawn[2][3]; /* the driver's drawn hands on it, from the camera (world units) */
+	int wheel_held[HALO_XR_HAND_COUNT];
+	int wheel_hands;            /* the hands that held it last frame (bits) */
+	float wheel_reference;      /* their turn about the column last frame */
+	float wheel_turn;           /* the wheel's turn (radians, anticlockwise as the driver sees it) */
+	int wheel_logged;
 	float vehicle_steer_curve;  /* the stick's deflection to this power */
 	float vehicle_steer_smoothing; /* seconds */
 	float steer[2];             /* the steering as smoothed: aside, up (-1..1) */
@@ -455,6 +465,10 @@ void halo_vr_initialize(void)
 	vr.vehicle_steer_angle = (float)config_real("vr.vehicle_steer_degrees") * PI / 180.0f;
 	vr.vehicle_gun_steer_angle = (float)config_real("vr.vehicle_gun_steer_degrees") * PI / 180.0f;
 	vr.vehicle_pitch_angle = (float)config_real("vr.vehicle_pitch_degrees") * PI / 180.0f;
+	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
+	vr.vehicle_wheel_angle = (float)config_real("vr.vehicle_wheel_degrees") * PI / 180.0f;
+	if (vr.vehicle_wheel_angle < 10.0f * PI / 180.0f)
+		vr.vehicle_wheel_angle = 10.0f * PI / 180.0f;
 	vr.vehicle_steer_curve = (float)config_real("vr.vehicle_steer_curve");
 	vr.vehicle_steer_smoothing = (float)config_real("vr.vehicle_steer_smoothing");
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
@@ -557,7 +571,8 @@ static void grenade_update(void)
 	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
 	unsigned long long now = now_us();
 	int valid = hand->active && (hand->flags & HALO_XR_POSE_VALID);
-	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN &&
+	/* (at a wheel the left trigger brakes: xinput_sdl.c) */
+	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && !vr.wheel_hands &&
 		hand->trigger > (vr.grenade_held ? 0.2f : 0.3f);
 	int count = vr.grenade_sample_count;
 
@@ -737,7 +752,9 @@ static void melee_update(void)
 			continue;
 		}
 		/* (a grenade's throw is not a blow) */
+		/* (nor is turning the wheel) */
 		if (vr.hand_last_valid[hand] && seconds > 0.0f && seconds < 0.1f && vr.melee_swing_speed > 0.0f &&
+			!vr.wheel_held[hand] &&
 			vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && now >= vr.melee_ready_us &&
 			!(hand == HALO_XR_HAND_LEFT && (vr.grenade_held || now - vr.grenade_released_us < 500000)))
 		{
@@ -821,6 +838,138 @@ static void turn_update(void)
 		*turned = wrap_angle(*turned);
 	}
 	seat_body();
+}
+
+/* At an open vehicle's wheel (a Warthog's, vr.vehicle_wheel), a hand that
+grips near it takes hold of it, and the hands turn it about its column: both
+by the line between them, one about the wheel's middle. Where it is, the
+driver's hands as drawn hold it (halo_vr_set_wheel); its column runs from
+there back towards the driver, tipped up WHEEL_COLUMN_TILT. Held, its turn
+steers (halo_vr_aim); let go, the right stick does. */
+#define WHEEL_REACH 0.35f                       /* metres from its middle */
+#define WHEEL_COLUMN_TILT (45.0f * PI / 180.0f) /* from the horizontal */
+
+static void wheel_release(void)
+{
+	int hand;
+
+	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+		vr.wheel_held[hand] = 0;
+	vr.wheel_hands = 0;
+}
+
+static void wheel_update(void)
+{
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	float world[3], centre[3], forward_game[3], forward[3], column[3], up[3], side[3], line[3];
+	float heading = seat_heading(), along, angle;
+	int hand, axis, hands = 0;
+
+	if (vr.seat_mode != HALO_VR_SEAT_STEER || !vr.vehicle_wheel || !vr.wheel_valid || !vr.frame.focused ||
+		vr.last_overlay_mode == HALO_XR_OVERLAY_SCREEN)
+	{
+		wheel_release();
+		return;
+	}
+	for (axis = 0; axis < 3; axis++)
+	{
+		world[axis] = vr.game_camera[axis] +
+			(vr.wheel_hands_drawn[0][axis] + vr.wheel_hands_drawn[1][axis]) * 0.5f;
+	}
+	world_to_local(world, centre);
+	if (!vr.wheel_logged)
+	{
+		float apart[3];
+
+		for (axis = 0; axis < 3; axis++)
+			apart[axis] = (vr.wheel_hands_drawn[0][axis] - vr.wheel_hands_drawn[1][axis]) * METRES_PER_WORLD_UNIT;
+		platform_log("VR: wheel at %.2f %.2f %.2f (LOCAL), the hands %.2f m apart", centre[0], centre[1], centre[2],
+			sqrtf(apart[0] * apart[0] + apart[1] * apart[1] + apart[2] * apart[2]));
+		vr.wheel_logged = 1;
+	}
+	/* its column, and the wheel's up and left about it */
+	forward_game[0] = cosf(heading);
+	forward_game[1] = sinf(heading);
+	forward_game[2] = 0.0f;
+	game_to_local(forward_game, forward);
+	for (axis = 0; axis < 3; axis++)
+		column[axis] = -forward[axis] * cosf(WHEEL_COLUMN_TILT) + local_up[axis] * sinf(WHEEL_COLUMN_TILT);
+	along = local_up[0] * column[0] + local_up[1] * column[1] + local_up[2] * column[2];
+	for (axis = 0; axis < 3; axis++)
+		up[axis] = local_up[axis] - column[axis] * along;
+	normalize3(up);
+	cross3(column, up, side);
+	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+	{
+		const struct halo_xr_hand *state = &vr.frame.hands[hand];
+		float apart[3];
+
+		if (!state->active || !(state->flags & HALO_XR_POSE_VALID) || state->squeeze < 0.35f)
+		{
+			vr.wheel_held[hand] = 0;
+			continue;
+		}
+		if (!vr.wheel_held[hand])
+		{
+			for (axis = 0; axis < 3; axis++)
+				apart[axis] = state->grip.position[axis] - centre[axis];
+			if (state->squeeze < 0.6f ||
+				sqrtf(apart[0] * apart[0] + apart[1] * apart[1] + apart[2] * apart[2]) > WHEEL_REACH)
+			{
+				continue;
+			}
+			vr.wheel_held[hand] = 1;
+			host_xr_haptic(hand, 0.3f, 0.05f);
+		}
+		hands |= 1 << hand;
+	}
+	if (!hands)
+	{
+		vr.wheel_hands = 0;
+		return;
+	}
+	/* the hands' turn about the column */
+	for (axis = 0; axis < 3; axis++)
+	{
+		line[axis] = hands == ((1 << HALO_XR_HAND_LEFT) | (1 << HALO_XR_HAND_RIGHT)) ?
+			vr.frame.hands[HALO_XR_HAND_LEFT].grip.position[axis] -
+				vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position[axis] :
+			vr.frame.hands[hands & (1 << HALO_XR_HAND_LEFT) ? HALO_XR_HAND_LEFT : HALO_XR_HAND_RIGHT]
+				.grip.position[axis] - centre[axis];
+	}
+	angle = atan2f(line[0] * side[0] + line[1] * side[1] + line[2] * side[2],
+		line[0] * up[0] + line[1] * up[1] + line[2] * up[2]);
+	if (!vr.wheel_hands)
+	{
+		/* taken hold of: turned as far as it steers now */
+		vr.wheel_turn = -vr.steer[0] * vr.vehicle_wheel_angle;
+	}
+	else if (hands == vr.wheel_hands)
+	{
+		vr.wheel_turn += wrap_angle(angle - vr.wheel_reference);
+	}
+	if (vr.wheel_turn > vr.vehicle_wheel_angle)
+		vr.wheel_turn = vr.vehicle_wheel_angle;
+	if (vr.wheel_turn < -vr.vehicle_wheel_angle)
+		vr.wheel_turn = -vr.vehicle_wheel_angle;
+	vr.wheel_reference = angle;
+	vr.wheel_hands = hands;
+}
+
+void halo_vr_set_wheel(short local_player_index, const float left[3], const float right[3])
+{
+	if (!vr.active || local_player_index != 0)
+		return;
+	vr.wheel_valid = left && right;
+	if (!vr.wheel_valid)
+		return;
+	memcpy(vr.wheel_hands_drawn[0], left, sizeof(vr.wheel_hands_drawn[0]));
+	memcpy(vr.wheel_hands_drawn[1], right, sizeof(vr.wheel_hands_drawn[1]));
+}
+
+int halo_vr_wheel_held(void)
+{
+	return vr.active && vr.wheel_hands != 0;
 }
 
 /* The comfort vignette: while a vehicle turns the player (from 15 degrees a
@@ -1043,6 +1192,7 @@ void halo_vr_frame_begin(void)
 		vr_recentre();
 	}
 	turn_update();
+	wheel_update();
 	vignette_update();
 	vehicle_spawn_update();
 	look_update();
@@ -1394,6 +1544,13 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 			amount = amount > 0.0f ? powf(amount > 1.0f ? 1.0f : amount, vr.vehicle_steer_curve) : 0.0f;
 			if (stick[axis] < 0.0f)
 				amount = -amount;
+			if (axis == 0 && vr.wheel_hands)
+			{
+				/* (the hands on the wheel steer, as they turn it: clockwise
+				to the right) */
+				vr.steer[0] = -vr.wheel_turn / vr.vehicle_wheel_angle;
+				continue;
+			}
 			vr.steer[axis] += (amount - vr.steer[axis]) * blend;
 		}
 		/* (a Ghost or a Banshee aims its guns as it steers: less, finer) */

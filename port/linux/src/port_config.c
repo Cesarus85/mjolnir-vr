@@ -221,6 +221,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.vehicle_pitch_degrees", _config_real, "45", "HALO_VR_VEHICLE_PITCH", _environment_value, _platform_android,
 		"Driving, the right stick pushed fully up or down aims this many degrees\n"
 		"above or below the horizon (a Banshee climbs or dives)." },
+	{ "vr.vehicle_wheel", _config_boolean, "true", "HALO_VR_VEHICLE_WHEEL", _environment_value, _platform_android,
+		"At an open vehicle's wheel (a Warthog's), grip it with one hand or both and\n"
+		"turn it to steer, the right trigger the throttle and the left the brake;\n"
+		"let go, and the right stick steers." },
+	{ "vr.vehicle_wheel_degrees", _config_real, "90", "HALO_VR_VEHICLE_WHEEL_DEGREES", _environment_value,
+		_platform_android,
+		"The wheel turned this many degrees either way steers fully." },
 	{ "vr.comfort_vignette", _config_real, "0.7", "HALO_VR_COMFORT_VIGNETTE", _environment_value, _platform_android,
 		"How far the view darkens from its edges while a vehicle turns you\n"
 		"(0 never, 1 to a small window)." },

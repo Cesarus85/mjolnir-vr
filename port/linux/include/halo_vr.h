@@ -196,6 +196,11 @@ enum
 };
 void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw);
 void halo_vr_set_seat_frame(short local_player_index, float vehicle_yaw);
+/* At an open vehicle's wheel (a Warthog's), each frame (render.c): the
+driver's hands on it as drawn (world units, from the game's camera), or
+NULL; the player's own hands turn it. And whether they hold it. */
+void halo_vr_set_wheel(short local_player_index, const float left[3], const float right[3]);
+int halo_vr_wheel_held(void);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks

@@ -667,8 +667,25 @@ static void render_vr_player_frame(
 		long vehicle_index = unit_index == NONE ? NONE : object_get(unit_index)->object.parent_object_index;
 		real_matrix4x3 *nodes = vehicle_index == NONE ? NULL : render_interpolation_object_node_matrices(vehicle_index);
 
+		real_point3d left_hand;
+		real_point3d right_hand;
+
 		if (nodes)
 			halo_vr_set_seat_frame(window->local_player_index, (float)atan2(nodes[0].forward.j, nodes[0].forward.i));
+		if (nodes && render_object_vr_wheel_hands(unit_index, &left_hand, &right_hand))
+		{
+			/* (at a wheel: the hands that hold it) */
+			float left[3] = { left_hand.x - game_position[0], left_hand.y - game_position[1],
+				left_hand.z - game_position[2] };
+			float right[3] = { right_hand.x - game_position[0], right_hand.y - game_position[1],
+				right_hand.z - game_position[2] };
+
+			halo_vr_set_wheel(window->local_player_index, left, right);
+		}
+		else
+		{
+			halo_vr_set_wheel(window->local_player_index, NULL, NULL);
+		}
 	}
 	if (halo_vr_multiview())
 	{
