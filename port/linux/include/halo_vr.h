@@ -140,6 +140,12 @@ out (halo_vr_scope_pass). */
 int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view);
 int halo_vr_scope_pass(void);
+/* The menus' pointer (d3d8_gl.c's halo_ui_pointer_update): where a
+controller points on the menus' screen, in their 640x480, whether that
+moved since asked, and the trigger's clicks since (nonzero while it points
+at the screen); and where it points this frame, to draw it (render.c) */
+int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved, int *clicks);
+int halo_vr_menu_pointer_at(int *x, int *y);
 /* Players' names over their heads (hud.c, render.c): whether they are drawn
 apart this frame; the slot a name is drawn into (left, top, right, bottom
 of the game's 640x480); a name's place (world units, over the head),

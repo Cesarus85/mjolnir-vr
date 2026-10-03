@@ -874,6 +874,28 @@ static void render_vr_overlay(
 	interface_draw_screen();
 	halo_screen_ui_offset(TRUE);
 	render_ui_widgets(window->local_player_index, &window->rasterizer_camera.viewport_bounds);
+	if (menus_active)
+	{
+		/* the controller's pointer on the menus' screen: a dot, ringed */
+		int pointer_x, pointer_y;
+
+		if (halo_vr_menu_pointer_at(&pointer_x, &pointer_y))
+		{
+			rectangle2d dot;
+
+			pointer_x -= (int)(halo_screen_width() - 640) / 2;
+			dot.x0 = (short)(pointer_x - 5);
+			dot.x1 = (short)(pointer_x + 5);
+			dot.y0 = (short)(pointer_y - 5);
+			dot.y1 = (short)(pointer_y + 5);
+			draw_quad(&dot, 0xE0102030);
+			dot.x0 += 2;
+			dot.x1 -= 2;
+			dot.y0 += 2;
+			dot.y1 -= 2;
+			draw_quad(&dot, 0xFF8FD3FF);
+		}
+	}
 	halo_screen_ui_offset(FALSE);
 
 	rasterizer_window_end();

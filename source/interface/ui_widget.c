@@ -677,6 +677,9 @@ struct widget_instance;
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "ui_widget.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+#endif
 
 /* ---------- constants */
 
@@ -5269,6 +5272,8 @@ struct ui_mouse_target
 	rectangle2d bounds;
 	short kind;
 	short button_index;
+	/* (a button's: where its icon begins) */
+	short icon_x0;
 };
 
 static struct ui_mouse_target ui_mouse_targets[UI_MOUSE_MAXIMUM_TARGETS];
@@ -5403,6 +5408,7 @@ static void ui_mouse_note_target(
 	rectangle2d bounds = definition->bounds;
 	short button_index;
 	short kind;
+	short icon_x0;
 
 	if (!ui_mouse_noting_targets ||
 		ui_mouse_target_count >= UI_MOUSE_MAXIMUM_TARGETS ||
@@ -5415,13 +5421,22 @@ static void ui_mouse_note_target(
 	bounds.y0 += offset.y;
 	bounds.y1 += offset.y;
 	button_index = ui_mouse_key_button(widget);
+	icon_x0 = bounds.x0;
 	if (button_index != NONE)
 	{
 		/* the icon and its label: the text beginning just right of it */
 		struct widget_instance *sibling;
 		rectangle2d label_bounds;
 		short best_distance = 17;
+#ifdef HALO_ANDROID
+		/* (VR: a controller points less steadily than a mouse: the label a
+		little further off is the button's too) */
+		short most_distance = halo_vr_active() ? 25 : 17;
+#else
+		short most_distance = 17;
+#endif
 
+		best_distance = most_distance;
 		kind = _ui_mouse_target_button;
 		for (sibling = parent ? parent->child : NULL; sibling; sibling = sibling->next)
 		{
@@ -5445,12 +5460,23 @@ static void ui_mouse_note_target(
 				label_bounds = sibling_bounds;
 			}
 		}
-		if (best_distance < 17)
+		if (best_distance < most_distance)
 		{
 			bounds.x1 = MAX(bounds.x1, label_bounds.x1);
 			bounds.y0 = MIN(bounds.y0, label_bounds.y0);
 			bounds.y1 = MAX(bounds.y1, label_bounds.y1);
 		}
+#ifdef HALO_ANDROID
+		/* (and a margin about it: above and below, little to the sides,
+		where the next key is) */
+		if (halo_vr_active())
+		{
+			bounds.x0 -= 2;
+			bounds.x1 += 2;
+			bounds.y0 -= 4;
+			bounds.y1 += 4;
+		}
+#endif
 	}
 	else if (parent && ui_mouse_list_shows_several(parent))
 	{
@@ -5482,6 +5508,7 @@ static void ui_mouse_note_target(
 	target->bounds = bounds;
 	target->kind = kind;
 	target->button_index = button_index;
+	target->icon_x0 = icon_x0;
 
 	return;
 }
@@ -5492,16 +5519,33 @@ static struct ui_mouse_target *ui_mouse_target_at(
 	short y)
 {
 	long index;
+	struct ui_mouse_target *button = NULL;
 
 	for (index = ui_mouse_target_count - 1; index >= 0; index--)
 	{
-		rectangle2d const *bounds = &ui_mouse_targets[index].bounds;
+		struct ui_mouse_target *target = &ui_mouse_targets[index];
+		rectangle2d const *bounds = &target->bounds;
 
-		if (x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1)
-			return &ui_mouse_targets[index];
+		if (!(x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1))
+			continue;
+		/* port: a key's label's text box can be far wider than its text, over
+		the next key: of keys under the point, the one whose icon is nearest
+		on its left (each key from its icon to the next one's) */
+		if (target->kind == _ui_mouse_target_button)
+		{
+			if (!button ||
+				(target->icon_x0 <= x + 2 && (button->icon_x0 > x + 2 || target->icon_x0 > button->icon_x0)))
+			{
+				button = target;
+			}
+			continue;
+		}
+		if (!button)
+			return target;
+		break;
 	}
 
-	return NULL;
+	return button;
 }
 
 static boolean ui_mouse_widget_has_focus(
@@ -5692,6 +5736,8 @@ enum
 	MAXIMUM_SHOWN_PUBLIC_GAMES = 32,
 	/* the online games panel's rows: "enter a code" and the games */
 	ONLINE_PANEL_ROWS = 11,
+	/* (the rows before the games: "enter a code") */
+	ONLINE_PANEL_FIXED_ROWS = 1,
 };
 
 static struct
@@ -5927,6 +5973,48 @@ static boolean ui_join_code_take_event(
 	{
 		ui_join_code_globals.host_panel_open = TRUE;
 		ui_join_code_globals.host_selection = 0;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* the pointer over the VR port's panels: the row under it chosen, and a
+click on it as A (TRUE: a panel is open and took it) */
+static boolean ui_join_code_take_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	struct event_record press;
+	short row;
+	/* (a click where it was clicked, which may be a moment before) */
+	short x = pointer->left_clicks ? pointer->click_x : pointer->x;
+	short y = pointer->left_clicks ? pointer->click_y : pointer->y;
+
+	csmemset(&press, 0, sizeof(press));
+	press.type = _event_type_button;
+	press.data.button.index = _gamepad_analog_button_a;
+	press.data.button.value = 1;
+	if (ui_join_code_globals.panel_open)
+	{
+		if (x >= 48 && x < 592 && y >= 128 && y < 128 + ONLINE_PANEL_ROWS * 22)
+		{
+			row = (short)(ui_join_code_globals.scroll + (y - 128) / 22);
+			if (row < ui_join_code_globals.game_count + ONLINE_PANEL_FIXED_ROWS)
+			{
+				ui_join_code_globals.selection = row;
+				if (pointer->left_clicks)
+					ui_join_code_panel_event(&press);
+			}
+		}
+		return TRUE;
+	}
+	if (ui_join_code_globals.host_panel_open)
+	{
+		if (x >= 148 && x < 492 && y >= 187 && y < 187 + HOST_PANEL_ROWS * 30)
+		{
+			ui_join_code_globals.host_selection = (short)((y - 187) / 30);
+			if (pointer->left_clicks)
+				ui_join_code_host_panel_event(&press);
+		}
 		return TRUE;
 	}
 	return FALSE;
@@ -6186,8 +6274,9 @@ static void ui_widgets_process_mouse(
 	struct ui_mouse_target *target;
 	short controller_index = 0;
 
-	if (!halo_ui_pointer_update(ui_mouse_menus_active(), &pointer) ||
-		virtual_keyboard_active())
+	/* (the keyboard takes the pointer itself: virtual_keyboard.c) */
+	if (virtual_keyboard_active() ||
+		!halo_ui_pointer_update(ui_mouse_menus_active(), &pointer))
 	{
 		ui_mouse_press_count = 0;
 		ui_mouse_hover_pending = FALSE;
@@ -6195,6 +6284,11 @@ static void ui_widgets_process_mouse(
 	}
 	else
 	{
+#ifdef HALO_ANDROID
+		/* (the VR port's panels over the menus take the pointer themselves) */
+		if (ui_join_code_take_pointer(&pointer))
+			return;
+#endif
 		if (pointer.moved)
 		{
 			ui_mouse_hover_pending = TRUE;

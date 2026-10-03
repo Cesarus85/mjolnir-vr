@@ -573,9 +573,10 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	if (left->buttons & HALO_XR_BUTTON_MENU) pad->wButtons |= XINPUT_GAMEPAD_START;
 	if (left->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
 	if (right->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
-	if ((BYTE)(right->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER])
+	/* (in the menus the triggers click the pointer: halo_vr_menu_pointer) */
+	if (!menus && (BYTE)(right->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER])
 		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = (BYTE)(right->trigger * 255.0f);
-	if ((BYTE)(left->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER])
+	if (!menus && (BYTE)(left->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER])
 		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = (BYTE)(left->trigger * 255.0f);
 	if (menus)
 	{
