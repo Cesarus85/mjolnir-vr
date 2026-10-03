@@ -140,6 +140,9 @@ out (halo_vr_scope_pass). */
 int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view);
 int halo_vr_scope_pass(void);
+/* how much higher than a rifle's the weapon in hand has its scope's disc
+(metres; render.c, before halo_vr_scope) */
+void halo_vr_set_scope_raise(float metres);
 void halo_vr_capture_scope(float left, float top, float right, float bottom);
 /* where the weapon's gun node is as drawn, at the ready (world units;
 first_person_weapons.c, each frame): shots, the crosshair and the laser
