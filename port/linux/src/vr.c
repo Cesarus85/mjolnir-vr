@@ -2076,10 +2076,14 @@ int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved,
 		return 0;
 	*x = (int)menu_pointer.x;
 	*y = (int)menu_pointer.y;
-	*moved = fabsf(menu_pointer.x - menu_pointer.reported_x) >= 1.0f ||
-		fabsf(menu_pointer.y - menu_pointer.reported_y) >= 1.0f;
-	menu_pointer.reported_x = menu_pointer.x;
-	menu_pointer.reported_y = menu_pointer.y;
+	/* (moved past a hand's tremor: a few pixels) */
+	*moved = fabsf(menu_pointer.x - menu_pointer.reported_x) >= 3.0f ||
+		fabsf(menu_pointer.y - menu_pointer.reported_y) >= 3.0f;
+	if (*moved)
+	{
+		menu_pointer.reported_x = menu_pointer.x;
+		menu_pointer.reported_y = menu_pointer.y;
+	}
 	return 1;
 }
 

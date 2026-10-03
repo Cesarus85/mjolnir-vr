@@ -6274,8 +6274,9 @@ static void ui_widgets_process_mouse(
 	struct ui_mouse_target *target;
 	short controller_index = 0;
 
-	if (!halo_ui_pointer_update(ui_mouse_menus_active(), &pointer) ||
-		virtual_keyboard_active())
+	/* (the keyboard takes the pointer itself: virtual_keyboard.c) */
+	if (virtual_keyboard_active() ||
+		!halo_ui_pointer_update(ui_mouse_menus_active(), &pointer))
 	{
 		ui_mouse_press_count = 0;
 		ui_mouse_hover_pending = FALSE;
