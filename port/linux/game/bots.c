@@ -103,6 +103,14 @@ struct bot
 	short error_ticks;
 	real_point3d last_position;
 	short stuck_ticks;
+	/* the point it walks to, how near it was, and a step aside (ticks
+	left, and which way) when it makes no way */
+	real_point3d walk_point;
+	real walk_distance;
+	short sidestep_ticks;
+	real sidestep;
+	/* whether it walks to a point this tick (not only weaving in a fight) */
+	boolean walking;
 	real wander_yaw;
 	short weave_phase;
 	/* where it is going, and the way there */
@@ -144,6 +152,7 @@ struct objective_item
 
 /* (one search at a time, shared: 80 kB) */
 static struct path_state bot_path_state;
+static struct path_debug_storage bot_path_debug;
 
 static struct
 {
@@ -156,6 +165,11 @@ static struct
 	long grenades;
 	long pickups;
 	long switches;
+	long stucks;
+	long long_stucks;
+	long fail_start;
+	long fail_goal;
+	long fail_search;
 	/* the objective game's things (bots_update_objectives) */
 	short objective_item_count;
 	struct objective_item objective_items[MAXIMUM_OBJECTIVE_ITEMS];
@@ -264,7 +278,10 @@ static boolean bot_find_path(
 
 	bot->path.valid = FALSE;
 	if (start_surface == NONE)
+	{
+		bots.fail_start++;
 		return FALSE;
+	}
 	/* (the goal's surface: under it, as a biped would stand there) */
 	{
 		struct collision_result collision;
@@ -280,15 +297,42 @@ static boolean bot_find_path(
 		}
 	}
 	if (goal_surface == NONE)
+	{
+		bots.fail_goal++;
 		return FALSE;
+	}
+	/* (a little wider than a biped: paths that keep off walls and corners) */
 	path_input_new(&input, 0.25f, FALSE, unit_index);
 	path_input_set_start(&input, &start, start_surface);
-	path_state_new(&input, &bot_path_state, NULL);
+	bot_path_debug.path_traverse_result = 0;
+	bot_path_debug.path_build_result = 0;
+	path_state_new(&input, &bot_path_state, &bot_path_debug);
 	path_state_destination(&bot_path_state, &goal, goal_surface, BOT_GOAL_RADIUS);
-	if (!path_state_find(&bot_path_state) || !path_state_build_path(&bot_path_state, &bot->path))
+	if (path_state_find(&bot_path_state) && !path_state_build_path(&bot_path_state, &bot->path) &&
+		bot_path_debug.path_build_result == _path_build_result_obstacle_avoidance_failed &&
+		bot_path_debug.smoothed_step_count > 0)
+	{
+		/* (a way there, but none round the objects on it, the other players
+		among them: the way, smoothed, without; a step aside settles a
+		bump) */
+		short step;
+
+		csmemset(&bot->path, 0, sizeof(bot->path));
+		bot->path.valid = TRUE;
+		bot->path.step_count = (char)MIN(bot_path_debug.smoothed_step_count, 4);
+		for (step = 0; step < bot->path.step_count; step++)
+			bot->path.steps[step] = bot_path_debug.smoothed_steps[step];
+		bot->path.endpoint.point = bot->path.steps[bot->path.step_count - 1].point;
+		bot->path.endpoint.surface_index = bot->path.steps[bot->path.step_count - 1].surface_index;
+		bot->path.steps_finish_path = bot_path_debug.raw_step_count <= 4;
+		bots.paths_found++;
+		return TRUE;
+	}
+	if (!bot->path.valid)
 	{
 		bot->path.valid = FALSE;
 		bots.paths_failed++;
+		bots.fail_search++;
 		return FALSE;
 	}
 	bots.paths_found += bot->path.valid != FALSE;
@@ -296,7 +340,48 @@ static boolean bot_find_path(
 }
 
 /* the point it walks to now: the path's next, or the goal itself */
+/* whether a biped walks straight from one point to the other: nothing of
+the level between them at its knees */
+static boolean bot_clear_walk(
+	long unit_index,
+	real_point3d const *from,
+	real_point3d const *to)
+{
+	struct collision_result collision;
+	real_point3d start = *from;
+	real_vector3d vector;
+
+	start.z += 0.3f;
+	vector.i = to->x - from->x;
+	vector.j = to->y - from->y;
+	vector.k = to->z - from->z;
+	return !collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+		&start, &vector, unit_index, &collision);
+}
+
+static boolean bot_next_point_now(
+	struct bot *bot,
+	long unit_index,
+	real_point3d const *position,
+	real_point3d *point);
+
+/* the point it walks to now (kept, to tell whether it gets nearer) */
 static boolean bot_next_point(
+	struct bot *bot,
+	long unit_index,
+	real_point3d const *position,
+	real_point3d *point)
+{
+	if (!bot_next_point_now(bot, unit_index, position, point))
+		return FALSE;
+	if (distance3d(point, &bot->walk_point) > 0.2f)
+		bot->walk_distance = 1000000.0f;
+	bot->walk_point = *point;
+	bot->walking = TRUE;
+	return TRUE;
+}
+
+static boolean bot_next_point_now(
 	struct bot *bot,
 	long unit_index,
 	real_point3d const *position,
@@ -305,12 +390,14 @@ static boolean bot_next_point(
 	if (!bot->has_goal)
 		return FALSE;
 	/* (the last steps: straight there, over what the path goes round, as
-	a flag on its stand, where a carrier must step to score) */
+	a flag on its stand, where a carrier must step to score, when nothing
+	of the level is in the way) */
 	{
 		real dx = bot->goal.x - position->x;
 		real dy = bot->goal.y - position->y;
 
-		if (dx * dx + dy * dy < 3.0f * 3.0f && fabsf(bot->goal.z - position->z) < 1.0f)
+		if (dx * dx + dy * dy < 3.0f * 3.0f && fabsf(bot->goal.z - position->z) < 0.6f &&
+			bot_clear_walk(unit_index, position, &bot->goal))
 		{
 			*point = bot->goal;
 			return TRUE;
@@ -331,6 +418,20 @@ static boolean bot_next_point(
 
 			if (dx * dx + dy * dy > BOT_STEP_RADIUS * BOT_STEP_RADIUS)
 			{
+				/* (the next point in plain view: on to it, not round by this
+				one, a corner's) */
+				real_point3d const *next = bot->path.step_index + 1 < bot->path.step_count ?
+					&bot->path.steps[(short)bot->path.step_index + 1].point : &bot->path.endpoint.point;
+
+				/* (on its own level only: one above may be in view over a
+				ledge that a ramp leads round to) */
+				if (fabsf(next->z - position->z) < 0.6f && bot_clear_walk(unit_index, position, next))
+				{
+					bot->path.step_index++;
+					if (bot->path.step_index >= bot->path.step_count)
+						break;
+					continue;
+				}
 				*point = step->point;
 				return TRUE;
 			}
@@ -878,6 +979,7 @@ static void bot_think(
 	real moved;
 
 	csmemset(action, 0, sizeof(*action));
+	bot->walking = FALSE;
 	action->desired_weapon_index = NONE;
 	action->desired_grenade_index = NONE;
 	action->desired_zoom_level = NONE;
@@ -1186,16 +1288,54 @@ static void bot_think(
 		SET_FLAG(action->control_flags, _unit_control_weapon_primary_trigger_bit, TRUE);
 	}
 
-	/* stuck: hardly moved while walking (it jumps, and then turns) */
+	/* stuck: making no way to the point it walks to (against a wall, in
+	a corner): soon a step aside and its way found anew, then a jump, and
+	in the end somewhere else */
+	if (bot->sidestep_ticks > 0)
+	{
+		bot->sidestep_ticks--;
+		action->throttle.j = bot->sidestep;
+		action->throttle.i *= 0.3f;
+	}
 	moved = distance3d(&position, &bot->last_position);
 	bot->last_position = position;
 	action->throttle.i = PIN(action->throttle.i, -1.0f, 1.0f);
 	action->throttle.j = PIN(action->throttle.j, -1.0f, 1.0f);
-	if ((fabsf(action->throttle.i) > 0.5f || fabsf(action->throttle.j) > 0.5f) && moved < 0.02f)
+	if (bot->walking && (fabsf(action->throttle.i) > 0.5f || fabsf(action->throttle.j) > 0.5f))
 	{
-		bot->stuck_ticks++;
-		if (bot->stuck_ticks == 8)
-			SET_FLAG(action->control_flags, _unit_control_jump_bit, TRUE);
+		real distance = (real)sqrt((bot->walk_point.x - position.x) * (bot->walk_point.x - position.x) +
+			(bot->walk_point.y - position.y) * (bot->walk_point.y - position.y));
+		boolean progress = distance < bot->walk_distance - 0.015f || moved > 0.06f;
+
+		bot->walk_distance = MIN(bot->walk_distance, distance);
+		if (progress && moved > 0.02f)
+		{
+			bot->stuck_ticks = 0;
+		}
+		else
+		{
+			bot->stuck_ticks++;
+			if (bot->stuck_ticks == 6)
+			{
+				bot->sidestep = bot_random() < 0.5f ? 1.0f : -1.0f;
+				bot->sidestep_ticks = 10;
+				/* (near a point of its path it cannot reach, at a corner: the
+				next one) */
+				if (distance < 1.5f && bot->path.valid && bot->path.step_index < bot->path.step_count)
+				{
+					bot->path.step_index++;
+					bot->sidestep_ticks = 4;
+				}
+				bots.stucks++;
+
+				bot->path_time = game_time_get() - PATH_REFRESH_TICKS;
+				bot->walk_distance = 1000000.0f;
+			}
+			if (bot->stuck_ticks == 12)
+				SET_FLAG(action->control_flags, _unit_control_jump_bit, TRUE);
+			if (bot->stuck_ticks == 24)
+				bots.long_stucks++;
+		}
 	}
 	else
 	{
@@ -1292,9 +1432,10 @@ void bots_tick(
 	if (count && game_time_get() - bots.logged_time >= 300)
 	{
 		bots.logged_time = game_time_get();
-		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld",
-			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches);
-		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = 0;
+		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld (no start %ld, no goal %ld, no way %ld)",
+			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.fail_start, bots.fail_goal, bots.fail_search);
+		bots.fail_start = bots.fail_goal = bots.fail_search = 0;
+		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = bots.stucks = bots.long_stucks = 0;
 		for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
 		{
 			struct player_datum *player = distributed_player(index);
