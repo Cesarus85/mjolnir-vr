@@ -1985,12 +1985,10 @@ static struct
 	int hand;
 	int trigger_down[HALO_XR_HAND_COUNT];
 	int clicks;
-	/* where it pointed the last few frames: a click is taken where it
-	pointed a moment before the trigger went down (pulling it tips the
-	controller) */
-	float history[8][2];
-	int history_valid[8];
-	int history_next;
+	/* a click is taken where it pointed as the trigger began to move
+	(pulling it through tips the controller) */
+	int pulling[HALO_XR_HAND_COUNT];
+	float pull_x[HALO_XR_HAND_COUNT], pull_y[HALO_XR_HAND_COUNT];
 	float click_x, click_y;
 } menu_pointer;
 
@@ -2005,7 +2003,7 @@ static void menu_pointer_update(void)
 	if (!vr.active || vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN || !vr.frame.focused)
 	{
 		menu_pointer.trigger_down[0] = menu_pointer.trigger_down[1] = 0;
-		memset(menu_pointer.history_valid, 0, sizeof(menu_pointer.history_valid));
+		menu_pointer.pulling[0] = menu_pointer.pulling[1] = 0;
 		return;
 	}
 	/* (the hand that clicked last points; a click counts as it goes down) */
@@ -2041,28 +2039,27 @@ static void menu_pointer_update(void)
 	menu_pointer.y = (0.5f - hit_y / height) * 480.0f;
 	menu_pointer.valid = menu_pointer.x >= 0.0f && menu_pointer.x < 640.0f && menu_pointer.y >= 0.0f &&
 		menu_pointer.y < 480.0f;
-	/* (the click where it pointed about a tenth of a second before) */
+	/* (the click where the trigger began to move, if it pointed then) */
 	{
-		int oldest = menu_pointer.history_next;
-		int slot;
+		int pulling = vr.frame.hands[menu_pointer.hand].trigger > 0.1f;
 
-		menu_pointer.click_x = menu_pointer.x;
-		menu_pointer.click_y = menu_pointer.y;
-		for (slot = 0; slot < 8; slot++)
+		if (pulling && !menu_pointer.pulling[menu_pointer.hand] && menu_pointer.valid)
 		{
-			int index = (oldest + slot) % 8;
-
-			if (slot >= 2 && menu_pointer.history_valid[index])
-			{
-				menu_pointer.click_x = menu_pointer.history[index][0];
-				menu_pointer.click_y = menu_pointer.history[index][1];
-				break;
-			}
+			menu_pointer.pull_x[menu_pointer.hand] = menu_pointer.x;
+			menu_pointer.pull_y[menu_pointer.hand] = menu_pointer.y;
 		}
-		menu_pointer.history[menu_pointer.history_next][0] = menu_pointer.x;
-		menu_pointer.history[menu_pointer.history_next][1] = menu_pointer.y;
-		menu_pointer.history_valid[menu_pointer.history_next] = menu_pointer.valid;
-		menu_pointer.history_next = (menu_pointer.history_next + 1) % 8;
+		if (!pulling || !menu_pointer.pulling[menu_pointer.hand])
+		{
+			menu_pointer.click_x = menu_pointer.x;
+			menu_pointer.click_y = menu_pointer.y;
+		}
+		else
+		{
+			menu_pointer.click_x = menu_pointer.pull_x[menu_pointer.hand];
+			menu_pointer.click_y = menu_pointer.pull_y[menu_pointer.hand];
+		}
+		if (!pulling || menu_pointer.valid)
+			menu_pointer.pulling[menu_pointer.hand] = pulling;
 	}
 }
 
