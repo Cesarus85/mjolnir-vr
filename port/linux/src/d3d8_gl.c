@@ -1370,6 +1370,7 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
 	int x, y, click_x, click_y, moved, clicks;
 
+	platform_menus_set_active(menus_active != 0);
 	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &click_x, &click_y, &moved, &clicks))
 		return 0;
 	memset(pointer, 0, sizeof(*pointer));
@@ -1417,6 +1418,7 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
 	struct platform_ui_pointer state;
 
+	platform_menus_set_active(menus_active != 0);
 	platform_ui_pointer_set_active(menus_active != 0);
 	if (!menus_active || !device.gl_ready || !platform_ui_pointer_read(&state))
 		return 0;
