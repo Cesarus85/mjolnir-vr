@@ -139,6 +139,8 @@ struct bot
 	/* the objective, as it played it this tick: where it goes, whom it
 	hunts first, and whether it carries the flag or ball (no firing) */
 	boolean has_objective;
+	/* the objective is a place to hold (the hill, its own flag's stand) */
+	boolean holding;
 	real_point3d objective;
 	long objective_unit_index;
 	boolean carrying;
@@ -933,6 +935,69 @@ static void bot_escort_point(
 	}
 }
 
+/* Bots with one place to go spread out: each has a direction of its own
+(the golden angle on from the last bot's), a place of its own about a
+point to hold, and comes to a point from far off by a way of its own,
+wide of the others', going straight to it only for the last stretch. */
+
+static real bot_spread_angle(
+	long player_index)
+{
+	return (real)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) * 2.39996f;
+}
+
+/* the bot's place about a point (radius: world units) */
+static void bot_spot_around(
+	real_point3d const *center,
+	long player_index,
+	real radius,
+	real_point3d *spot)
+{
+	real angle = bot_spread_angle(player_index);
+
+	*spot = *center;
+	spot->x += (real)cos(angle) * radius;
+	spot->y += (real)sin(angle) * radius;
+}
+
+/* its place about a point, or the point itself when there is no way to the
+place (in a wall, past a ledge) */
+static void bot_hold_spot(
+	struct bot const *bot,
+	real_point3d const *center,
+	real radius,
+	real_point3d *spot)
+{
+	if (bot->path_failures >= 3)
+		*spot = *center;
+	else
+		bot_spot_around(center, bot->player_index, radius, spot);
+}
+
+/* where it heads for a point from where it is: from far off, out to a side
+of the straight way (its own side and width), in from 10 world units */
+static void bot_approach(
+	struct bot const *bot,
+	real_point3d const *position,
+	real_point3d const *goal,
+	real_point3d *point)
+{
+	long index = DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index);
+	real dx = goal->x - position->x;
+	real dy = goal->y - position->y;
+	real distance = (real)sqrt(dx * dx + dy * dy);
+	real side = (index & 1 ? 1.0f : -1.0f) * (3.0f + (real)((index >> 1) % 3) * 1.5f);
+	real share;
+
+	*point = *goal;
+	/* (no way to the side: straight) */
+	if (distance < 10.0f || bot->path_failures >= 2)
+		return;
+	share = MIN((distance - 10.0f) / 10.0f, 1.0f);
+	point->x += -dy / distance * side * share;
+	point->y += dx / distance * side * share;
+}
+
 /* what the objective asks of the bot now (bot->has_objective and the rest) */
 static void bot_play_objective_now(
 	struct bot *bot,
@@ -966,6 +1031,7 @@ static void bot_play_objective_now(
 	short index;
 
 	bot->has_objective = FALSE;
+	bot->holding = FALSE;
 	bot->objective_unit_index = NONE;
 	bot->carrying = FALSE;
 	if (type == game_engine_king)
@@ -980,13 +1046,12 @@ static void bot_play_objective_now(
 			dx = center.x - position->x;
 			dy = center.y - position->y;
 			bot->has_objective = TRUE;
-			bot->objective = center;
-			/* (on the hill: about in it, not on its middle) */
-			if (dx * dx + dy * dy < 1.5f * 1.5f)
-			{
-				bot->objective.x += (real)cos(bot->weave_phase * 0.05f) * 1.0f;
-				bot->objective.y += (real)sin(bot->weave_phase * 0.05f) * 1.0f;
-			}
+			bot->holding = TRUE;
+			/* (near: a place of its own on the hill; far: a way of its own) */
+			if (dx * dx + dy * dy < 6.0f * 6.0f)
+				bot_hold_spot(bot, &center, 1.2f, &bot->objective);
+			else
+				bot_approach(bot, position, &center, &bot->objective);
 		}
 		return;
 	}
@@ -1033,15 +1098,31 @@ static void bot_play_objective_now(
 			bot->objective = own->position;
 			return;
 		}
-		/* (every third guards its own) */
+		/* (every third guards its own: about the stand, or, every other one
+		of them, ahead of it towards the enemy's) */
 		if ((DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) % 3) == 2 && bots_ctf_base(player->team_index, &base))
 		{
+			real_point3d enemy_base;
+
 			bot->has_objective = TRUE;
-			bot->objective = base;
-			if (distance3d(position, &base) < 4.0f)
+			bot->holding = TRUE;
+			if (((DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) / 3) & 1) &&
+				bots_ctf_base((player->team_index + 1) % 2, &enemy_base))
 			{
-				bot->objective.x += (real)cos(bot->weave_phase * 0.03f) * 3.0f;
-				bot->objective.y += (real)sin(bot->weave_phase * 0.03f) * 3.0f;
+				real dx = enemy_base.x - base.x;
+				real dy = enemy_base.y - base.y;
+				real length = (real)sqrt(dx * dx + dy * dy);
+
+				bot->objective = base;
+				if (length > 0.01f)
+				{
+					bot->objective.x += dx / length * 7.0f;
+					bot->objective.y += dy / length * 7.0f;
+				}
+			}
+			else
+			{
+				bot_hold_spot(bot, &base, 3.0f, &bot->objective);
 			}
 			return;
 		}
@@ -1050,9 +1131,9 @@ static void bot_play_objective_now(
 		{
 			bot->has_objective = TRUE;
 			if (enemy->carrier_player_index != NONE)
-				bot_escort_point(position, &enemy->position, &bot->objective);
+				bot_hold_spot(bot, &enemy->position, 3.0f, &bot->objective);
 			else
-				bot->objective = enemy->position;
+				bot_approach(bot, position, &enemy->position, &bot->objective);
 		}
 		return;
 	}
@@ -1081,7 +1162,7 @@ static void bot_play_objective_now(
 					if (!nearest)
 					{
 						bot->has_objective = TRUE;
-						bot_escort_point(position, &item->position, &bot->objective);
+						bot_hold_spot(bot, &item->position, 3.0f, &bot->objective);
 					}
 					continue;
 				}
@@ -1096,7 +1177,7 @@ static void bot_play_objective_now(
 		if (nearest)
 		{
 			bot->has_objective = TRUE;
-			bot->objective = nearest->position;
+			bot_approach(bot, position, &nearest->position, &bot->objective);
 			if (nearest->carrier_player_index != NONE)
 			{
 				struct player_datum *carrier = player_try_and_get(nearest->carrier_player_index);
@@ -1265,13 +1346,13 @@ static void bot_think(
 		}
 		bot->weave_phase++;
 		/* (a good weapon or powerup close by: taken in the fight too) */
-		if (!bot->carrying && (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS / 2 ||
+		if (!bot->carrying && !bot->has_objective && (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS / 2 ||
 			game_time_get() < bot->item_look_time))
 		{
 			bot->item_look_time = game_time_get();
 			bot->item_index = bot_find_item(unit, &position, 10.0f, 4.0f);
 		}
-		if (bot->item_index != NONE && !bot->carrying && object_try_and_get(bot->item_index) &&
+		if (bot->item_index != NONE && !bot->carrying && !bot->has_objective && object_try_and_get(bot->item_index) &&
 			bot_item_worth(unit, bot->item_index) > 0.0f)
 		{
 			real_point3d item_position;
