@@ -154,6 +154,11 @@ boolean render_object_vr_seated_body(
 	long object_index);
 boolean render_object_vr_at_controls(
 	long object_index);
+/* at an open wheel (a Warthog's), where its drawn hands hold it */
+boolean render_object_vr_wheel_hands(
+	long object_index,
+	real_point3d *left,
+	real_point3d *right);
 #endif
 void render_objects(
 	void);
