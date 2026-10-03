@@ -5835,6 +5835,7 @@ the public games and a way to type a code in, either of which then joins as
 an invite link does (the game shows up in the list once its host is
 reached). */
 
+void platform_log(char const *format, ...);
 int p2p_join_code(char *text, int size);
 int p2p_join_with_code(char const *typed);
 int p2p_join_code_status(void);
@@ -6188,6 +6189,18 @@ static boolean ui_join_code_take_pointer(
 static void ui_join_code_update(
 	void)
 {
+	{
+		/* (each screen's name in the log, as it comes up) */
+		static char const *logged;
+		char const *name = widget_globals.active_widgets[0] ? widget_globals.active_widgets[0]->name : NULL;
+
+		if (name != logged)
+		{
+			logged = name;
+			if (name)
+				platform_log("menus: screen %s", name);
+		}
+	}
 	char text[sizeof(ui_join_code_globals.typed) / sizeof(wchar_t)];
 	short index;
 
@@ -6432,6 +6445,482 @@ static void ui_join_code_render(
 	}
 }
 
+/* ---------- VR options (the VR port's)
+
+In VR, Y on the main menu or the pause menu opens a panel of the VR
+settings one may want to change while playing (vr.c reads them again as
+they change), and from it a page of what the controllers' buttons do. */
+
+int config_boolean(char const *name);
+double config_real(char const *name);
+int config_write(char const *name, char const *value);
+int config_write_boolean(char const *name, int value);
+
+enum
+{
+	_vr_option_turning,
+	_vr_option_snap_angle,
+	_vr_option_smooth_speed,
+	_vr_option_vignette,
+	_vr_option_wheel,
+	_vr_option_laser,
+	_vr_option_crosshair,
+	_vr_option_motion_tracker,
+	_vr_option_controls,
+	NUMBER_OF_VR_OPTIONS,
+
+	VR_OPTIONS_TOP = 102,
+	VR_OPTIONS_ROW_HEIGHT = 28,
+	VR_OPTIONS_FOOTER = 362,
+
+	_vr_controls_on_foot = 0,
+	_vr_controls_vehicles,
+	_vr_controls_menus,
+	NUMBER_OF_VR_CONTROLS_PAGES,
+};
+
+static struct
+{
+	boolean open;
+	boolean controls;
+	short selection;
+	short page;
+} ui_vr_options_globals;
+
+static real const vr_snap_angles[] = { 30.0f, 45.0f, 60.0f, 90.0f };
+static real const vr_smooth_speeds[] = { 60.0f, 90.0f, 120.0f, 150.0f, 180.0f };
+static real const vr_vignettes[] = { 0.0f, 0.35f, 0.7f, 1.0f };
+static char const *const vr_vignette_names[] = { "Off", "Light", "Medium", "Strong" };
+
+static boolean ui_vr_options_screen(
+	void)
+{
+	struct widget_instance *screen = widget_globals.active_widgets[0];
+
+	return halo_vr_active() && screen && screen->name &&
+		(main_menu_screen_is_active() || strstr(screen->name, "pause_game") != NULL);
+}
+
+/* which of the choices a setting is nearest */
+static short ui_vr_options_nearest(
+	real value,
+	real const *choices,
+	short count)
+{
+	short index;
+	short nearest = 0;
+
+	for (index = 1; index < count; index++)
+	{
+		if (fabs(choices[index] - value) < fabs(choices[nearest] - value))
+			nearest = index;
+	}
+	return nearest;
+}
+
+static void ui_vr_options_step(
+	char const *name,
+	real const *choices,
+	short count,
+	short change)
+{
+	char text[16];
+	short index = ui_vr_options_nearest((real)config_real(name), choices, count);
+
+	index = (short)((index + change + count) % count);
+	snprintf(text, sizeof(text), "%g", choices[index]);
+	config_write(name, text);
+}
+
+/* a row's setting changed: forward or back, going round */
+static void ui_vr_options_change(
+	short change)
+{
+	switch (ui_vr_options_globals.selection)
+	{
+	case _vr_option_turning: config_write_boolean("vr.smooth_turn", !config_boolean("vr.smooth_turn")); break;
+	case _vr_option_snap_angle:
+		ui_vr_options_step("vr.snap_turn_degrees", vr_snap_angles, NUMBEROF(vr_snap_angles), change);
+		break;
+	case _vr_option_smooth_speed:
+		ui_vr_options_step("vr.smooth_turn_speed", vr_smooth_speeds, NUMBEROF(vr_smooth_speeds), change);
+		break;
+	case _vr_option_vignette:
+		ui_vr_options_step("vr.comfort_vignette", vr_vignettes, NUMBEROF(vr_vignettes), change);
+		break;
+	case _vr_option_wheel: config_write_boolean("vr.vehicle_wheel", !config_boolean("vr.vehicle_wheel")); break;
+	case _vr_option_laser: config_write_boolean("vr.laser", !config_boolean("vr.laser")); break;
+	case _vr_option_crosshair: config_write_boolean("vr.crosshair", !config_boolean("vr.crosshair")); break;
+	case _vr_option_motion_tracker:
+		config_write_boolean("vr.motion_tracker_on_wrist", !config_boolean("vr.motion_tracker_on_wrist"));
+		break;
+	case _vr_option_controls:
+		ui_vr_options_globals.controls = TRUE;
+		ui_vr_options_globals.page = _vr_controls_on_foot;
+		break;
+	}
+	ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+}
+
+static void ui_vr_options_close(
+	void)
+{
+	ui_vr_options_globals.open = FALSE;
+	ui_vr_options_globals.controls = FALSE;
+}
+
+/* the panel's input: up and down choose a row, left and right (or A)
+change it, B or Y closes it (the controls page: left and right turn its
+pages, B goes back) */
+static boolean ui_vr_options_take_event(
+	struct widget_instance *widget,
+	struct event_record const *event)
+{
+	short move = 0;
+	short change = 0;
+	boolean accept = FALSE;
+	boolean back = FALSE;
+
+	if (widget != widget_globals.active_widgets[0])
+		return FALSE;
+	if (ui_vr_options_globals.open && !ui_vr_options_screen())
+		ui_vr_options_close();
+	if (!ui_vr_options_globals.open)
+	{
+		if (event->type == _event_type_button && event->data.button.value == 1 &&
+			event->data.button.index == _gamepad_analog_button_y && ui_vr_options_screen())
+		{
+			ui_vr_options_globals.open = TRUE;
+			ui_vr_options_globals.controls = FALSE;
+			ui_vr_options_globals.selection = 0;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+			return TRUE;
+		}
+		return FALSE;
+	}
+	if (event->type == _event_type_left_stick)
+	{
+		if (event->data.stick.y == SHORT_MAX)
+			move = -1;
+		else if (event->data.stick.y == SHORT_MIN)
+			move = 1;
+		else if (event->data.stick.x == SHORT_MAX)
+			change = 1;
+		else if (event->data.stick.x == SHORT_MIN)
+			change = -1;
+	}
+	else if (event->type == _event_type_button && event->data.button.value == 1)
+	{
+		switch (event->data.button.index)
+		{
+		case _gamepad_binary_button_dpad_up: move = -1; break;
+		case _gamepad_binary_button_dpad_down: move = 1; break;
+		case _gamepad_binary_button_dpad_right: change = 1; break;
+		case _gamepad_binary_button_dpad_left: change = -1; break;
+		case _gamepad_analog_button_a:
+		case _gamepad_binary_button_start:
+			accept = TRUE;
+			break;
+		case _gamepad_analog_button_b:
+		case _gamepad_analog_button_y:
+		case _gamepad_binary_button_back:
+			back = TRUE;
+			break;
+		}
+	}
+	if (ui_vr_options_globals.controls)
+	{
+		if (back)
+		{
+			ui_vr_options_globals.controls = FALSE;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+		}
+		else if (change || accept)
+		{
+			ui_vr_options_globals.page = (short)((ui_vr_options_globals.page + (change ? change : 1) +
+				NUMBER_OF_VR_CONTROLS_PAGES) % NUMBER_OF_VR_CONTROLS_PAGES);
+			ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
+		}
+		return TRUE;
+	}
+	if (back)
+	{
+		ui_vr_options_close();
+		ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+	}
+	else if (move)
+	{
+		ui_vr_options_globals.selection = (short)PIN(ui_vr_options_globals.selection + move, 0, NUMBER_OF_VR_OPTIONS - 1);
+		ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
+	}
+	else if (accept)
+	{
+		ui_vr_options_change(1);
+	}
+	else if (change && ui_vr_options_globals.selection != _vr_option_controls)
+	{
+		ui_vr_options_change(change);
+	}
+	return TRUE;
+}
+
+/* the pointer over the panel: the row under it chosen, a click on it as A;
+on the controls page the tabs, and the footer's Back (TRUE: the panel is
+open and took it) */
+static boolean ui_vr_options_take_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	short x = pointer->left_clicks ? pointer->click_x : pointer->x;
+	short y = pointer->left_clicks ? pointer->click_y : pointer->y;
+
+	if (!ui_vr_options_globals.open)
+	{
+		/* (its hint clicked: open) */
+		if (pointer->left_clicks && x >= 256 && x < 400 && y >= 434 && y < 464 && ui_vr_options_screen())
+		{
+			ui_vr_options_globals.open = TRUE;
+			ui_vr_options_globals.controls = FALSE;
+			ui_vr_options_globals.selection = 0;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+			return TRUE;
+		}
+		return FALSE;
+	}
+	if (!ui_vr_options_screen())
+	{
+		ui_vr_options_close();
+		return FALSE;
+	}
+	if (ui_vr_options_globals.controls)
+	{
+		if (!pointer->left_clicks)
+			return TRUE;
+		if (y >= 50 && y < 74 && x >= 40 && x < 600)
+		{
+			ui_vr_options_globals.page = (short)PIN((x - 40) / 186, 0, NUMBER_OF_VR_CONTROLS_PAGES - 1);
+			ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
+		}
+		else if (y >= 410 && y < 434)
+		{
+			ui_vr_options_globals.controls = FALSE;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+		}
+		return TRUE;
+	}
+	if (x >= 118 && x < 522 && y >= VR_OPTIONS_TOP - 4 &&
+		y < VR_OPTIONS_TOP - 4 + NUMBER_OF_VR_OPTIONS * VR_OPTIONS_ROW_HEIGHT)
+	{
+		ui_vr_options_globals.selection = (short)((y - (VR_OPTIONS_TOP - 4)) / VR_OPTIONS_ROW_HEIGHT);
+		if (pointer->left_clicks)
+			ui_vr_options_change(1);
+	}
+	else if (pointer->left_clicks && x >= 118 && x < 522 && y >= VR_OPTIONS_FOOTER + 4 && y < VR_OPTIONS_FOOTER + 30)
+	{
+		ui_vr_options_close();
+		ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+	}
+	return TRUE;
+}
+
+/* a line of the controls page: what is pressed, dim, and what it does */
+static void ui_vr_controls_line(
+	short x,
+	short y,
+	char const *control,
+	char const *action)
+{
+	real_argb_color control_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+	real_argb_color action_color = { 1.0f, 0.88f, 0.88f, 0.88f };
+
+	ui_join_code_draw_text(x, (short)(x + 92), y, control, FALSE, 0, &control_color);
+	ui_join_code_draw_text((short)(x + 92), (short)(x + 280), y, action, FALSE, 0, &action_color);
+}
+
+static void ui_vr_controls_note(
+	short y,
+	char const *text)
+{
+	real_argb_color color = { 1.0f, 0.88f, 0.88f, 0.88f };
+
+	ui_join_code_draw_text(44, 596, y, text, FALSE, 0, &color);
+}
+
+static void ui_vr_controls_render(
+	void)
+{
+	static char const *const tabs[] = { "ON FOOT", "VEHICLES", "MENUS" };
+	real_argb_color title_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+	real_argb_color tab_color = { 1.0f, 0.6f, 0.6f, 0.6f };
+	real_argb_color selected_color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	short tab;
+	short left = 44;
+	short right = 328;
+	short y = 112;
+
+	ui_join_code_draw_quad(24, 40, 616, 440, 0xFF050A18);
+	ui_join_code_draw_quad(24, 40, 616, 42, 0xFF3A6EA5);
+	ui_join_code_draw_quad(24, 438, 616, 440, 0xFF3A6EA5);
+	for (tab = 0; tab < NUMBER_OF_VR_CONTROLS_PAGES; tab++)
+	{
+		short x0 = (short)(40 + tab * 186);
+
+		if (tab == ui_vr_options_globals.page)
+			ui_join_code_draw_quad(x0, 50, (short)(x0 + 180), 74, 0x803A6EA5);
+		ui_join_code_draw_text(x0, (short)(x0 + 180), 52, tabs[tab], FALSE, 2,
+			tab == ui_vr_options_globals.page ? &selected_color : &tab_color);
+	}
+	ui_join_code_draw_text(left, (short)(left + 270), 86, "LEFT CONTROLLER", FALSE, 0, &title_color);
+	ui_join_code_draw_text(right, (short)(right + 270), 86, "RIGHT CONTROLLER", FALSE, 0, &title_color);
+	ui_join_code_draw_quad(320, 86, 321, 300, 0xFF3A6EA5);
+	switch (ui_vr_options_globals.page)
+	{
+	case _vr_controls_on_foot:
+		ui_vr_controls_line(left, y, "Stick", "Move");
+		ui_vr_controls_line(left, y + 22, "Stick click", "Crouch");
+		ui_vr_controls_line(left, y + 44, "Trigger", "Grenade: hold it,");
+		ui_vr_controls_line(left, y + 62, "", "let go as you throw");
+		ui_vr_controls_line(left, y + 84, "Grip", "Weapon in both hands");
+		ui_vr_controls_line(left, y + 106, "X", "Action, reload");
+		ui_vr_controls_line(left, y + 128, "Y", "Switch weapon");
+		ui_vr_controls_line(left, y + 150, "Menu", "Pause");
+		ui_vr_controls_line(right, y, "Stick", "Turn");
+		ui_vr_controls_line(right, y + 22, "Stick click", "Zoom");
+		ui_vr_controls_line(right, y + 44, "Trigger", "Fire");
+		ui_vr_controls_line(right, y + 66, "Grip", "Melee (or punch");
+		ui_vr_controls_line(right, y + 84, "", "forward)");
+		ui_vr_controls_line(right, y + 106, "A", "Jump");
+		ui_vr_controls_line(right, y + 128, "B", "Flashlight; held:");
+		ui_vr_controls_line(right, y + 146, "", "switch grenades");
+		ui_vr_controls_note(320, "Motion tracker: turn the back of your left wrist towards you.");
+		ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
+		ui_vr_controls_note(360, "Hold the Meta button to recentre the view.");
+		break;
+	case _vr_controls_vehicles:
+		ui_vr_controls_line(left, y, "Stick", "Drive");
+		ui_vr_controls_line(left, y + 22, "Trigger", "Second weapon");
+		ui_vr_controls_line(left, y + 40, "", "(Banshee, tank)");
+		ui_vr_controls_line(left, y + 62, "X", "Get in, get out");
+		ui_vr_controls_line(right, y, "Stick", "Steer; up and down:");
+		ui_vr_controls_line(right, y + 18, "", "climb, dive");
+		ui_vr_controls_line(right, y + 40, "Trigger", "Fire");
+		ui_vr_controls_line(right, y + 62, "B", "Flashlight");
+		ui_vr_controls_note(300, "Warthog: grip the wheel with one hand or both and turn it.");
+		ui_vr_controls_note(320, "Holding it, the right trigger accelerates, the left one brakes");
+		ui_vr_controls_note(338, "and reverses. Let go, and the right stick steers.");
+		ui_vr_controls_note(360, "At a gun or as a passenger: aim with the right controller.");
+		break;
+	default:
+		ui_vr_controls_line(left, y, "Stick", "Choose");
+		ui_vr_controls_line(left, y + 22, "X, Y", "As the screen shows");
+		ui_vr_controls_line(left, y + 44, "Trigger", "Click where it points");
+		ui_vr_controls_line(right, y, "Stick", "Choose, scroll");
+		ui_vr_controls_line(right, y + 22, "A", "Accept");
+		ui_vr_controls_line(right, y + 44, "B", "Back");
+		ui_vr_controls_line(right, y + 66, "Trigger", "Click where it points");
+		ui_vr_controls_note(300, "Point at the menus with either controller; its trigger clicks.");
+		ui_vr_controls_note(320, "On the keyboard, BACK and ENTER under it can be clicked too.");
+		ui_vr_controls_note(340, "Y on the main menu or the pause menu: these VR options.");
+		break;
+	}
+	ui_join_code_draw_text(44, 596, 412, "%b-button Back      Left, right: the other pages", TRUE, 0, &tab_color);
+}
+
+static void ui_vr_options_render(
+	void)
+{
+	real_argb_color title_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+	real_argb_color text_color = { 1.0f, 0.88f, 0.88f, 0.88f };
+	real_argb_color dim_color = { 1.0f, 0.5f, 0.5f, 0.5f };
+	real_argb_color hint_color = { 1.0f, 0.85f, 0.85f, 0.85f };
+	char value[48];
+	short row;
+	boolean smooth = config_boolean("vr.smooth_turn") != 0;
+
+	if (!ui_vr_options_screen())
+	{
+		ui_vr_options_close();
+		return;
+	}
+	if (!ui_vr_options_globals.open)
+	{
+		/* (under the menu; centred by hand, as icons are drawn from the
+		left) */
+		ui_join_code_draw_text(266, 400, 440, "%y-button VR options", TRUE, 0, &hint_color);
+		return;
+	}
+	if (ui_vr_options_globals.controls)
+	{
+		ui_vr_controls_render();
+		return;
+	}
+	ui_join_code_draw_quad(110, 62, 530, 396, 0xFF050A18);
+	ui_join_code_draw_quad(110, 62, 530, 64, 0xFF3A6EA5);
+	ui_join_code_draw_quad(110, 394, 530, 396, 0xFF3A6EA5);
+	ui_join_code_draw_text(126, 514, 72, "VR OPTIONS", FALSE, 0, &title_color);
+	for (row = 0; row < NUMBER_OF_VR_OPTIONS; row++)
+	{
+		short y = (short)(VR_OPTIONS_TOP + row * VR_OPTIONS_ROW_HEIGHT);
+		char const *label = "";
+		boolean unused = FALSE;
+
+		value[0] = 0;
+		switch (row)
+		{
+		case _vr_option_turning:
+			label = "Turning";
+			snprintf(value, sizeof(value), "%s", smooth ? "Smooth" : "Snap");
+			break;
+		case _vr_option_snap_angle:
+			label = "Snap turn";
+			snprintf(value, sizeof(value), "%.0f degrees", vr_snap_angles[ui_vr_options_nearest(
+				(real)config_real("vr.snap_turn_degrees"), vr_snap_angles, NUMBEROF(vr_snap_angles))]);
+			unused = smooth;
+			break;
+		case _vr_option_smooth_speed:
+			label = "Smooth turn speed";
+			snprintf(value, sizeof(value), "%.0f degrees/s", vr_smooth_speeds[ui_vr_options_nearest(
+				(real)config_real("vr.smooth_turn_speed"), vr_smooth_speeds, NUMBEROF(vr_smooth_speeds))]);
+			unused = !smooth;
+			break;
+		case _vr_option_vignette:
+			label = "Vehicle comfort vignette";
+			snprintf(value, sizeof(value), "%s", vr_vignette_names[ui_vr_options_nearest(
+				(real)config_real("vr.comfort_vignette"), vr_vignettes, NUMBEROF(vr_vignettes))]);
+			break;
+		case _vr_option_wheel:
+			label = "Warthog steering wheel";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.vehicle_wheel") ? "On" : "Off (stick)");
+			break;
+		case _vr_option_laser:
+			label = "Weapon laser";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.laser") ? "On" : "Off");
+			break;
+		case _vr_option_crosshair:
+			label = "Crosshair";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.crosshair") ? "On" : "Off");
+			break;
+		case _vr_option_motion_tracker:
+			label = "Motion tracker";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.motion_tracker_on_wrist") ? "On the wrist" : "In the HUD");
+			break;
+		case _vr_option_controls:
+			label = "Controller buttons...";
+			break;
+		}
+		if (row == ui_vr_options_globals.selection)
+			ui_join_code_draw_quad(118, (short)(y - 4), 522, (short)(y + VR_OPTIONS_ROW_HEIGHT - 6), 0x803A6EA5);
+		ui_join_code_draw_text(128, 330, y, label, FALSE, 0, unused ? &dim_color : &text_color);
+		if (value[0])
+		{
+			char shown[56];
+
+			snprintf(shown, sizeof(shown), "< %s >", value);
+			ui_join_code_draw_text(330, 512, y, shown, FALSE, 1, unused ? &dim_color : &text_color);
+		}
+	}
+	ui_join_code_draw_text(126, 514, VR_OPTIONS_FOOTER + 8, "%a-button Change   %b-button Done", TRUE, 0, &text_color);
+}
+
 /* whether a menu is up (VR shows it on a screen in the room: render.c) */
 boolean ui_widgets_menus_active(
 	void)
@@ -6470,7 +6959,7 @@ static void ui_widgets_process_mouse(
 	{
 #ifdef HALO_ANDROID
 		/* (the VR port's panels over the menus take the pointer themselves) */
-		if (ui_join_code_take_pointer(&pointer))
+		if (ui_vr_options_take_pointer(&pointer) || ui_join_code_take_pointer(&pointer))
 			return;
 #endif
 		if (pointer.moved)
@@ -6944,6 +7433,7 @@ void render_ui_widgets(
 		}
 #ifdef HALO_ANDROID
 		ui_join_code_render();
+		ui_vr_options_render();
 #endif
 		if (widget_globals.fade_to_black >= 0.0f &&
 			widget_globals.fade_to_black <= 1.0f)
@@ -7998,7 +8488,7 @@ void process_ui_widgets(
 				do
 				{
 #ifdef HALO_ANDROID
-					if (ui_join_code_take_event(widget, &event))
+					if (ui_vr_options_take_event(widget, &event) || ui_join_code_take_event(widget, &event))
 						continue;
 #endif
 					if (!pause_pressed)
