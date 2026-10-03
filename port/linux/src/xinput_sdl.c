@@ -540,6 +540,10 @@ In play, laid out for VR shooters rather than by position:
 	right stick    turns (vr.c); click zooms       left stick  move; click crouches
 	menu           pause (start)
 
+Holding a Warthog's wheel (vr.c), the right trigger is the throttle and the
+left one the brake (backwards, once stopped): the left stick pushed up or
+down as far, unless it is pushed further.
+
 In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 #include "guest_host.h"
@@ -579,6 +583,14 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = (BYTE)(right->trigger * 255.0f);
 	if (!menus && (BYTE)(left->trigger * 255.0f) > pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER])
 		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = (BYTE)(left->trigger * 255.0f);
+	if (!menus && halo_vr_wheel_held())
+	{
+		/* at the wheel: the triggers drive, and neither fire nor throw */
+		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 0;
+		pad->bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = 0;
+		value = vr_stick(right->trigger - left->trigger);
+		if (abs(value) > abs(pad->sThumbLY)) pad->sThumbLY = value;
+	}
 	if (menus)
 	{
 		/* the right stick scrolls too; turning is off in the menus */

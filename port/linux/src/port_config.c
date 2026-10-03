@@ -223,7 +223,8 @@ static const struct config_setting config_settings[] =
 		"above or below the horizon (a Banshee climbs or dives)." },
 	{ "vr.vehicle_wheel", _config_boolean, "true", "HALO_VR_VEHICLE_WHEEL", _environment_value, _platform_android,
 		"At an open vehicle's wheel (a Warthog's), grip it with one hand or both and\n"
-		"turn it to steer; let go, and the right stick steers." },
+		"turn it to steer, the right trigger the throttle and the left the brake;\n"
+		"let go, and the right stick steers." },
 	{ "vr.vehicle_wheel_degrees", _config_real, "90", "HALO_VR_VEHICLE_WHEEL_DEGREES", _environment_value,
 		_platform_android,
 		"The wheel turned this many degrees either way steers fully." },
