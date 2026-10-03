@@ -140,6 +140,15 @@ out (halo_vr_scope_pass). */
 int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view);
 int halo_vr_scope_pass(void);
+/* Players' names over their heads (hud.c, render.c): whether they are drawn
+apart this frame; the slot a name is drawn into (left, top, right, bottom
+of the game's 640x480); a name's place (world units, over the head),
+giving its slot (-1: no more); and the slots, drawn on the cleared back
+buffer, taken (it is cleared again) */
+int halo_vr_names_apart(void);
+void halo_vr_name_slot(int slot, short bounds[4]);
+int halo_vr_add_name(const float point[3]);
+void halo_vr_capture_names(void);
 /* how much higher than a rifle's the weapon in hand has its scope's disc
 (metres; render.c, before halo_vr_scope) */
 void halo_vr_set_scope_raise(float metres);

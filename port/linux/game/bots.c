@@ -32,6 +32,12 @@ In the objective games a bot plays for the objective, fighting on the way:
 - king of the hill: to the hill, and around in it;
 - oddball: to the ball (taken as a weapon is), hunting whoever carries it;
   with it, away from the enemy, striking those who come near.
+
+In a game of teams a bot plays with its team: it holds its fire while a
+teammate is in the line of it, takes on first the enemies near its
+teammates (people above all), escorts a teammate who carries the enemy's
+flag or the ball, and, with nothing to do, every other bot keeps near the
+nearest person on its team.
 */
 
 #include "cseries.h"
@@ -111,6 +117,12 @@ struct bot
 	real sidestep;
 	/* whether it walks to a point this tick (not only weaving in a fight) */
 	boolean walking;
+	/* the paths to its goal not found in a row, and goals given up for a
+	while on that account: following a person, a thing to pick up */
+	short path_failures;
+	long follow_again_time;
+	long ignored_item_index;
+	long ignored_item_time;
 	real wander_yaw;
 	short weave_phase;
 	/* where it is going, and the way there */
@@ -232,6 +244,124 @@ static boolean bot_can_see(
 		from, &vector, unit_index, &collision);
 }
 
+/* ---------- the team */
+
+/* whether a player is a person (on a machine of its own, not a bot's) */
+static boolean bot_player_is_person(
+	struct player_datum const *player)
+{
+	return !network_game_server_is_bot_machine(player->network_player_data.machine_index);
+}
+
+/* how much nearer an enemy at this point counts for being near the bot's
+teammates: up to 10 world units for one by a person, 6 by a bot */
+static real bot_threat_to_team(
+	struct player_datum const *player,
+	real_point3d const *enemy)
+{
+	real threat = 0.0f;
+	short index;
+
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *mate = distributed_player(index);
+		long unit_index;
+		real_point3d head;
+		real distance;
+		real most;
+
+		if (!mate || mate == player || mate->team_index != player->team_index)
+			continue;
+		unit_index = distributed_living_unit(mate);
+		if (unit_index == NONE)
+			continue;
+		unit_get_camera_position(unit_index, &head);
+		distance = distance3d(enemy, &head);
+		most = bot_player_is_person(mate) ? 10.0f : 6.0f;
+		if (distance < 12.0f)
+			threat = MAX(threat, most * (1.0f - distance / 12.0f));
+	}
+	return threat;
+}
+
+/* whether a teammate stands in the line of fire to a point (nearer than
+it, within 0.8 world units of the line) */
+static boolean bot_teammate_in_line(
+	struct player_datum const *player,
+	real_point3d const *eye,
+	real_point3d const *target)
+{
+	real_vector3d line;
+	real length;
+	short index;
+
+	if (!game_engine_has_teams())
+		return FALSE;
+	vector_from_points3d(eye, target, &line);
+	length = magnitude3d(&line);
+	if (length < 0.01f)
+		return FALSE;
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *mate = distributed_player(index);
+		long unit_index;
+		real_point3d center;
+		real_vector3d offset;
+		real along;
+		real_point3d nearest;
+
+		if (!mate || mate == player || mate->team_index != player->team_index)
+			continue;
+		unit_index = distributed_living_unit(mate);
+		if (unit_index == NONE)
+			continue;
+		unit_get_camera_position(unit_index, &center);
+		center.z -= 0.25f;
+		vector_from_points3d(eye, &center, &offset);
+		along = dot_product3d(&offset, &line) / length;
+		if (along <= 0.0f || along >= length)
+			continue;
+		nearest.x = eye->x + line.i * along / length;
+		nearest.y = eye->y + line.j * along / length;
+		nearest.z = eye->z + line.k * along / length;
+		if (distance3d(&nearest, &center) < 0.8f)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the nearest person on the bot's team, alive (NONE: none) */
+static long bot_nearest_person(
+	struct player_datum const *player,
+	real_point3d const *position)
+{
+	long best = NONE;
+	real best_distance = 40.0f;
+	short index;
+
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *mate = distributed_player(index);
+		long unit_index;
+		real_point3d origin;
+		real distance;
+
+		if (!mate || mate == player || mate->team_index != player->team_index || !bot_player_is_person(mate))
+			continue;
+		unit_index = distributed_living_unit(mate);
+		if (unit_index == NONE)
+			continue;
+		object_get_origin(unit_index, &origin);
+		distance = distance3d(position, &origin);
+		if (distance < best_distance)
+		{
+			best_distance = distance;
+			best = unit_index;
+		}
+	}
+	return best;
+}
+
 /* the nearest enemy unit the bot can see, or NONE */
 static long bot_find_target(
 	struct player_datum const *player,
@@ -256,6 +386,11 @@ static long bot_find_target(
 			continue;
 		unit_get_camera_position(unit_index, &head);
 		distance = distance3d(eye, &head);
+		if (distance >= bots.sight_range)
+			continue;
+		/* (one near a teammate counts as nearer: helped first) */
+		if (teams)
+			distance -= bot_threat_to_team(player, &head);
 		if (distance < best_distance && bot_can_see(player->unit_index, eye, &head))
 		{
 			best = unit_index;
@@ -299,6 +434,7 @@ static boolean bot_find_path(
 	if (goal_surface == NONE)
 	{
 		bots.fail_goal++;
+		bot->path_failures++;
 		return FALSE;
 	}
 	/* (a little wider than a biped: paths that keep off walls and corners) */
@@ -333,9 +469,11 @@ static boolean bot_find_path(
 		bot->path.valid = FALSE;
 		bots.paths_failed++;
 		bots.fail_search++;
+		bot->path_failures++;
 		return FALSE;
 	}
 	bots.paths_found += bot->path.valid != FALSE;
+	bot->path_failures = 0;
 	return bot->path.valid;
 }
 
@@ -776,6 +914,25 @@ static boolean bots_ctf_base(
 	return FALSE;
 }
 
+/* near a teammate who carries something, a few world units off on the bot's
+side of it (an escort, not on the carrier's heels) */
+static void bot_escort_point(
+	real_point3d const *position,
+	real_point3d const *carried,
+	real_point3d *point)
+{
+	real dx = position->x - carried->x;
+	real dy = position->y - carried->y;
+	real length = (real)sqrt(dx * dx + dy * dy);
+
+	*point = *carried;
+	if (length > 0.01f)
+	{
+		point->x += dx / length * 2.5f;
+		point->y += dy / length * 2.5f;
+	}
+}
+
 /* what the objective asks of the bot now (bot->has_objective and the rest) */
 static void bot_play_objective_now(
 	struct bot *bot,
@@ -888,11 +1045,14 @@ static void bot_play_objective_now(
 			}
 			return;
 		}
-		/* theirs: to take it, or to cover its carrier */
+		/* theirs: to take it, or to escort the teammate carrying it */
 		if (enemy)
 		{
 			bot->has_objective = TRUE;
-			bot->objective = enemy->position;
+			if (enemy->carrier_player_index != NONE)
+				bot_escort_point(position, &enemy->position, &bot->objective);
+			else
+				bot->objective = enemy->position;
 		}
 		return;
 	}
@@ -911,13 +1071,20 @@ static void bot_play_objective_now(
 				bot->carrying = TRUE;
 				return;
 			}
-			/* (one a teammate carries: not to be chased) */
+			/* (one a teammate carries: escorted, not chased) */
 			if (item->carrier_player_index != NONE && game_engine_has_teams())
 			{
 				struct player_datum *carrier = player_try_and_get(item->carrier_player_index);
 
 				if (carrier && carrier->team_index == player->team_index)
+				{
+					if (!nearest)
+					{
+						bot->has_objective = TRUE;
+						bot_escort_point(position, &item->position, &bot->objective);
+					}
 					continue;
+				}
 			}
 			distance = distance3d(position, &item->position);
 			if (distance < nearest_distance)
@@ -976,6 +1143,7 @@ static void bot_think(
 	real wanted_yaw;
 	real wanted_pitch = 0.0f;
 	boolean firing = FALSE;
+	boolean following = FALSE;
 	real moved;
 
 	csmemset(action, 0, sizeof(*action));
@@ -1153,6 +1321,13 @@ static void bot_think(
 		firing = !bot->carrying && distance < BOT_FIRE_RANGE &&
 			fabsf(bot_angle_difference(wanted_yaw, bot->yaw)) < BOT_FIRE_CONE &&
 			fabsf(wanted_pitch - bot->pitch) < BOT_FIRE_CONE;
+		/* (a teammate in the line of fire: held, and a step aside for a
+		clear shot) */
+		if (firing && bot_teammate_in_line(player, &eye, &head))
+		{
+			firing = FALSE;
+			action->throttle.j = (bot->weave_phase / 30) & 1 ? 1.0f : -1.0f;
+		}
 		/* (a melee blow when it is upon it) */
 		if (distance < 1.0f)
 			SET_FLAG(action->control_flags, _unit_control_use_equipment_bit, TRUE);
@@ -1201,6 +1376,8 @@ static void bot_think(
 			long item = bot_find_item(unit, &position, BOT_ITEM_RANGE, 0.0f);
 
 			bot->item_look_time = game_time_get();
+			if (item == bot->ignored_item_index && game_time_get() - bot->ignored_item_time < 600)
+				item = NONE;
 			if (item != bot->item_index)
 			{
 				bot->item_index = item;
@@ -1215,8 +1392,16 @@ static void bot_think(
 		}
 		if (bot->item_index != NONE && !bot->has_objective)
 		{
-			/* (taken or gone: on) */
-			if (!object_try_and_get(bot->item_index) || bot_item_worth(unit, bot->item_index) <= 0.0f)
+			/* (taken or gone, or no way to it: on) */
+			if (bot->path_failures >= 3)
+			{
+				bot->ignored_item_index = bot->item_index;
+				bot->ignored_item_time = game_time_get();
+				bot->path_failures = 0;
+				bot->item_index = NONE;
+				bot->has_goal = FALSE;
+			}
+			else if (!object_try_and_get(bot->item_index) || bot_item_worth(unit, bot->item_index) <= 0.0f)
 			{
 				bot->item_index = NONE;
 				bot->has_goal = FALSE;
@@ -1229,12 +1414,56 @@ static void bot_think(
 					bot_take_item(bot, player, unit, action);
 			}
 		}
+		/* (in a team, every other bot with nothing to do keeps near the
+		nearest person on its team) */
+		following = FALSE;
+		if (bot->item_index == NONE && !bot->has_objective && game_engine_has_teams() &&
+			(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) & 1) == 0 &&
+			game_time_get() >= bot->follow_again_time)
+		{
+			long person = bot_nearest_person(player, &position);
+
+			if (person != NONE)
+			{
+				real_point3d origin;
+
+				following = TRUE;
+				object_get_origin(person, &origin);
+				/* (near: where it is, not on top of them) */
+				if (distance3d(&position, &origin) > 6.0f)
+					bot_escort_point(&position, &origin, &bot->goal);
+				else
+					bot->goal = position;
+				bot->has_goal = TRUE;
+				bot->goal_time = game_time_get();
+				/* (no way to them, as up where only a teleporter goes: not for
+				ten seconds) */
+				if (bot->path_failures >= 3)
+				{
+					bot->follow_again_time = game_time_get() + 300;
+					bot->path_failures = 0;
+					following = FALSE;
+				}
+			}
+		}
 		/* hunts, or roams: along its way, looking where it goes */
-		if (bot->item_index == NONE && !bot->has_objective &&
-			(!bot->has_goal || game_time_get() - bot->goal_time > 90 ||
+		if (bot->item_index == NONE && !bot->has_objective && !following &&
+			(!bot->has_goal || game_time_get() - bot->goal_time > 90 || bot->path_failures >= 3 ||
 				distance3d(&position, &bot->goal) < BOT_GOAL_RADIUS))
 		{
+			boolean unreachable = bot->path_failures >= 3;
+
 			bot_choose_goal(bot, player, &position);
+			/* (no way to the last: somewhere near at random instead) */
+			if (unreachable)
+			{
+				real angle = bot_random() * 2.0f * _pi;
+
+				bot->goal = position;
+				bot->goal.x += (real)cos(angle) * 6.0f;
+				bot->goal.y += (real)sin(angle) * 6.0f;
+			}
+			bot->path_failures = 0;
 		}
 		wanted_yaw = bot->wander_yaw;
 		if (bot_next_point(bot, player->unit_index, &position, &point))
@@ -1363,6 +1592,7 @@ static struct bot *bot_get(
 		free_bot->player_index = player_index;
 		free_bot->target_unit_index = NONE;
 		free_bot->item_index = NONE;
+		free_bot->ignored_item_index = NONE;
 	}
 	return free_bot;
 }

@@ -853,6 +853,14 @@ static void render_vr_overlay(
 	parameters.suppress_clear = TRUE;
 	parameters.window_index = render.window_index;
 
+	if (!menus_active && halo_vr_names_apart())
+	{
+		/* the players' names, each to be shown over its head */
+		rasterizer_window_begin(&parameters);
+		hud_draw_player_names_vr();
+		rasterizer_window_end();
+		halo_vr_capture_names();
+	}
 	if (!menus_active && halo_vr_crosshair_apart())
 	{
 		/* the weapon's crosshair alone, taken to where the weapon aims */

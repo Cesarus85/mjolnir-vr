@@ -794,6 +794,12 @@ the eyes reads it. Shown only while it is. */
 
 #define WRIST_IMAGE_SIZE 512
 #define CROSSHAIR_IMAGE_SIZE 256
+/* the names layer: HALO_XR_MAXIMUM_NAMES slots of 4:1, one over another */
+#define NAMES_IMAGE_WIDTH 512
+#define NAMES_IMAGE_HEIGHT (NAMES_IMAGE_WIDTH / 4 * HALO_XR_MAXIMUM_NAMES)
+/* a name's slot, as the game draws it: wider than its image's 4:1 (the
+game's 640x480 drawn square): the height a slot shows at, to its width */
+#define NAME_SLOT_ASPECT (30.0f / 160.0f)
 #define WRIST_BEHIND_PALM 0.05f
 #define WRIST_DOWN_HANDLE 0.02f
 #define WRIST_ABOVE_HAND 0.04f
@@ -1032,8 +1038,15 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 	{
 		int size = layer == HALO_XR_LAYER_WRIST || layer == HALO_XR_LAYER_SCOPE ? WRIST_IMAGE_SIZE :
 			layer == HALO_XR_LAYER_CROSSHAIR ? CROSSHAIR_IMAGE_SIZE : 0;
+		int width = size ? size : xr.eye_width;
+		int height = size ? size : xr.eye_height;
 
-		if (!swapchain_create(&xr.swapchains[layer], size ? size : xr.eye_width, size ? size : xr.eye_height))
+		if (layer == HALO_XR_LAYER_NAMES)
+		{
+			width = NAMES_IMAGE_WIDTH;
+			height = NAMES_IMAGE_HEIGHT;
+		}
+		if (!swapchain_create(&xr.swapchains[layer], width, height))
 			return 0;
 	}
 	if (!copy_initialize() || !actions_initialize())
@@ -1354,7 +1367,8 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	XrCompositionLayerQuad wrist = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad scope = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad crosshair = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	const XrCompositionLayerBaseHeader *layers[5];
+	XrCompositionLayerQuad names[HALO_XR_MAXIMUM_NAMES];
+	const XrCompositionLayerBaseHeader *layers[5 + HALO_XR_MAXIMUM_NAMES];
 	uint32_t layer_count = 0;
 	int eye;
 
@@ -1456,6 +1470,34 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		crosshair.size.width = crosshair.size.height = submit->crosshair_size;
 		pose_to_xr(&crosshair.pose, &submit->crosshair_pose);
 		layers[layer_count++] = (const XrCompositionLayerBaseHeader *)&crosshair;
+	}
+
+	if (xr.frame_state.shouldRender && submit->name_count > 0 && xr.swapchains[HALO_XR_LAYER_NAMES].filled)
+	{
+		struct xr_swapchain *swapchain = &xr.swapchains[HALO_XR_LAYER_NAMES];
+		int slot_height = swapchain->height / HALO_XR_MAXIMUM_NAMES;
+		int name;
+
+		for (name = 0; name < submit->name_count && name < HALO_XR_MAXIMUM_NAMES; name++)
+		{
+			XrCompositionLayerQuad *quad_name = &names[name];
+
+			memset(quad_name, 0, sizeof(*quad_name));
+			quad_name->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+			quad_name->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+			quad_name->space = xr.local_space;
+			quad_name->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+			quad_name->subImage.swapchain = swapchain->handle;
+			/* (slot 0 at the image's top: GL's rows run bottom up) */
+			quad_name->subImage.imageRect.offset.x = 0;
+			quad_name->subImage.imageRect.offset.y = swapchain->height - (name + 1) * slot_height;
+			quad_name->subImage.imageRect.extent.width = swapchain->width;
+			quad_name->subImage.imageRect.extent.height = slot_height;
+			quad_name->size.width = submit->name_widths[name];
+			quad_name->size.height = submit->name_widths[name] * NAME_SLOT_ASPECT;
+			pose_to_xr(&quad_name->pose, &submit->name_poses[name]);
+			layers[layer_count++] = (const XrCompositionLayerBaseHeader *)quad_name;
+		}
 	}
 
 	end.displayTime = xr.frame_state.predictedDisplayTime;
