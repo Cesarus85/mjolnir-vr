@@ -201,6 +201,9 @@ driver's hands on it as drawn (world units, from the game's camera), or
 NULL; the player's own hands turn it. And whether they hold it. */
 void halo_vr_set_wheel(short local_player_index, const float left[3], const float right[3]);
 int halo_vr_wheel_held(void);
+/* the controllers' layout (HALO_XR_LAYOUT_*: 0 the Quest's, 1 the Steam
+Frame's), for what the game tells the player */
+int halo_vr_controller_layout(void);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks

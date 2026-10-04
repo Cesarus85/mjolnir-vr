@@ -36,7 +36,7 @@ What differs is found at run time, not by a build of its own.
 | 2 | The game's data where Lepton keeps it | done: `/home/steamos/Documents/HaloCE` |
 | 3 | Menus, HUD and text visible (quad layers) | done: their alpha from their colour |
 | 4 | The freeze at the cryo bay's calibration | not seen again (2026-10-04) |
-| 5 | The Frame's controllers | |
+| 5 | The Frame's controllers | in test: their own profile, the Xbox's layout |
 | 6 | Frame rate, resolution | |
 | 7 | Multiplayer, voice, cross-play with the Quest | |
 | 8 | Installing it, for others | |
@@ -56,6 +56,19 @@ debug.txt go there too). Once:
 After a Lepton restart only the APK is installed again. (Use the path under
 /home, not /sdcard/Documents: Android 11's scoped storage stands between the
 app and the latter.)
+
+## The controllers
+
+SteamVR offers the Frame's controllers as themselves
+(`XR_VALVE_frame_controller_interaction`,
+`/interaction_profiles/valve/frame_controller_valve`; Valve's "Steam Frame
+Input" page). Without bindings for it, SteamVR maps the Quest's onto them,
+and the left Touch controller's X and Y land on the D-pad. With them the
+game gets the Xbox's layout, as the right controller has it: A jump, B
+flashlight (held: switch grenades), X action and reload, Y switch weapon,
+menu pause; the left one's View is Back (scores), its D-pad the D-pad, the
+bumpers switch grenades (left) and the flashlight (right). The VR options'
+page of buttons shows this layout on the Frame.
 
 ## Findings
 
