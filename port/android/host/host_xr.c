@@ -122,6 +122,11 @@ static struct
 	GLint rect_uniform;
 	GLint cut_disc_uniform;
 	GLint vignette_uniform;
+	GLint alpha_from_colour_uniform;
+	/* the runtime draws a quad's texels by their alpha alone, ignoring the
+	colour of those with none (SteamVR on the Steam Frame): the game's
+	overlays, whose additive parts have none, get alpha from their colour */
+	int quad_alpha_from_colour;
 	GLint tangents_uniform;
 	float vignette;
 	/* the same copy from a layer of a texture array (the eyes drawn at
@@ -223,6 +228,7 @@ static const char copy_fragment_shader[] =
 	"precision highp float;\n"
 	"uniform sampler2D source;\n"
 	"uniform float cut_disc;\n"
+	"uniform float alpha_from_colour; /* 1: as opaque as it is bright (a quad's, SteamVR) */\n"
 	"uniform float vignette; /* 0..1: the eye images darken from their edges */\n"
 	"uniform vec4 tangents; /* the eye's edges: left, right, down, up */\n"
 	"in vec2 coordinate;\n"
@@ -236,6 +242,8 @@ static const char copy_fragment_shader[] =
 	"{\n"
 	"	vec4 texel = texture(source, coordinate);\n"
 	"	color = vec4(to_linear(texel.rgb), texel.a);\n"
+	"	if (alpha_from_colour > 0.5)\n"
+	"		color.a = max(color.a, max(color.r, max(color.g, color.b)));\n"
 	"	if (cut_disc > 0.5)\n"
 	"	{\n"
 	"		float inside = 1.0 - smoothstep(0.95, 1.0, length(disc));\n"
@@ -326,6 +334,7 @@ static int copy_initialize(void)
 	xr.rect_uniform = glGetUniformLocation(xr.program, "rect");
 	xr.cut_disc_uniform = glGetUniformLocation(xr.program, "cut_disc");
 	xr.vignette_uniform = glGetUniformLocation(xr.program, "vignette");
+	xr.alpha_from_colour_uniform = glGetUniformLocation(xr.program, "alpha_from_colour");
 	xr.tangents_uniform = glGetUniformLocation(xr.program, "tangents");
 	xr.copy_array_layer = -1;
 	{
@@ -966,6 +975,22 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	}
 	xrGetSystemProperties(xr.instance, xr.system, &properties);
 	strncpy(xr.system_name, properties.systemName, sizeof(xr.system_name) - 1);
+	{
+		/* (SteamVR: the quads' alpha from their colour; HALO_XR_QUAD_ALPHA
+		"colour" or "keep" says otherwise, for trying) */
+		XrInstanceProperties instance = { XR_TYPE_INSTANCE_PROPERTIES };
+		const char *choice = getenv("HALO_XR_QUAD_ALPHA");
+
+		if (XR_SUCCEEDED(xrGetInstanceProperties(xr.instance, &instance)))
+		{
+			xr.quad_alpha_from_colour = strstr(instance.runtimeName, "SteamVR") != NULL;
+			host_logf(HOST_LOG_INFO, "xr: runtime %s", instance.runtimeName);
+		}
+		if (choice)
+			xr.quad_alpha_from_colour = !strcmp(choice, "colour");
+		if (xr.quad_alpha_from_colour)
+			host_logf(HOST_LOG_INFO, "xr: the overlays' alpha from their colour");
+	}
 
 	views[0].type = views[1].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
 	views[0].next = views[1].next = NULL;
@@ -1322,6 +1347,8 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		glUniform1i(xr.source_uniform, 0);
 		glUniform4f(xr.rect_uniform, left, top, right, bottom);
 		glUniform1f(xr.cut_disc_uniform, clear_alpha == HALO_XR_COPY_DISC ? 1.0f : 0.0f);
+		glUniform1f(xr.alpha_from_colour_uniform, xr.quad_alpha_from_colour && clear_alpha == HALO_XR_COPY_ALPHA &&
+			layer != HALO_XR_LAYER_EYE_LEFT && layer != HALO_XR_LAYER_EYE_RIGHT ? 1.0f : 0.0f);
 		if ((layer == HALO_XR_LAYER_EYE_LEFT || layer == HALO_XR_LAYER_EYE_RIGHT) && xr.vignette > 0.001f)
 		{
 			const XrFovf *fov = &xr.views[layer - HALO_XR_LAYER_EYE_LEFT].fov;

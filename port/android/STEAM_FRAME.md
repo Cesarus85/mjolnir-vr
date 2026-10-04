@@ -32,14 +32,30 @@ What differs is found at run time, not by a build of its own.
 
 | # | Stage | State |
 | --- | --- | --- |
-| 1 | Base: the fixes above on the current main | in progress |
-| 2 | The game's data where Lepton keeps it | |
-| 3 | Menus, HUD and text visible (quad layers) | |
-| 4 | The freeze at the cryo bay's calibration | |
+| 1 | Base: the fixes above on the current main | done |
+| 2 | The game's data where Lepton keeps it | done: `/home/steamos/Documents/HaloCE` |
+| 3 | Menus, HUD and text visible (quad layers) | done: their alpha from their colour |
+| 4 | The freeze at the cryo bay's calibration | not seen again (2026-10-04) |
 | 5 | The Frame's controllers | |
 | 6 | Frame rate, resolution | |
 | 7 | Multiplayer, voice, cross-play with the Quest | |
 | 8 | Installing it, for others | |
+
+## The game's data
+
+Lepton uninstalls the app and empties its folders whenever it starts again.
+The game's data lives in the SteamOS user's Documents instead: when
+`/home/steamos/Documents/HaloCE` holds `maps/ui.map` and is writable, the
+launcher and the game take it as their data folder (config.toml, saves and
+debug.txt go there too). Once:
+
+    adb -s <frame-ip>:5555 shell mkdir -p /home/steamos/Documents/HaloCE/maps
+    adb -s <frame-ip>:5555 push assets/maps/. /home/steamos/Documents/HaloCE/maps/
+    adb -s <frame-ip>:5555 shell chmod -R 777 /home/steamos/Documents/HaloCE
+
+After a Lepton restart only the APK is installed again. (Use the path under
+/home, not /sdcard/Documents: Android 11's scoped storage stands between the
+app and the latter.)
 
 ## Findings
 
@@ -47,3 +63,12 @@ What differs is found at run time, not by a build of its own.
   1728x1728, 72 Hz, XR_FB_display_refresh_rate absent). Quad layers
   (menus, HUD, instructions) are not shown; the projection layer is. Froze
   at the cryo bay's look calibration; its log was lost to Lepton's wipe.
+- 2026-10-04: SteamVR draws a quad's texels by their alpha alone; the
+  game's menus and HUD have none in their additive parts, so nothing showed.
+  On SteamVR (by the runtime's name) the overlays' alpha now comes from their
+  colour (host_xr.c; `HALO_XR_QUAD_ALPHA=colour|keep` overrides). With it,
+  menus, HUD and the campaign ran well (the user: "lief 1a"); no freeze.
+- 2026-10-04: no online games found: the public MQTT brokers had banned the
+  home connection for a while (too many connections from tests that day);
+  broker.emqx.io came back within minutes. Lepton's network is the Frame's
+  own (same IP), DNS works.
