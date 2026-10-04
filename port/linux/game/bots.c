@@ -53,7 +53,7 @@ the gun, and gets out once no one drives.
 In a game of teams a bot plays with its team: it holds its fire while a
 teammate is in the line of it, takes on first the enemies near its
 teammates (people above all), escorts a teammate who carries the enemy's
-flag or the ball, and, with nothing to do, every other bot keeps near the
+flag or the ball, and, with nothing to do, every third bot keeps near the
 nearest person on its team.
 */
 
@@ -185,6 +185,8 @@ struct bot
 	short flipped_ticks;
 	/* (at a turret: when it last had someone to shoot) */
 	long turret_target_time;
+	/* (driving: when it got in, to wait a moment for those coming along) */
+	long seated_time;
 	boolean leave_logged;
 	real_point3d drive_last;
 	boolean holding;
@@ -1408,6 +1410,105 @@ static boolean bot_enemy_near(
 	return FALSE;
 }
 
+/* how far off the nearest enemy alive is (a long way: none) */
+static real bot_nearest_enemy_distance(
+	struct player_datum const *player,
+	real_point3d const *point)
+{
+	boolean teams = game_engine_has_teams();
+	real nearest = 1000000.0f;
+	short index;
+
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *other = distributed_player(index);
+		long unit_index;
+		real_point3d origin;
+
+		if (!other || other == player || (teams && other->team_index == player->team_index))
+			continue;
+		unit_index = distributed_living_unit(other);
+		if (unit_index == NONE)
+			continue;
+		object_get_origin(unit_index, &origin);
+		nearest = MIN(nearest, distance3d(point, &origin));
+	}
+	return nearest;
+}
+
+/* whether a teammate is coming to get in: a bot going for the vehicle, or
+a person on foot near it while a gun's seat is free */
+static boolean bot_riders_coming(
+	struct bot const *bot,
+	struct player_datum const *player,
+	long vehicle_index)
+{
+	real_point3d origin;
+	short index;
+
+	for (index = 0; index < MAXIMUM_BOTS; index++)
+	{
+		struct bot const *other = &bots.bots[index];
+
+		if (other != bot && other->player_index != NONE && other->vehicle_index == vehicle_index)
+			return TRUE;
+	}
+	if (!game_engine_has_teams() || bot_free_seat(bot, player->unit_index, vehicle_index, _bot_seat_gunner) == NONE)
+		return FALSE;
+	object_get_origin(vehicle_index, &origin);
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *mate = distributed_player(index);
+		long unit_index;
+		real_point3d mate_origin;
+
+		if (!mate || mate == player || mate->team_index != player->team_index || !bot_player_is_person(mate))
+			continue;
+		unit_index = distributed_living_unit(mate);
+		if (unit_index == NONE || object_get(unit_index)->object.parent_object_index != NONE)
+			continue;
+		object_get_origin(unit_index, &mate_origin);
+		if (distance3d(&origin, &mate_origin) < 10.0f)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* whether a teammate on foot stands in the way the vehicle goes (ahead of
+it, or behind it backing), near */
+static boolean bot_teammate_in_the_way(
+	struct player_datum const *player,
+	real_point3d const *position,
+	real heading,
+	boolean backing)
+{
+	short index;
+
+	if (!game_engine_has_teams())
+		return FALSE;
+	if (backing)
+		heading += _pi;
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *mate = distributed_player(index);
+		long unit_index;
+		real_point3d origin;
+
+		if (!mate || mate == player || mate->team_index != player->team_index)
+			continue;
+		unit_index = distributed_living_unit(mate);
+		if (unit_index == NONE || object_get(unit_index)->object.parent_object_index != NONE)
+			continue;
+		object_get_origin(unit_index, &origin);
+		if (distance3d(position, &origin) < 8.0f &&
+			fabsf(bot_angle_difference((real)atan2(origin.y - position->y, origin.x - position->x), heading)) < 0.7f)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 /* now and then, on foot: a vehicle to get into (bot->vehicle_index): a
 teammate's to man its gun (or a person's to ride along in), or, when the way
 is long, an empty one to drive */
@@ -1694,6 +1795,7 @@ static void bot_ride(
 		bot->drive_moving_ticks = 0;
 		bot->drive_slow_ticks = 0;
 		bot->turret_target_time = game_time_get();
+		bot->seated_time = game_time_get();
 		bot->leave_logged = FALSE;
 		bot->has_goal = FALSE;
 		bot->path.valid = FALSE;
@@ -1899,6 +2001,23 @@ static void bot_ride(
 					action->throttle.i = action->throttle.j = 0.0f;
 			}
 		}
+		/* (just in, with a teammate coming to get in: a moment's wait) */
+		if (game_time_get() - bot->seated_time < 180 && game_time_get() >= bot->seated_time &&
+			bot_riders_coming(bot, player, vehicle_index))
+		{
+			action->throttle.i = action->throttle.j = 0.0f;
+			bot->drive_stuck_ticks = 0;
+			bot->reverse_ticks = 0;
+		}
+		/* (a teammate in the way: braked, not run down) */
+		else if (bot_teammate_in_the_way(player, &position, heading,
+			bot->reverse_ticks > 0 || action->throttle.i < 0.0f))
+		{
+			action->throttle.i = moved > 0.08f ? (action->throttle.i > 0.0f ? -1.0f : 1.0f) : 0.0f;
+			action->throttle.j = 0.0f;
+			bot->drive_stuck_ticks = 0;
+			bot->reverse_ticks = 0;
+		}
 		/* (an enemy close by, and the vehicle all but still: out to fight it
 		on foot) */
 		if (bot->target_unit_index != NONE && target_distance < 10.0f && moved < 0.05f)
@@ -1939,8 +2058,11 @@ static void bot_ride(
 					bots.stucks++;
 					if (++bot->drive_stucks >= 4)
 					{
+						/* (and that vehicle left alone a while) */
 						leave = TRUE;
 						why = "stuck";
+						bot->ignored_vehicle_index = vehicle_index;
+						bot->ignored_vehicle_time = game_time_get();
 					}
 				}
 			}
@@ -2086,7 +2208,9 @@ static void bot_think(
 		if (bot->vehicle_index == NONE && !bot->carrying && game_time_get() >= bot->vehicle_again_time &&
 			(game_time_get() - bot->vehicle_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->vehicle_look_time))
 		{
-			boolean far = race || !bot->has_objective || distance3d(&position, &bot->objective) > 25.0f;
+			/* (far: the objective, or else the nearest enemy, a long way off) */
+			boolean far = race || (bot->has_objective ? distance3d(&position, &bot->objective) > 25.0f :
+				bot_nearest_enemy_distance(player, &position) > 30.0f);
 			boolean close_fight = bot->target_unit_index != NONE &&
 				object_try_and_get(bot->target_unit_index) &&
 				(object_get_origin(bot->target_unit_index, &entrance), distance3d(&position, &entrance) < 12.0f);
@@ -2333,11 +2457,11 @@ static void bot_think(
 					bot_take_item(bot, player, unit, action);
 			}
 		}
-		/* (in a team, every other bot with nothing to do keeps near the
-		nearest person on its team) */
+		/* (in a team, every third bot with nothing to do keeps near the
+		nearest person on its team; the rest go after the enemy) */
 		following = FALSE;
 		if (bot->item_index == NONE && !bot->has_objective && game_engine_has_teams() &&
-			(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) & 1) == 0 &&
+			(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) % 3) == 0 &&
 			game_time_get() >= bot->follow_again_time)
 		{
 			long person = bot_nearest_person(player, &position);
