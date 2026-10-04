@@ -6875,6 +6875,63 @@ static void ui_vr_controls_render(
 	ui_join_code_draw_text(left, (short)(left + 270), 86, "LEFT CONTROLLER", FALSE, 0, &title_color);
 	ui_join_code_draw_text(right, (short)(right + 270), 86, "RIGHT CONTROLLER", FALSE, 0, &title_color);
 	ui_join_code_draw_quad(320, 86, 321, 300, 0xFF3A6EA5);
+	if (halo_vr_controller_layout() == 1)
+	{
+		/* the Steam Frame's controllers: A, B, X, Y and a menu button on the
+		right one, a D-pad and a View button on the left one */
+		switch (ui_vr_options_globals.page)
+		{
+		case _vr_controls_on_foot:
+			ui_vr_controls_line(left, y, "Stick", "Move; click: crouch");
+			ui_vr_controls_line(left, y + 22, "Trigger", "Grenade: hold it,");
+			ui_vr_controls_line(left, y + 40, "", "let go as you throw");
+			ui_vr_controls_line(left, y + 62, "Grip", "Weapon in both hands");
+			ui_vr_controls_line(left, y + 84, "Bumper", "Switch grenades");
+			ui_vr_controls_line(left, y + 106, "View", "Scores");
+			ui_vr_controls_line(left, y + 128, "D-pad", "In the menus");
+			ui_vr_controls_line(right, y, "Stick", "Turn; click: zoom");
+			ui_vr_controls_line(right, y + 22, "Trigger", "Fire");
+			ui_vr_controls_line(right, y + 44, "Grip", "Melee (or punch)");
+			ui_vr_controls_line(right, y + 66, "A", "Jump");
+			ui_vr_controls_line(right, y + 88, "B", "Light; held: grenades");
+			ui_vr_controls_line(right, y + 110, "X", "Action, reload");
+			ui_vr_controls_line(right, y + 132, "Y", "Switch weapon");
+			ui_vr_controls_line(right, y + 154, "Menu", "Pause");
+			ui_vr_controls_note(320, "Motion tracker: turn the back of your left wrist towards you.");
+			ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
+			ui_vr_controls_note(360, "Right bumper: the flashlight too.");
+			break;
+		case _vr_controls_vehicles:
+			ui_vr_controls_line(left, y, "Stick", "Drive");
+			ui_vr_controls_line(left, y + 22, "Trigger", "Second weapon");
+			ui_vr_controls_line(left, y + 40, "", "(Banshee, tank)");
+			ui_vr_controls_line(right, y, "Stick", "Steer; up and down:");
+			ui_vr_controls_line(right, y + 18, "", "climb, dive");
+			ui_vr_controls_line(right, y + 40, "Trigger", "Fire");
+			ui_vr_controls_line(right, y + 62, "X", "Get in, get out");
+			ui_vr_controls_line(right, y + 84, "B", "Flashlight");
+			ui_vr_controls_note(300, "Warthog: grip the wheel with one hand or both and turn it.");
+			ui_vr_controls_note(320, "Holding it, the right trigger accelerates, the left one brakes");
+			ui_vr_controls_note(338, "and reverses. Let go, and the right stick steers.");
+			ui_vr_controls_note(360, "At a gun or as a passenger: aim with the right controller.");
+			break;
+		default:
+			ui_vr_controls_line(left, y, "Stick", "Choose");
+			ui_vr_controls_line(left, y + 22, "D-pad", "Choose");
+			ui_vr_controls_line(left, y + 44, "Trigger", "Click where it points");
+			ui_vr_controls_line(right, y, "Stick", "Choose, scroll");
+			ui_vr_controls_line(right, y + 22, "A", "Accept");
+			ui_vr_controls_line(right, y + 44, "B", "Back");
+			ui_vr_controls_line(right, y + 66, "X, Y", "As the screen shows");
+			ui_vr_controls_line(right, y + 88, "Trigger", "Click where it points");
+			ui_vr_controls_note(300, "Point at the menus with either controller; its trigger clicks.");
+			ui_vr_controls_note(320, "On the keyboard, BACK and ENTER under it can be clicked too.");
+			ui_vr_controls_note(340, "Y on the main menu or the pause menu: these VR options.");
+			break;
+		}
+		ui_join_code_draw_text(44, 596, 412, "%b-button Back      Left, right: the other pages", TRUE, 0, &tab_color);
+		return;
+	}
 	switch (ui_vr_options_globals.page)
 	{
 	case _vr_controls_on_foot:

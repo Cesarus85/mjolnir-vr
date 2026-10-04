@@ -862,6 +862,12 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	value = vr_stick(left->thumbstick[1]);
 	if (abs(value) > abs(pad->sThumbLY)) pad->sThumbLY = value;
 	if (left->buttons & HALO_XR_BUTTON_MENU) pad->wButtons |= XINPUT_GAMEPAD_START;
+	/* (the Steam Frame's controllers: the left one's View button and D-pad) */
+	if (left->buttons & HALO_XR_BUTTON_VIEW) pad->wButtons |= XINPUT_GAMEPAD_BACK;
+	if (left->buttons & HALO_XR_BUTTON_DPAD_UP) pad->wButtons |= XINPUT_GAMEPAD_DPAD_UP;
+	if (left->buttons & HALO_XR_BUTTON_DPAD_DOWN) pad->wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
+	if (left->buttons & HALO_XR_BUTTON_DPAD_LEFT) pad->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+	if (left->buttons & HALO_XR_BUTTON_DPAD_RIGHT) pad->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
 	if (left->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
 	if (right->buttons & HALO_XR_BUTTON_THUMBSTICK) pad->wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
 	/* (in the menus the triggers click the pointer: halo_vr_menu_pointer) */
@@ -897,6 +903,10 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	merge_button(pad, XINPUT_GAMEPAD_B,
 		((right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 && !halo_vr_wheel_held()) || halo_vr_melee());
 	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
+	/* (the Steam Frame's bumpers: the left switches grenades, the right is
+	the flashlight) */
+	merge_button(pad, XINPUT_GAMEPAD_BLACK, (left->buttons & HALO_XR_BUTTON_BUMPER) != 0);
+	merge_button(pad, XINPUT_GAMEPAD_WHITE, (right->buttons & HALO_XR_BUTTON_BUMPER) != 0);
 	{
 		/* B: a tap is the flashlight, holding it switches grenades; the
 		game sees a short press of either */

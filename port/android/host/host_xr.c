@@ -102,6 +102,14 @@ static struct
 	XrAction button_b; /* B on the right controller, Y on the left */
 	XrAction menu;
 	XrAction thumbrest;
+	/* the Steam Frame's controllers' own (XR_VALVE_frame_controller_interaction) */
+	int has_frame_controller;
+	int frame_layout;
+	XrAction button_x;
+	XrAction button_y;
+	XrAction view;
+	XrAction bumper;
+	XrAction dpad[4];
 	XrAction haptic;
 	struct xr_hand_actions hands[HALO_XR_HAND_COUNT];
 
@@ -122,6 +130,11 @@ static struct
 	GLint rect_uniform;
 	GLint cut_disc_uniform;
 	GLint vignette_uniform;
+	GLint alpha_from_colour_uniform;
+	/* the runtime draws a quad's texels by their alpha alone, ignoring the
+	colour of those with none (SteamVR on the Steam Frame): the game's
+	overlays, whose additive parts have none, get alpha from their colour */
+	int quad_alpha_from_colour;
 	GLint tangents_uniform;
 	float vignette;
 	/* the same copy from a layer of a texture array (the eyes drawn at
@@ -223,6 +236,7 @@ static const char copy_fragment_shader[] =
 	"precision highp float;\n"
 	"uniform sampler2D source;\n"
 	"uniform float cut_disc;\n"
+	"uniform float alpha_from_colour; /* 1: as opaque as it is bright (a quad's, SteamVR) */\n"
 	"uniform float vignette; /* 0..1: the eye images darken from their edges */\n"
 	"uniform vec4 tangents; /* the eye's edges: left, right, down, up */\n"
 	"in vec2 coordinate;\n"
@@ -236,6 +250,8 @@ static const char copy_fragment_shader[] =
 	"{\n"
 	"	vec4 texel = texture(source, coordinate);\n"
 	"	color = vec4(to_linear(texel.rgb), texel.a);\n"
+	"	if (alpha_from_colour > 0.5)\n"
+	"		color.a = max(color.a, max(color.r, max(color.g, color.b)));\n"
 	"	if (cut_disc > 0.5)\n"
 	"	{\n"
 	"		float inside = 1.0 - smoothstep(0.95, 1.0, length(disc));\n"
@@ -326,6 +342,7 @@ static int copy_initialize(void)
 	xr.rect_uniform = glGetUniformLocation(xr.program, "rect");
 	xr.cut_disc_uniform = glGetUniformLocation(xr.program, "cut_disc");
 	xr.vignette_uniform = glGetUniformLocation(xr.program, "vignette");
+	xr.alpha_from_colour_uniform = glGetUniformLocation(xr.program, "alpha_from_colour");
 	xr.tangents_uniform = glGetUniformLocation(xr.program, "tangents");
 	xr.copy_array_layer = -1;
 	{
@@ -580,6 +597,14 @@ static int actions_initialize(void)
 	xr.button_b = action_create("button_upper", "B / Y", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.menu = action_create("menu", "Menu", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.thumbrest = action_create("thumbrest", "Thumb rest", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.button_x = action_create("button_x", "X", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.button_y = action_create("button_y", "Y", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.view = action_create("view", "View", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.bumper = action_create("bumper", "Bumper", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.dpad[0] = action_create("dpad_up", "D-pad up", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.dpad[1] = action_create("dpad_down", "D-pad down", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.dpad[2] = action_create("dpad_left", "D-pad left", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.dpad[3] = action_create("dpad_right", "D-pad right", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.haptic = action_create("haptic", "Rumble", XR_ACTION_TYPE_VIBRATION_OUTPUT);
 
 	{
@@ -644,6 +669,44 @@ static int actions_initialize(void)
 			{ &xr.haptic, "/user/hand/right/output/haptic" },
 		};
 
+		/* the Steam Frame's controllers, as themselves: the right one has
+		A, B, X, Y and a menu button, the left one a D-pad and a View button
+		(port/android/STEAM_FRAME.md) */
+		static const struct binding frame_controller[] =
+		{
+			{ &xr.grip_pose, "/user/hand/left/input/grip/pose" },
+			{ &xr.grip_pose, "/user/hand/right/input/grip/pose" },
+			{ &xr.aim_pose, "/user/hand/left/input/aim/pose" },
+			{ &xr.aim_pose, "/user/hand/right/input/aim/pose" },
+			{ &xr.trigger, "/user/hand/left/input/trigger/value" },
+			{ &xr.trigger, "/user/hand/right/input/trigger/value" },
+			{ &xr.squeeze, "/user/hand/left/input/squeeze/value" },
+			{ &xr.squeeze, "/user/hand/right/input/squeeze/value" },
+			{ &xr.thumbstick, "/user/hand/left/input/thumbstick" },
+			{ &xr.thumbstick, "/user/hand/right/input/thumbstick" },
+			{ &xr.thumbstick_click, "/user/hand/left/input/thumbstick/click" },
+			{ &xr.thumbstick_click, "/user/hand/right/input/thumbstick/click" },
+			{ &xr.button_a, "/user/hand/right/input/a/click" },
+			{ &xr.button_b, "/user/hand/right/input/b/click" },
+			{ &xr.button_x, "/user/hand/right/input/x/click" },
+			{ &xr.button_y, "/user/hand/right/input/y/click" },
+			{ &xr.menu, "/user/hand/right/input/menu/click" },
+			{ &xr.view, "/user/hand/left/input/view/click" },
+			{ &xr.bumper, "/user/hand/left/input/bumper/click" },
+			{ &xr.bumper, "/user/hand/right/input/bumper/click" },
+			{ &xr.dpad[0], "/user/hand/left/input/dpad_up/click" },
+			{ &xr.dpad[1], "/user/hand/left/input/dpad_down/click" },
+			{ &xr.dpad[2], "/user/hand/left/input/dpad_left/click" },
+			{ &xr.dpad[3], "/user/hand/left/input/dpad_right/click" },
+			{ &xr.haptic, "/user/hand/left/output/haptic" },
+			{ &xr.haptic, "/user/hand/right/output/haptic" },
+		};
+
+		if (xr.has_frame_controller)
+		{
+			suggest("/interaction_profiles/valve/frame_controller_valve", frame_controller,
+				sizeof(frame_controller) / sizeof(frame_controller[0]));
+		}
 		suggest("/interaction_profiles/oculus/touch_controller", touch, sizeof(touch) / sizeof(touch[0]));
 		suggest("/interaction_profiles/valve/index_controller", index, sizeof(index) / sizeof(index[0]));
 		suggest("/interaction_profiles/khr/simple_controller", simple, sizeof(simple) / sizeof(simple[0]));
@@ -713,6 +776,30 @@ static void hands_read(struct halo_xr_frame *frame)
 	sync.activeActionSets = &active;
 	if (!XR_SUCCEEDED(xrSyncActions(xr.session, &sync)))
 		return;
+	{
+		/* (the controllers' profile the runtime chose, in the log as it
+		changes) */
+		static XrPath logged[HALO_XR_HAND_COUNT];
+
+		for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+		{
+			XrInteractionProfileState state = { XR_TYPE_INTERACTION_PROFILE_STATE };
+
+			if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(xr.session, xr.hands[hand].path, &state)) &&
+				state.interactionProfile != logged[hand])
+			{
+				char name[XR_MAX_PATH_LENGTH] = "none";
+				uint32_t length = 0;
+
+				logged[hand] = state.interactionProfile;
+				if (state.interactionProfile != XR_NULL_PATH)
+					xrPathToString(xr.instance, state.interactionProfile, sizeof(name), &length, name);
+				if (hand == HALO_XR_HAND_RIGHT)
+					xr.frame_layout = strstr(name, "frame_controller") != NULL;
+				host_logf(HOST_LOG_INFO, "xr: the %s hand's controller: %s", hand ? "right" : "left", name);
+			}
+		}
+	}
 	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
 	{
 		struct halo_xr_hand *out = &frame->hands[hand];
@@ -757,7 +844,31 @@ static void hands_read(struct halo_xr_frame *frame)
 			(action_boolean(xr.menu, hand) ? HALO_XR_BUTTON_MENU : 0) |
 			(action_boolean(xr.thumbrest, hand) ? HALO_XR_BUTTON_THUMBREST : 0) |
 			(out->trigger > 0.5f ? HALO_XR_BUTTON_TRIGGER : 0) |
-			(out->squeeze > 0.5f ? HALO_XR_BUTTON_SQUEEZE : 0);
+			(out->squeeze > 0.5f ? HALO_XR_BUTTON_SQUEEZE : 0) |
+			(action_boolean(xr.view, hand) ? HALO_XR_BUTTON_VIEW : 0) |
+			(action_boolean(xr.bumper, hand) ? HALO_XR_BUTTON_BUMPER : 0) |
+			(action_boolean(xr.dpad[0], hand) ? HALO_XR_BUTTON_DPAD_UP : 0) |
+			(action_boolean(xr.dpad[1], hand) ? HALO_XR_BUTTON_DPAD_DOWN : 0) |
+			(action_boolean(xr.dpad[2], hand) ? HALO_XR_BUTTON_DPAD_LEFT : 0) |
+			(action_boolean(xr.dpad[3], hand) ? HALO_XR_BUTTON_DPAD_RIGHT : 0);
+	}
+	frame->controller_layout = xr.frame_layout ? HALO_XR_LAYOUT_FRAME : HALO_XR_LAYOUT_TOUCH;
+	if (xr.frame_layout)
+	{
+		/* (the Frame's right X, Y and menu button: the game's X, Y and Start,
+		which the Quest has on the left) */
+		struct halo_xr_hand *left = &frame->hands[HALO_XR_HAND_LEFT];
+		struct halo_xr_hand *right = &frame->hands[HALO_XR_HAND_RIGHT];
+
+		if (action_boolean(xr.button_x, HALO_XR_HAND_RIGHT))
+			left->buttons |= HALO_XR_BUTTON_A;
+		if (action_boolean(xr.button_y, HALO_XR_HAND_RIGHT))
+			left->buttons |= HALO_XR_BUTTON_B;
+		if (right->buttons & HALO_XR_BUTTON_MENU)
+		{
+			right->buttons &= ~HALO_XR_BUTTON_MENU;
+			left->buttons |= HALO_XR_BUTTON_MENU;
+		}
 	}
 }
 
@@ -773,6 +884,13 @@ static void refresh_rate_choose(float wanted)
 		!XR_SUCCEEDED(xr.enumerate_refresh_rates(xr.session, 16, &count, rates)))
 	{
 		return;
+	}
+	{
+		char line[128] = "";
+
+		for (index = 0; index < count; index++)
+			snprintf(line + strlen(line), sizeof(line) - strlen(line), " %.0f", rates[index]);
+		host_logf(HOST_LOG_INFO, "xr: refresh rates offered:%s Hz", line);
 	}
 	/* the highest rate not above the one wanted (0: the highest) */
 	for (index = 0; index < count; index++)
@@ -895,6 +1013,12 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	/* the loader and the runtime keep the activity */
 	activity = (*environment)->NewGlobalRef(environment, activity);
 
+	/* (The Steam Frame lists an implicit API layer of its own for Vulkan
+	apps, XR_APILAYER_VALVE_fdm_injection, whose library an app cannot load
+	from its namespace, failing xrCreateInstance; the Android loader reads
+	no variable to turn it off, so the app carries a pass-through layer
+	under that library's name: port/android/xr_layer/fdm_injection_stub.c) */
+
 	if (!XR_SUCCEEDED(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
 		(PFN_xrVoidFunction *)&initialize_loader)) || !initialize_loader)
 	{
@@ -922,6 +1046,23 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 		extensions[index].next = NULL;
 	}
 	xrEnumerateInstanceExtensionProperties(NULL, extension_count, &extension_count, extensions);
+	{
+		/* (the runtime's extensions, in the log: what a headset offers) */
+		char line[512] = "";
+
+		for (index = 0; index < extension_count; index++)
+		{
+			if (strlen(line) + strlen(extensions[index].extensionName) + 2 >= sizeof(line))
+			{
+				host_logf(HOST_LOG_INFO, "xr: extensions %s", line);
+				line[0] = 0;
+			}
+			strcat(line, " ");
+			strcat(line, extensions[index].extensionName);
+		}
+		if (line[0])
+			host_logf(HOST_LOG_INFO, "xr: extensions %s", line);
+	}
 	if (!has_extension(extensions, extension_count, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME))
 	{
 		host_logf(HOST_LOG_ERROR, "xr: the runtime has no OpenGL ES support");
@@ -933,6 +1074,9 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	xr.has_performance_settings = has_extension(extensions, extension_count, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
 	if (xr.has_performance_settings)
 		enabled[enabled_count++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+	xr.has_frame_controller = has_extension(extensions, extension_count, "XR_VALVE_frame_controller_interaction");
+	if (xr.has_frame_controller)
+		enabled[enabled_count++] = "XR_VALVE_frame_controller_interaction";
 	xr.has_refresh_rate = has_extension(extensions, extension_count, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 	if (xr.has_refresh_rate)
 		enabled[enabled_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
@@ -960,6 +1104,22 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	}
 	xrGetSystemProperties(xr.instance, xr.system, &properties);
 	strncpy(xr.system_name, properties.systemName, sizeof(xr.system_name) - 1);
+	{
+		/* (SteamVR: the quads' alpha from their colour; HALO_XR_QUAD_ALPHA
+		"colour" or "keep" says otherwise, for trying) */
+		XrInstanceProperties instance = { XR_TYPE_INSTANCE_PROPERTIES };
+		const char *choice = getenv("HALO_XR_QUAD_ALPHA");
+
+		if (XR_SUCCEEDED(xrGetInstanceProperties(xr.instance, &instance)))
+		{
+			xr.quad_alpha_from_colour = strstr(instance.runtimeName, "SteamVR") != NULL;
+			host_logf(HOST_LOG_INFO, "xr: runtime %s", instance.runtimeName);
+		}
+		if (choice)
+			xr.quad_alpha_from_colour = !strcmp(choice, "colour");
+		if (xr.quad_alpha_from_colour)
+			host_logf(HOST_LOG_INFO, "xr: the overlays' alpha from their colour");
+	}
 
 	views[0].type = views[1].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
 	views[0].next = views[1].next = NULL;
@@ -1316,6 +1476,8 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		glUniform1i(xr.source_uniform, 0);
 		glUniform4f(xr.rect_uniform, left, top, right, bottom);
 		glUniform1f(xr.cut_disc_uniform, clear_alpha == HALO_XR_COPY_DISC ? 1.0f : 0.0f);
+		glUniform1f(xr.alpha_from_colour_uniform, xr.quad_alpha_from_colour && clear_alpha == HALO_XR_COPY_ALPHA &&
+			layer != HALO_XR_LAYER_EYE_LEFT && layer != HALO_XR_LAYER_EYE_RIGHT ? 1.0f : 0.0f);
 		if ((layer == HALO_XR_LAYER_EYE_LEFT || layer == HALO_XR_LAYER_EYE_RIGHT) && xr.vignette > 0.001f)
 		{
 			const XrFovf *fov = &xr.views[layer - HALO_XR_LAYER_EYE_LEFT].fov;
