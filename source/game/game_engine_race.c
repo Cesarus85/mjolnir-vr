@@ -1670,3 +1670,40 @@ boolean game_engine_race_read_network_state(
 	csmemcpy(race_events.best_laps, state.best_laps, sizeof(race_events.best_laps));
 	return TRUE;
 }
+
+boolean game_engine_race_next_flag(
+	long player_index,
+	real_point3d const *from,
+	real_point3d *position)
+{
+	struct scenario *scenario = global_scenario_get();
+	real best_distance = REAL_MAX;
+	boolean found = FALSE;
+	long itr;
+
+	if (!scenario || DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) >= MULTIPLAYER_MAXIMUM_PLAYERS)
+		return FALSE;
+	for (itr = 0; itr < scenario->netgame_flags.count; itr++)
+	{
+		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
+			&scenario->netgame_flags,
+			itr,
+			struct scenario_netgame_flag);
+		real distance;
+
+		if (flag->type != _netgame_flag_race_track ||
+			!TEST_FLAG(race_globals.lap_completed_value, flag->team_index) ||
+			!can_touch_team(player_index, flag->team_index))
+		{
+			continue;
+		}
+		distance = distance3d(from, &flag->position);
+		if (distance < best_distance)
+		{
+			best_distance = distance;
+			*position = flag->position;
+			found = TRUE;
+		}
+	}
+	return found;
+}
