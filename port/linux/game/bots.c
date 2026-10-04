@@ -53,7 +53,7 @@ the gun, and gets out once no one drives.
 In a game of teams a bot plays with its team: it holds its fire while a
 teammate is in the line of it, takes on first the enemies near its
 teammates (people above all), escorts a teammate who carries the enemy's
-flag or the ball, and, with nothing to do, every other bot keeps near the
+flag or the ball, and, with nothing to do, every third bot keeps near the
 nearest person on its team.
 */
 
@@ -2058,8 +2058,11 @@ static void bot_ride(
 					bots.stucks++;
 					if (++bot->drive_stucks >= 4)
 					{
+						/* (and that vehicle left alone a while) */
 						leave = TRUE;
 						why = "stuck";
+						bot->ignored_vehicle_index = vehicle_index;
+						bot->ignored_vehicle_time = game_time_get();
 					}
 				}
 			}
@@ -2454,11 +2457,11 @@ static void bot_think(
 					bot_take_item(bot, player, unit, action);
 			}
 		}
-		/* (in a team, every other bot with nothing to do keeps near the
-		nearest person on its team) */
+		/* (in a team, every third bot with nothing to do keeps near the
+		nearest person on its team; the rest go after the enemy) */
 		following = FALSE;
 		if (bot->item_index == NONE && !bot->has_objective && game_engine_has_teams() &&
-			(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) & 1) == 0 &&
+			(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) % 3) == 0 &&
 			game_time_get() >= bot->follow_again_time)
 		{
 			long person = bot_nearest_person(player, &position);
