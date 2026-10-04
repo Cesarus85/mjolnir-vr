@@ -83,12 +83,14 @@ void vehicle_render_debug(
 
 /* port: how the VR port's bots (port/linux/game/bots.c) drive a vehicle:
 turned to where its driver faces (a jeep, a scout), moved where he pushes
-from where he faces (a tank), or not at all (the rest) */
+from where he faces (a tank), manned where it stands (a turret), or not
+at all (the rest) */
 enum
 {
 	_vehicle_bot_drive_none = 0,
 	_vehicle_bot_drive_facing,
 	_vehicle_bot_drive_relative,
+	_vehicle_bot_drive_turret,
 };
 short vehicle_bot_drive_kind(
 	long vehicle_index);

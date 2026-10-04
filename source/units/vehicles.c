@@ -867,6 +867,8 @@ short vehicle_bot_drive_kind(
 			return _vehicle_bot_drive_facing;
 		case _vehicle_type_human_tank:
 			return _vehicle_bot_drive_relative;
+		case _vehicle_type_turret:
+			return _vehicle_bot_drive_turret;
 		default:
 			return _vehicle_bot_drive_none;
 	}
