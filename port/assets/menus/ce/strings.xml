@@ -374,6 +374,7 @@
 		<string text="Join a game by its invite link,\nor one a Discord invite\nreached."/>
 		<string text="Host a game on the Internet:\nplayers join by its invite\nlink or Discord."/>
 		<string text="Host a game on your LAN\nonly."/>
+		<string text="Play the campaign with a\nfriend in split screen:\nplayer 2 on a gamepad."/>
 		<string text="Set all the attributes for your \nmultiplayer gametypes and\nkeep them for future use."/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/multiplayer_options">
@@ -384,6 +385,7 @@
 		<string text="DIRECT LINK"/>
 		<string text="EDIT GAMETYPES"/>
 		<string text="SERVER BROWSER"/>
+		<string text="CO-OP CAMPAIGN"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/server_settings/cap_server_settings_options">
 		<string text="Enter a name for your server."/>
@@ -498,6 +500,8 @@
 		<string text="The map's weapons, without any grenades."/>
 		<string text="You will start the game with the weapon set that the \nmap designers custom tailored for it."/>
 		<string text="Use the generic starting weapons across all maps."/>
+		<string text="The map's weapons appear where its designers\nplaced them."/>
+		<string text="No weapons appear on the map: with a loadout of\nNONE and NONE, melee and grenades only."/>
 		<string text="The weapons follow the weapon set above."/>
 		<string text="Everyone starts with the primary and secondary\nweapons below; the map's weapons are its own."/>
 		<string text="No primary weapon."/>
@@ -510,8 +514,6 @@
 		<string text="Everyone spawns with a plasma pistol as their primary\nweapon (where the map has one)."/>
 		<string text="Everyone spawns with a plasma rifle as their primary\nweapon (where the map has one)."/>
 		<string text="Everyone spawns with a needler as their primary\nweapon (where the map has one)."/>
-		<string text="Everyone spawns with a fuel rod as their primary\nweapon (where the map has one)."/>
-		<string text="Everyone spawns with a flamethrower as their primary\nweapon (where the map has one)."/>
 		<string text="No secondary weapon."/>
 		<string text="A random secondary weapon, of those the map has,\neach time you spawn."/>
 		<string text="Everyone spawns with a assault rifle as their secondary\nweapon (where the map has one)."/>
@@ -522,8 +524,6 @@
 		<string text="Everyone spawns with a plasma pistol as their secondary\nweapon (where the map has one)."/>
 		<string text="Everyone spawns with a plasma rifle as their secondary\nweapon (where the map has one)."/>
 		<string text="Everyone spawns with a needler as their secondary\nweapon (where the map has one)."/>
-		<string text="Everyone spawns with a fuel rod as their secondary\nweapon (where the map has one)."/>
-		<string text="Everyone spawns with a flamethrower as their secondary\nweapon (where the map has one)."/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/item_options_edit/item_options_labels">
 		<string text="INFINITE GRENADES:"/>
@@ -534,6 +534,7 @@
 		<string text="LOADOUT:"/>
 		<string text="PRIMARY WEAPON:"/>
 		<string text="SECONDARY WEAPON:"/>
+		<string text="MAP WEAPONS:"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/item_options_edit/var_infinite_grenades">
 		<string text="YES"/>
@@ -963,6 +964,12 @@
 		<string text="At the end of this game there will be fifteen angry\nmen. Angry because the winning player killed them."/>
 		<string text="You'll need to secure twenty-five kills in order to\nwin the game."/>
 		<string text="We hope you've got plenty of time, because you'll\nneed to make a full fifty kills to win this one."/>
+		<string text="Seventy-five kills to win. Settle in for a long\nfight."/>
+		<string text="A hundred kills to win. Made for big games."/>
+		<string text="A hundred and fifty kills to win. Only a crowded\nserver gets there."/>
+		<string text="Two hundred kills to win. Bring friends. Lots of\nthem."/>
+		<string text="Two hundred and fifty kills to win."/>
+		<string text="Five hundred kills to win. You'll be here a while."/>
 		<string text="This is a team game."/>
 		<string text="It's every man for himself."/>
 		<string text="The game will have no time limit.  It will only end\nwhen someone wins."/>
@@ -994,6 +1001,12 @@
 		<string text="15"/>
 		<string text="25"/>
 		<string text="50"/>
+		<string text="75"/>
+		<string text="100"/>
+		<string text="150"/>
+		<string text="200"/>
+		<string text="250"/>
+		<string text="500"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit/var_team_play">
 		<string text="YES"/>

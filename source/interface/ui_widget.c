@@ -1427,8 +1427,39 @@ static void widget_instance_process_one_event_recursive(
 	boolean *return_widget_deleted);
 static boolean ui_check_for_pause_game(
 	void);
+static long spinner_string_list_extra_count(
+	long string_list_index);
+static wchar_t *spinner_string_list_get_string(
+	long string_list_index,
+	short string_index);
 
 /* ---------- globals */
+
+/* port: text boxes' string list indices from here are the descriptions of
+spinners' extra items (kills_to_win_extra_descriptions) */
+#define SPINNER_EXTRA_DESCRIPTION_BASE 0x5000
+/* ... and the pixels a spinner with extra items is wider (for three digits) */
+#define SPINNER_EXTRA_WIDTH 12
+
+/* port: the strings a spinner's string list has past the tag's own, as more
+items: the higher kills to win of the Slayer game type editor
+(ui_widget_event_handler_functions.c saves and loads them) */
+static wchar_t const *const kills_to_win_extra_strings[] =
+{
+	L"75", L"100", L"150", L"200", L"250", L"500",
+};
+
+/* ... their descriptions, as a text box's string list index of
+SPINNER_EXTRA_DESCRIPTION_BASE and up (ui_widget_spinner_extra_description) */
+static wchar_t const *const kills_to_win_extra_descriptions[] =
+{
+	L"Seventy-five kills to win. Settle in for a long\r\nfight.",
+	L"A hundred kills to win. Made for big games.",
+	L"A hundred and fifty kills to win. Only a crowded\r\nserver gets there.",
+	L"Two hundred kills to win. Bring friends. Lots of\r\nthem.",
+	L"Two hundred and fifty kills to win.",
+	L"Five hundred kills to win. You'll be here a while.",
+};
 
 /* port: an error message of the port's own text (display_error_text_deferred):
 the text waiting for its dialog, then the dialog's text box showing it */
@@ -3304,7 +3335,11 @@ static void event_handler_dispatch(
 		{
 			close_all = TRUE;
 		}
+		/* port: not from a widget its function deleted (it went back:
+		menu_functions.c's profile_save_changes), which the Xbox's opened
+		from regardless */
 		if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
+			!widget_deleted &&
 			handler->widget_tag.index != NONE)
 		{
 			if (!ui_widget_launch_widget(widget, handler->widget_tag.index))
@@ -3510,7 +3545,8 @@ static boolean ui_widget_load_children_recursive(
 		string_list = unicode_string_list_definition_get(definition->text_label_string_list.index);
 		widget_globals.dont_load_children_recursive = TRUE;
 		for (string_index = 0;
-			string_index < string_list->strings.count;
+			string_index < string_list->strings.count +
+				spinner_string_list_extra_count(definition->text_label_string_list.index);
 			string_index++)
 		{
 			struct widget_instance *child = ui_widget_load_by_name_or_tag(
@@ -5069,6 +5105,12 @@ static void widget_instance_render_text_box(
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
 			(wchar_t *)ui_widget_port_error_text :
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);
+		/* port: the description of a spinner's extra item */
+		if (string_list_index >= SPINNER_EXTRA_DESCRIPTION_BASE &&
+			string_list_index < SPINNER_EXTRA_DESCRIPTION_BASE + (short)NUMBEROF(kills_to_win_extra_descriptions))
+		{
+			string = (wchar_t *)kills_to_win_extra_descriptions[string_list_index - SPINNER_EXTRA_DESCRIPTION_BASE];
+		}
 		length = ustrlen(string);
 		widget->parameters.text_box.text = pool_resize_pointer(
 			widget_memory_pool,
@@ -5222,6 +5264,13 @@ static void widget_instance_render_spinner_list(
 
 		csmemset(&parameters, 0, sizeof(parameters));
 		bounds = definition->list_header_bounds;
+		/* port: a spinner with extra items is wider, to the left, its arrow
+		with it */
+		if (spinner_string_list_extra_count(definition->text_label_string_list.index))
+		{
+			bounds.x0 -= SPINNER_EXTRA_WIDTH;
+			bounds.x1 -= SPINNER_EXTRA_WIDTH;
+		}
 		bounds.x0 += offset.x;
 		bounds.y0 += offset.y;
 		bounds.x1 += offset.x;
@@ -5266,7 +5315,7 @@ static void widget_instance_render_spinner_list(
 		if (definition->text_label_string_list.index != NONE)
 		{
 			short string_index = widget->parameters.list.selected_index;
-			wchar_t *string = unicode_string_list_get_string(
+			wchar_t *string = spinner_string_list_get_string(
 				definition->text_label_string_list.index,
 				string_index);
 			unsigned long length = ustrlen(string);
@@ -5341,6 +5390,13 @@ static void widget_instance_render_spinner_list(
 				bounds.y1 += offset.y;
 				bounds.x0 += offset.x;
 				bounds.y0 += offset.y;
+				/* port: a spinner with extra items (three digits) is wider, to the
+				left */
+				if (spinner_string_list_extra_count(definition->text_label_string_list.index))
+				{
+					bounds.x0 -= SPINNER_EXTRA_WIDTH;
+					clip.x0 -= SPINNER_EXTRA_WIDTH;
+				}
 				if (focus)
 				{
 					color.alpha = definition->text_color.alpha;
@@ -5926,9 +5982,12 @@ struct ui_public_game
 	char code[12];
 	int players;
 	int maximum_players;
+	/* (a game of the server browser's: no code, its invite) */
+	char invite[77];
 };
 
 void p2p_set_public_game(int public_game);
+int p2p_join_invite(char const *text);
 int p2p_public_game(void);
 int p2p_public_games(struct ui_public_game *games, int maximum);
 int config_boolean(char const *name);
@@ -6061,9 +6120,15 @@ static void ui_join_code_panel_event(
 			}
 			else
 			{
+				struct ui_public_game const *game =
+					&ui_join_code_globals.games[ui_join_code_globals.selection - ONLINE_PANEL_FIXED_ROWS];
+
 				p2p_join_code_clear_status();
-				p2p_join_with_code(
-					ui_join_code_globals.games[ui_join_code_globals.selection - ONLINE_PANEL_FIXED_ROWS].code);
+				/* (a game of the server browser's: by its invite) */
+				if (game->code[0])
+					p2p_join_with_code(game->code);
+				else
+					p2p_join_invite(game->invite);
 			}
 			break;
 		}
@@ -7002,6 +7067,23 @@ static boolean ui_mouse_selection_row(
 		(!strncmp(widget->name, "list_item_", 10) || !strncmp(widget->name, "server_item_", 12));
 }
 
+/* port: a press the menus post from their updates (menu_functions.c: the
+server browser's join, once its game is reached), posted where the mouse's
+are: one posted while the widgets update or draw would be overwritten by the
+next frame's events (queue_event keeps the latest) */
+static short ui_widget_port_press_controller = NONE;
+static short ui_widget_port_press_button;
+
+void ui_widget_port_post_button(
+	short controller_index,
+	short button_index)
+{
+	ui_widget_port_press_controller = controller_index;
+	ui_widget_port_press_button = button_index;
+
+	return;
+}
+
 static void ui_widgets_process_mouse(
 	void)
 {
@@ -7528,6 +7610,57 @@ void render_ui_widgets(
 }
 
 /* ---------- private code */
+
+
+static long spinner_string_list_extra_count(
+	long string_list_index)
+{
+	if (string_list_index != NONE && !csstrcmp(tag_get_name(string_list_index),
+		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win"))
+	{
+		return NUMBEROF(kills_to_win_extra_strings);
+	}
+	return 0;
+}
+
+/* a spinner's items of its string list's own (the descriptions of a list of
+spinners count those: ui_widget_game_data_input_functions.c) */
+short ui_widget_spinner_own_item_count(
+	struct widget_instance *spinner)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+
+	return (short)(spinner->parameters.list.number_of_items -
+		spinner_string_list_extra_count(definition->text_label_string_list.index));
+}
+
+/* the string list index of the description of a spinner's extra item, or
+NONE for an item of its own */
+short ui_widget_spinner_extra_description(
+	struct widget_instance *spinner,
+	short item_index)
+{
+	short own = ui_widget_spinner_own_item_count(spinner);
+
+	if (item_index < own)
+		return NONE;
+	return (short)(SPINNER_EXTRA_DESCRIPTION_BASE + item_index - own);
+}
+
+/* a string of a string list, or of its extra strings past the tag's own */
+static wchar_t *spinner_string_list_get_string(
+	long string_list_index,
+	short string_index)
+{
+	struct string_list *string_list = unicode_string_list_definition_get(string_list_index);
+
+	if (string_list && string_index >= string_list->strings.count &&
+		string_index - string_list->strings.count < spinner_string_list_extra_count(string_list_index))
+	{
+		return (wchar_t *)kills_to_win_extra_strings[string_index - string_list->strings.count];
+	}
+	return unicode_string_list_get_string(string_list_index, string_index);
+}
 
 static void widget_instance_render_column_list(
 	struct widget_instance *widget,
@@ -8415,6 +8548,11 @@ void process_ui_widgets(
 		widget_globals.initialized);
 	widget_globals.current_system_milliseconds = system_milliseconds();
 	ui_widgets_process_mouse();
+	if (ui_widget_port_press_controller != NONE)
+	{
+		event_manager_post_button(ui_widget_port_press_controller, ui_widget_port_press_button);
+		ui_widget_port_press_controller = NONE;
+	}
 	if (widget_globals.initialization_thread)
 	{
 		if (!thread_has_exited(widget_globals.initialization_thread))
