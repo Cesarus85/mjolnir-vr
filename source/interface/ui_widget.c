@@ -5888,6 +5888,7 @@ reached). */
 
 void platform_log(char const *format, ...);
 int p2p_join_code(char *text, int size);
+void halo_vr_pulse_pad_a(void);
 int p2p_join_with_code(char const *typed);
 int p2p_join_code_status(void);
 void p2p_join_code_clear_status(void);
@@ -6209,6 +6210,13 @@ static boolean ui_join_code_take_pointer(
 	press.type = _event_type_button;
 	press.data.button.index = _gamepad_analog_button_a;
 	press.data.button.value = 1;
+	/* (the screen where controllers join by their A: a click is the
+	pad's A, there, not a menu's) */
+	if (pointer->left_clicks && y < 400 && ui_join_code_screen_active("4way_start2join_screen"))
+	{
+		halo_vr_pulse_pad_a();
+		return TRUE;
+	}
 	if (ui_join_code_globals.panel_open)
 	{
 		if (x >= 48 && x < 592 && y >= 128 && y < 128 + ONLINE_PANEL_ROWS * 22)
@@ -6404,13 +6412,16 @@ static void ui_join_code_render(
 	if (ui_join_code_screen_active("server_list_screen"))
 	{
 		char const *status = NULL;
+		real_argb_color hint_color = { 1.0f, 0.85f, 0.85f, 0.85f };
 
 		if (ui_join_code_globals.panel_open)
 		{
 			ui_join_code_render_panel();
 			return;
 		}
-		ui_join_code_draw_line(372, "%x-button Online games: public ones, or join by a code", TRUE, FALSE);
+		/* (in the key bar's free left, and under it: clear of the map's
+		picture) */
+		ui_join_code_draw_text(40, 420, 420, "%x-button Online games, join code", TRUE, 0, &hint_color);
 		switch (p2p_join_code_status())
 		{
 		case _join_code_looking: status = "Looking for the game of that code..."; break;
@@ -6433,7 +6444,7 @@ static void ui_join_code_render(
 			}
 		}
 		if (status)
-			ui_join_code_draw_line(392, status, FALSE, FALSE);
+			ui_join_code_draw_line(452, status, FALSE, FALSE);
 	}
 	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
 	{
