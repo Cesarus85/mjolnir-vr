@@ -6107,7 +6107,8 @@ static void ui_join_code_panel_event(
 			}
 			else
 			{
-				struct ui_public_game const *game = &ui_join_code_globals.games[ui_join_code_globals.selection - 1];
+				struct ui_public_game const *game =
+					&ui_join_code_globals.games[ui_join_code_globals.selection - ONLINE_PANEL_FIXED_ROWS];
 
 				p2p_join_code_clear_status();
 				/* (a game of the server browser's: by its invite) */
