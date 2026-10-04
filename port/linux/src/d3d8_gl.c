@@ -2863,7 +2863,15 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
-	entry = program_get(vertex_shader_get(program, immediate, targets_multiview), fragment_shader_get(&key));
+	entry = program_get(vertex_shader_get(program, immediate,
+#ifdef HALO_ANDROID
+		/* the bound targets are the layers (Android's GL_OVR_multiview2);
+		on the desktop there are no layers to stand in for the back buffer */
+		targets_multiview
+#else
+		FALSE
+#endif
+	), fragment_shader_get(&key));
 	if (!entry)
 	{
 		stats.skipped_link++;
