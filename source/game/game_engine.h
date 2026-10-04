@@ -192,8 +192,6 @@ enum
 	_loadout_weapon_plasma_pistol,
 	_loadout_weapon_plasma_rifle,
 	_loadout_weapon_needler,
-	_loadout_weapon_fuel_rod,
-	_loadout_weapon_flamethrower,
 	NUMBER_OF_LOADOUT_WEAPONS
 };
 
@@ -233,7 +231,9 @@ struct game_variant_options
 	byte loadout;
 	byte primary_weapon;
 	byte secondary_weapon;
-	byte pad;
+	/* no weapons spawn on the map (its grenades and powerups do): for
+	a loadout of none, melee only */
+	boolean no_map_weapons;
 };
 
 typedef char verify_game_variant_options_size[sizeof(struct game_variant_options) == 0x1C ? 1 : -1];

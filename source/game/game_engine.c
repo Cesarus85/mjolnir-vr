@@ -1456,6 +1456,11 @@ static void rasterize_in_game_score_draw_line(
 	return;
 }
 
+/* port: the in-game scoreboard's lists (game_engine_rasterize_scoreboard,
+game_engine_rasterize_in_game_score): the players in the game, not those who
+quit, ranked and placed among themselves */
+static boolean statistic_buffer_in_game_only = FALSE;
+
 long populate_statistic_buffer(
 	struct statistic_buffer *statistic_buffer,
 	enum postgame_statistic statistic,
@@ -1474,6 +1479,8 @@ long populate_statistic_buffer(
 			"c:\\halo\\SOURCE\\game\\game_engine.c",
 			0x2C8,
 			player_count < MULTIPLAYER_MAXIMUM_PLAYERS);
+		if (statistic_buffer_in_game_only && player->quit_out_of_game)
+			continue;
 		if (player_count < MULTIPLAYER_MAXIMUM_PLAYERS)
 		{
 			statistic_buffer[player_count].player_index = player_iterator.datum_index;
@@ -1886,7 +1893,9 @@ static void game_engine_rasterize_scoreboard(
 	rows = (long)((bounds.y1 - SCOREBOARD_LAYOUT_TOP_ROWS * line_height) / SCOREBOARD_SCALE / line_height) - 2 -
 		SCOREBOARD_BOTTOM_ROWS;
 	rows = MAX(rows, 1);
+	statistic_buffer_in_game_only = TRUE;
 	ranked_count = populate_statistic_buffer(ranked, _postgame_statistic_ranking, FALSE);
+	statistic_buffer_in_game_only = FALSE;
 	team_columns = has_teams && scoreboard_team_columns() && width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
 	for (index = 0; index < ranked_count; index++)
 	{
@@ -2109,11 +2118,13 @@ static void game_engine_rasterize_in_game_score(
 		return;
 	}
 	game_engine_generate_title_string(title_string, player_index);
+	statistic_buffer_in_game_only = TRUE;
 	entry_count = select_players_to_display(
 		_postgame_statistic_ranking,
 		player_index,
 		entries,
 		NUMBEROF(entries));
+	statistic_buffer_in_game_only = FALSE;
 
 	color.alpha = alpha;
 	color.red = 0.7f;
@@ -2655,12 +2666,11 @@ long game_engine_remap_equipment(
 			break;
 		}
 
-		if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
+		/* (port: whatever the number of players, as
+		game_engine_infinite_grenades_internal) */
+		if (game_engine_infinite_grenades_internal())
 		{
-			if (game_engine_infinite_grenades_internal())
-			{
-				weapon_list_index = NONE;
-			}
+			weapon_list_index = NONE;
 		}
 
 		if (TEST_FLAG(game_engine_globals.flags, _game_engine_9_or_more_players_bit))
@@ -3182,12 +3192,9 @@ boolean match_game_type(
 static boolean game_engine_infinite_grenades_internal(
 	void)
 {
-	boolean infinite_grenades = FALSE;
-
-	if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
-		infinite_grenades = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
-
-	return infinite_grenades;
+	/* port: whatever the number of players (the Xbox game's had none with
+	five or more) */
+	return TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
 }
 
 static boolean find_closest_player_callback(
@@ -4400,6 +4407,9 @@ void game_engine_player_killed(
 	killer (port/linux/game/network_distributed.c) */
 	network_distributed_player_killed(&killing_player_index, &killing_object_index, dead_player_index,
 		&friendly_fire);
+	/* port: a killer who has left the game since is no one's kill */
+	if (killing_player_index != NONE && !player_try_and_get(killing_player_index))
+		killing_player_index = NONE;
 	/* the host's kill of a player who quit, ahead of this client's clock
 	(game_update_quit_players has not come to its time yet) */
 	if (network_game_distributed_client() && dead_player->quit_out_of_game_time != NONE &&
@@ -7196,12 +7206,14 @@ long game_engine_remap_weapon(
 		return weapon_definition_index;
 	}
 
+	/* (port: and the gravity rifle, a cut weapon, as the flamethrower,
+	which the Xbox's maps have unfinished: neither is a multiplayer weapon) */
+	if (weapon_list_index == _weapon_list_flamethrower || weapon_list_index == _weapon_list_gravity_rifle)
+		weapon_list_index = _weapon_list_rocket_launcher;
+
 	/* port: a custom loadout (game_variant_options) has no weapon set */
 	if (game_variant_options_get()->loadout == _loadout_custom)
-		return weapon_definition_index;
-
-	if (weapon_list_index == _weapon_list_flamethrower)
-		weapon_list_index = _weapon_list_rocket_launcher;
+		return list_index_to_weapon_definition_index(weapon_list_index);
 
 	switch (global_variant.universal_variant.weapon_set)
 	{
@@ -7299,7 +7311,7 @@ long game_engine_remap_weapon(
 		break;
 
 	/* port: the PC version's sets. Covenant: the Covenant's weapons (the
-	fuel rod, where the map has one, for the rocket launcher) */
+	needler for the rocket launcher: the Xbox's maps have no fuel rod) */
 	case _game_engine_weapons_covenant:
 		switch (weapon_list_index)
 		{
@@ -7317,26 +7329,19 @@ long game_engine_remap_weapon(
 			break;
 
 		case _weapon_list_rocket_launcher:
-			weapon_list_index = list_index_to_weapon_definition_index(_weapon_list_gravity_rifle) != NONE ?
-				_weapon_list_gravity_rifle : _weapon_list_needler;
+			weapon_list_index = _weapon_list_needler;
 			break;
 		}
 		break;
 
-	/* classic: the Xbox game's weapons (no fuel rod: the flamethrower is
-	already a rocket launcher) */
+	/* classic: the Xbox game's weapons (the flamethrower and the gravity
+	rifle are already rocket launchers) */
 	case _game_engine_weapons_classic:
-		if (weapon_list_index == _weapon_list_gravity_rifle)
-			weapon_list_index = _weapon_list_rocket_launcher;
 		break;
 
-	/* heavy weapons: rocket launchers, and fuel rods where the map has them */
+	/* heavy weapons: rocket launchers */
 	case _game_engine_weapons_heavy:
-		if (weapon_list_index != _weapon_list_gravity_rifle ||
-			list_index_to_weapon_definition_index(_weapon_list_gravity_rifle) == NONE)
-		{
-			weapon_list_index = _weapon_list_rocket_launcher;
-		}
+		weapon_list_index = _weapon_list_rocket_launcher;
 		break;
 	}
 
@@ -8290,6 +8295,12 @@ static void game_engine_update_item_spawn(
 				struct object_placement_data placement_data;
 				long object_index;
 
+				/* port: the gametype's no weapons on the map */
+				if (definition_index != NONE && game_variant_options_get()->no_map_weapons &&
+					object_definition_get(definition_index)->object.type == _object_type_weapon)
+				{
+					continue;
+				}
 				object_placement_data_new(
 					&placement_data,
 					definition_index,
@@ -8412,8 +8423,7 @@ static long game_engine_loadout_weapon_definition(
 	static short const list_indices[] =
 	{
 		_weapon_list_assault_rifle, _weapon_list_pistol, _weapon_list_shotgun, _weapon_list_sniper_rifle,
-		_weapon_list_rocket_launcher, _weapon_list_plasma_pistol, _weapon_list_plasma_rifle, _weapon_list_needler,
-		_weapon_list_gravity_rifle, _weapon_list_flamethrower
+		_weapon_list_rocket_launcher, _weapon_list_plasma_pistol, _weapon_list_plasma_rifle, _weapon_list_needler
 	};
 	short index;
 
