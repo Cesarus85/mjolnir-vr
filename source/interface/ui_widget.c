@@ -5751,6 +5751,57 @@ static void ui_mouse_list_directions(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* VR: a click beside a list's slots or a value's box, along the way it
+steps, where its arrows are drawn: a step back or on (TRUE: taken) */
+static boolean ui_mouse_click_beside_list(
+	short x,
+	short y)
+{
+	struct widget_instance *list = NULL;
+	rectangle2d bounds;
+	long index;
+	short back, forward;
+	boolean across;
+
+	for (index = 0; index < ui_mouse_target_count; index++)
+	{
+		struct ui_mouse_target const *target = &ui_mouse_targets[index];
+		struct widget_instance *owner = target->kind == _ui_mouse_target_list_slot ? target->widget->parent :
+			target->kind == _ui_mouse_target_value ? target->widget : NULL;
+
+		if (!owner)
+			continue;
+		if (!list)
+		{
+			list = owner;
+			bounds = target->bounds;
+		}
+		else if (owner == list)
+		{
+			bounds.x0 = MIN(bounds.x0, target->bounds.x0);
+			bounds.y0 = MIN(bounds.y0, target->bounds.y0);
+			bounds.x1 = MAX(bounds.x1, target->bounds.x1);
+			bounds.y1 = MAX(bounds.y1, target->bounds.y1);
+		}
+	}
+	if (!list)
+		return FALSE;
+	ui_mouse_list_directions(list, &back, &forward);
+	across = back == _widget_event_dpad_left;
+	if (across ? y < bounds.y0 - 24 || y >= bounds.y1 + 24 : x < bounds.x0 - 24 || x >= bounds.x1 + 24)
+		return FALSE;
+	ui_mouse_give_focus(list);
+	if (across ? x < bounds.x0 && x >= bounds.x0 - 80 : y < bounds.y0 && y >= bounds.y0 - 48)
+		ui_mouse_press(back);
+	else if (across ? x >= bounds.x1 && x < bounds.x1 + 80 : y >= bounds.y1 && y < bounds.y1 + 48)
+		ui_mouse_press(forward);
+	else
+		return FALSE;
+	return TRUE;
+}
+#endif
+
 /* steps a list that shows several items to the one shown in a slot, as
 pressing the d-pad that many times would */
 static void ui_mouse_step_list_to_slot(
@@ -6540,6 +6591,12 @@ static void ui_widgets_process_mouse(
 			{
 				long index;
 
+#ifdef HALO_ANDROID
+				/* (VR: beside a list, on its arrows) */
+				if (halo_vr_active() && ui_mouse_click_beside_list(ui_mouse_click_x, ui_mouse_click_y))
+					index = 0;
+				else
+#endif
 				/* a screen with nothing to pick (a message to dismiss): the
 				click is its A */
 				for (index = 0; index < ui_mouse_target_count; index++)

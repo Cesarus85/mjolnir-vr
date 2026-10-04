@@ -2139,6 +2139,10 @@ static struct
 	int valid;
 	float x, y;
 	float reported_x, reported_y;
+	/* (a stick moved the menu's choice: the pointer, not moved far from
+	here since, leaves it be) */
+	int stick_quiet;
+	float stick_x, stick_y;
 	int hand;
 	int trigger_down[HALO_XR_HAND_COUNT];
 	int clicks;
@@ -2233,9 +2237,31 @@ int halo_vr_menu_pointer(int *x, int *y, int *click_x, int *click_y, int *moved,
 		return 0;
 	*x = (int)menu_pointer.x;
 	*y = (int)menu_pointer.y;
+	/* (a stick pushed: what it chooses stays chosen until the pointer
+	moves well away) */
+	{
+		int index;
+
+		for (index = 0; index < HALO_XR_HAND_COUNT; index++)
+		{
+			const struct halo_xr_hand *hand = &vr.frame.hands[index];
+
+			if (hand->active && (fabsf(hand->thumbstick[0]) > 0.4f || fabsf(hand->thumbstick[1]) > 0.4f))
+			{
+				menu_pointer.stick_quiet = 1;
+				menu_pointer.stick_x = menu_pointer.x;
+				menu_pointer.stick_y = menu_pointer.y;
+			}
+		}
+		if (menu_pointer.stick_quiet && (fabsf(menu_pointer.x - menu_pointer.stick_x) > 25.0f ||
+			fabsf(menu_pointer.y - menu_pointer.stick_y) > 25.0f))
+		{
+			menu_pointer.stick_quiet = 0;
+		}
+	}
 	/* (moved past a hand's tremor: a few pixels) */
-	*moved = fabsf(menu_pointer.x - menu_pointer.reported_x) >= 3.0f ||
-		fabsf(menu_pointer.y - menu_pointer.reported_y) >= 3.0f;
+	*moved = !menu_pointer.stick_quiet && (fabsf(menu_pointer.x - menu_pointer.reported_x) >= 3.0f ||
+		fabsf(menu_pointer.y - menu_pointer.reported_y) >= 3.0f);
 	if (*moved)
 	{
 		menu_pointer.reported_x = menu_pointer.x;
