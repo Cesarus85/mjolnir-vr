@@ -44,7 +44,9 @@ a Ghost to where it goes by facing there, pushing a Scorpion there from where
 its gun faces; it runs an enemy down, or with a gunner aboard circles it,
 fires a Ghost's or a Scorpion's guns at it, backs off what it is stuck on,
 and gets out near the objective, when the vehicle is overturned, or when it
-keeps getting stuck. In a game of teams a bot also mans the gun of a
+keeps getting stuck. A bot mans a turret near it while an enemy is about,
+and leaves it once there has been no one to shoot for a while. In a game
+of teams a bot also mans the gun of a
 teammate's vehicle, or rides along in a person's: there it aims and fires
 the gun, and gets out once no one drives.
 
@@ -181,6 +183,8 @@ struct bot
 	short drive_moving_ticks;
 	short drive_slow_ticks;
 	short flipped_ticks;
+	/* (at a turret: when it last had someone to shoot) */
+	long turret_target_time;
 	boolean leave_logged;
 	real_point3d drive_last;
 	boolean holding;
@@ -214,6 +218,7 @@ static struct path_debug_storage bot_path_debug;
 static struct
 {
 	boolean map_logged;
+	boolean vehicles_logged;
 	struct bot bots[MAXIMUM_BOTS];
 	long seed;
 	long logged_time;
@@ -1283,6 +1288,9 @@ ride with a person, with a bot */
 #define BOT_RACE_VEHICLE_RANGE 40.0f
 #define BOT_PERSON_VEHICLE_RANGE 25.0f
 #define BOT_BOT_VEHICLE_RANGE 12.0f
+/* how near a turret it mans one, and how near it an enemy must be */
+#define BOT_TURRET_RANGE 15.0f
+#define BOT_TURRET_ENEMY_RANGE 35.0f
 /* how near a step of a vehicle's path counts as reached (world units) */
 #define BOT_DRIVE_STEP_RADIUS 2.0f
 
@@ -1373,6 +1381,33 @@ static short bot_free_seat(
 	return NONE;
 }
 
+/* whether an enemy is alive within range of a point */
+static boolean bot_enemy_near(
+	struct player_datum const *player,
+	real_point3d const *point,
+	real range)
+{
+	boolean teams = game_engine_has_teams();
+	short index;
+
+	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
+	{
+		struct player_datum *other = distributed_player(index);
+		long unit_index;
+		real_point3d origin;
+
+		if (!other || other == player || (teams && other->team_index == player->team_index))
+			continue;
+		unit_index = distributed_living_unit(other);
+		if (unit_index == NONE)
+			continue;
+		object_get_origin(unit_index, &origin);
+		if (distance3d(point, &origin) < range)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* now and then, on foot: a vehicle to get into (bot->vehicle_index): a
 teammate's to man its gun (or a person's to ride along in), or, when the way
 is long, an empty one to drive */
@@ -1454,6 +1489,17 @@ static void bot_choose_vehicle(
 			if (seat_index == NONE && person)
 				seat_index = bot_free_seat(bot, player->unit_index, iterator.index, _bot_seat_passenger);
 			score = (person ? 3.0f : 1.5f) / (1.0f + distance / 10.0f);
+		}
+		else if (vehicle_bot_drive_kind(iterator.index) == _vehicle_bot_drive_turret)
+		{
+			/* (a turret, while an enemy is about it; not in a race) */
+			if (!race && distance < BOT_TURRET_RANGE && bot_enemy_near(player, &origin, BOT_TURRET_ENEMY_RANGE))
+			{
+				seat_index = bot_free_seat(bot, player->unit_index, iterator.index, _bot_seat_driver);
+				if (seat_index == NONE)
+					seat_index = bot_free_seat(bot, player->unit_index, iterator.index, _bot_seat_gunner);
+				score = 1.2f / (1.0f + distance / 10.0f);
+			}
 		}
 		else if (wants_to_drive && vehicle_bot_drive_kind(iterator.index) != _vehicle_bot_drive_none &&
 			distance < (race ? BOT_RACE_VEHICLE_RANGE : BOT_VEHICLE_RANGE))
@@ -1621,6 +1667,8 @@ static void bot_ride(
 		unit_get(vehicle_index) : NULL;
 	struct unit_seat *seat = vehicle ? bot_vehicle_seat(vehicle_index, unit->unit.parent_seat_index) : NULL;
 	short kind = seat ? bot_seat_kind(seat) : _bot_seat_passenger;
+	/* (at a turret: as a gunner, whatever its seat) */
+	boolean turret = vehicle && vehicle_bot_drive_kind(vehicle_index) == _vehicle_bot_drive_turret;
 	real_point3d eye;
 	real_point3d position;
 	real_vector3d forward;
@@ -1645,6 +1693,7 @@ static void bot_ride(
 		bot->drive_stucks = 0;
 		bot->drive_moving_ticks = 0;
 		bot->drive_slow_ticks = 0;
+		bot->turret_target_time = game_time_get();
 		bot->leave_logged = FALSE;
 		bot->has_goal = FALSE;
 		bot->path.valid = FALSE;
@@ -1708,9 +1757,21 @@ static void bot_ride(
 		bot->no_driver_time = NONE;
 	}
 
+	if (turret)
+	{
+		kind = _bot_seat_gunner;
+		if (bot->target_unit_index != NONE)
+			bot->turret_target_time = game_time_get();
+		else if (game_time_get() - bot->turret_target_time > 300 || game_time_get() < bot->turret_target_time)
+		{
+			leave = TRUE;
+			why = "no one to shoot";
+		}
+	}
 	if (!leave && kind != _bot_seat_driver)
 	{
-		long without = bot->no_driver_time == NONE ? 0 : game_time_get() - bot->no_driver_time;
+		/* (a turret's gunner drives it: no driver to wait for) */
+		long without = bot->no_driver_time == NONE || turret ? 0 : game_time_get() - bot->no_driver_time;
 
 		/* no one drives: out, a gunner once there is no one to shoot */
 		if ((kind == _bot_seat_passenger && without > 30) ||
@@ -2485,6 +2546,7 @@ void bots_new_game(
 	short index;
 
 	bots.map_logged = FALSE;
+	bots.vehicles_logged = FALSE;
 	for (index = 0; index < MAXIMUM_BOTS; index++)
 		bots.bots[index].player_index = NONE;
 	bots.seed = 12345;
@@ -2541,6 +2603,20 @@ void bots_tick(
 	}
 	if (count && game_time_get() - bots.logged_time >= 300)
 	{
+		if (!bots.vehicles_logged)
+		{
+			/* (the map's vehicles, once) */
+			struct object_iterator iterator;
+
+			bots.vehicles_logged = TRUE;
+			object_iterator_new(&iterator, _object_mask_vehicle, 0);
+			while (object_iterator_next(&iterator))
+			{
+				char const *name = tag_get_name(object_get(iterator.index)->definition_index);
+
+				platform_log("bots: a vehicle: %s (kind %d)", name ? name : "?", (int)vehicle_bot_drive_kind(iterator.index));
+			}
+		}
 		bots.logged_time = game_time_get();
 		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld (no start %ld, no goal %ld, no way %ld); vehicles: in %ld, out %ld",
 			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.fail_start, bots.fail_goal, bots.fail_search,
