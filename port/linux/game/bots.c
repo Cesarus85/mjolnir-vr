@@ -1475,12 +1475,13 @@ static boolean bot_riders_coming(
 }
 
 /* whether a teammate on foot stands in the way the vehicle goes (ahead of
-it, or behind it backing), near */
+it, or behind it backing), near; and on which side of the way (+1 left) */
 static boolean bot_teammate_in_the_way(
 	struct player_datum const *player,
 	real_point3d const *position,
 	real heading,
-	boolean backing)
+	boolean backing,
+	real *side)
 {
 	short index;
 
@@ -1500,10 +1501,14 @@ static boolean bot_teammate_in_the_way(
 		if (unit_index == NONE || object_get(unit_index)->object.parent_object_index != NONE)
 			continue;
 		object_get_origin(unit_index, &origin);
-		if (distance3d(position, &origin) < 8.0f &&
-			fabsf(bot_angle_difference((real)atan2(origin.y - position->y, origin.x - position->x), heading)) < 0.7f)
 		{
-			return TRUE;
+			real off = bot_angle_difference((real)atan2(origin.y - position->y, origin.x - position->x), heading);
+
+			if (distance3d(position, &origin) < 8.0f && fabsf(off) < 0.7f)
+			{
+				*side = off >= 0.0f ? 1.0f : -1.0f;
+				return TRUE;
+			}
 		}
 	}
 	return FALSE;
@@ -1748,6 +1753,31 @@ static void bot_far_point(
 	}
 }
 
+/* how far a vehicle runs along a yaw before the level stops it (world
+units, up to length): a ray at about its bumper's height */
+static real bot_drive_clearance(
+	long vehicle_index,
+	real_point3d const *position,
+	real yaw,
+	real length)
+{
+	struct collision_result collision;
+	real_point3d start = *position;
+	real_vector3d vector;
+
+	start.z += 0.5f;
+	vector.i = (real)cos(yaw) * length;
+	vector.j = (real)sin(yaw) * length;
+	vector.k = 0.0f;
+	/* (ground rising ahead, not too steep to drive up, is no wall) */
+	if (!collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+		&start, &vector, vehicle_index, &collision) || collision.plane.n.k > 0.6f)
+	{
+		return length;
+	}
+	return distance3d(&start, &collision.point);
+}
+
 /* the yaw from one point to another */
 static real bot_yaw_to(
 	real_point3d const *from,
@@ -1906,6 +1936,7 @@ static void bot_ride(
 		boolean race = bots_game_type() == game_engine_race;
 		real_point3d point;
 		real moved = distance3d(&position, &bot->drive_last);
+		real mate_side = 0.0f;
 
 		bot->drive_last = position;
 		bot->step_radius = BOT_DRIVE_STEP_RADIUS;
@@ -1965,12 +1996,48 @@ static void bot_ride(
 
 			if (drive == _vehicle_bot_drive_facing)
 			{
+				real speed = magnitude3d(&vehicle->object.translational_velocity);
+				real ahead = 4.0f + speed * 20.0f;
+				real way = heading + PIN(off, -0.6f, 0.6f);
+
 				/* turned by facing off its heading, as a stick turns it */
 				turn_freely = TRUE;
 				wanted_yaw = heading + PIN(off, -1.0f, 1.0f);
 				action->throttle.i = fabsf(off) > 1.6f ? 0.4f : fabsf(off) > 0.8f ? 0.6f : fabsf(off) > 0.4f ? 0.8f : 1.0f;
 				if (distance < 6.0f && !race)
 					action->throttle.i *= 0.5f;
+				/* (a wall or a rock ahead, the way it turns: round it, by the
+				side most open nearest the way it wants, slower; boxed in, back
+				off) */
+				if (bot->reverse_ticks == 0 && bot_drive_clearance(vehicle_index, &position, way, ahead) < ahead)
+				{
+					static real const turns[] = { 0.4f, -0.4f, 0.8f, -0.8f, 1.2f, -1.2f };
+					real best_clear = 0.0f;
+					real best_turn = 0.0f;
+					short index;
+
+					for (index = 0; index < (short)NUMBEROF(turns); index++)
+					{
+						real turn = (off < 0.0f ? -1.0f : 1.0f) * turns[index];
+						real clear = bot_drive_clearance(vehicle_index, &position, heading + turn, ahead);
+
+						if (clear > best_clear + 0.5f)
+						{
+							best_clear = clear;
+							best_turn = turn;
+						}
+					}
+					if (best_clear < 3.0f)
+					{
+						bot->reverse_ticks = 35;
+						bots.stucks++;
+					}
+					else
+					{
+						wanted_yaw = heading + PIN(best_turn * 1.5f, -1.0f, 1.0f);
+						action->throttle.i = MIN(action->throttle.i, best_clear < ahead * 0.5f ? 0.5f : 0.75f);
+					}
+				}
 				/* (a Ghost's guns at an enemy ahead of it) */
 				if (bot->target_unit_index != NONE && TEST_FLAG(seat->flags, _unit_seat_gunner_bit))
 				{
@@ -2009,14 +2076,21 @@ static void bot_ride(
 			bot->drive_stuck_ticks = 0;
 			bot->reverse_ticks = 0;
 		}
-		/* (a teammate in the way: braked, not run down) */
+		/* (a teammate in the way: braked, not run down, and round them
+		slowly, turned off their side) */
 		else if (bot_teammate_in_the_way(player, &position, heading,
-			bot->reverse_ticks > 0 || action->throttle.i < 0.0f))
+			bot->reverse_ticks > 0 || action->throttle.i < 0.0f, &mate_side))
 		{
-			action->throttle.i = moved > 0.08f ? (action->throttle.i > 0.0f ? -1.0f : 1.0f) : 0.0f;
+			boolean backing = bot->reverse_ticks > 0 || action->throttle.i < 0.0f;
+
+			if (moved > 0.08f)
+				action->throttle.i = backing ? 1.0f : -1.0f;
+			else
+				action->throttle.i = backing ? -0.3f : 0.3f;
 			action->throttle.j = 0.0f;
+			if (drive == _vehicle_bot_drive_facing)
+				wanted_yaw = heading - mate_side * (backing ? -0.9f : 0.9f);
 			bot->drive_stuck_ticks = 0;
-			bot->reverse_ticks = 0;
 		}
 		/* (an enemy close by, and the vehicle all but still: out to fight it
 		on foot) */
@@ -2047,13 +2121,20 @@ static void bot_ride(
 		}
 		else if (fabsf(action->throttle.i) > 0.3f || fabsf(action->throttle.j) > 0.3f)
 		{
-			if (moved < 0.03f)
+			/* (making no way where it pushes: a jeep's way along its heading,
+			however its wheels spin) */
+			real forward_speed = drive == _vehicle_bot_drive_facing ?
+				(action->throttle.i > 0.0f ? 1.0f : -1.0f) *
+					dot_product3d(&vehicle->object.translational_velocity, &forward) :
+				moved;
+
+			if (forward_speed < 0.02f)
 			{
 				bot->drive_moving_ticks = 0;
-				if (++bot->drive_stuck_ticks >= 40)
+				if (++bot->drive_stuck_ticks >= 45)
 				{
 					bot->drive_stuck_ticks = 0;
-					bot->reverse_ticks = 30;
+					bot->reverse_ticks = 40;
 					bot->path_time = game_time_get() - PATH_REFRESH_TICKS;
 					bots.stucks++;
 					if (++bot->drive_stucks >= 4)
