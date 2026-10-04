@@ -4031,7 +4031,9 @@ void d3d8_clear_back_buffer(float red, float green, float blue, float alpha)
 	glDepthMask(GL_TRUE);
 	glStencilMask(0xff);
 	glClearColor(red, green, blue, alpha);
-	glClearDepthf(1.0f);
+	/* (glClearDepth: on Android the define above maps it to glClearDepthf,
+	ES's float entry point) */
+	glClearDepth(1.0f);
 	glClearStencil(0);
 	glClear(GL_COLOR_BUFFER_BIT | (depth_buffer ? GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT : 0));
 	xgpu_gl_state_invalidate();

@@ -703,9 +703,10 @@ typedef char network_game_server_countdown_state_offset_assert[
 	offsetof(struct network_game_server, countdown_state) ==
 		8 + HALO_PORT_NETWORK_GAME_SIZE + MAXIMUM_NETWORK_MACHINE_COUNT * 0x10 + 0xC ? 1 : -1];
 
-#ifdef HALO_ANDROID
-/* bots' machines (below: the VR port's bots) */
+/* bots' machines (the VR port's bots, port/linux/game/bots.c; on the
+desktop none is ever marked, the writes live behind the Android guard) */
 static boolean network_game_server_bot_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
+#ifdef HALO_ANDROID
 static short network_game_server_bot_machine_count(struct network_game_server *server);
 #endif
 
@@ -4340,6 +4341,19 @@ static boolean network_game_server_have_all_machines_have_precached(
 	return all_machines_have_precached;
 }
 
+/* whether the machine at this index is one of the host's bots (the VR
+port's bots.c asks, on every platform: on the desktop no bot machine is
+ever marked, so this is always false there) */
+boolean network_game_server_is_bot_machine(
+	long machine_index)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+		network_game_server_bot_machines[machine_index] &&
+		server->game.machines[machine_index].machine_index == machine_index;
+}
+
 #ifdef HALO_ANDROID
 /* ---------- bots (the VR port's: port/linux/game/bots.c)
 
@@ -4361,16 +4375,6 @@ static void network_game_server_bot_copy_name(
 	for (index = 0; index < size - 1 && source[index]; index++)
 		destination[index] = source[index];
 	destination[index] = 0;
-}
-
-boolean network_game_server_is_bot_machine(
-	long machine_index)
-{
-	struct network_game_server *server = global_network_game_server_get();
-
-	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
-		network_game_server_bot_machines[machine_index] &&
-		server->game.machines[machine_index].machine_index == machine_index;
 }
 
 static short network_game_server_bot_machine_count(
