@@ -813,6 +813,15 @@ In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus);
 int halo_vr_wheel_held(void);
 
+/* a click that stands for the pad's A (ui_widget.c: the screen where
+controllers join by pressing it), held a moment */
+static Uint64 vr_pad_a_until;
+
+void halo_vr_pulse_pad_a(void)
+{
+	vr_pad_a_until = SDL_GetTicks() + 120;
+}
+
 static SHORT vr_stick(float value)
 {
 	if (value > 1.0f)
@@ -859,7 +868,8 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 		if (abs(value) > abs(pad->sThumbRX)) pad->sThumbRX = value;
 		value = vr_stick(right->thumbstick[1]);
 		if (abs(value) > abs(pad->sThumbRY)) pad->sThumbRY = value;
-		merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
+		merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0 ||
+			SDL_GetTicks() < vr_pad_a_until);
 		merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_B) != 0);
 		merge_button(pad, XINPUT_GAMEPAD_X, (left->buttons & HALO_XR_BUTTON_A) != 0);
 		merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
