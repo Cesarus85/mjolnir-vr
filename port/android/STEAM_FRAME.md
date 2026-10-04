@@ -36,8 +36,8 @@ What differs is found at run time, not by a build of its own.
 | 2 | The game's data where Lepton keeps it | done: `/home/steamos/Documents/HaloCE` |
 | 3 | Menus, HUD and text visible (quad layers) | done: their alpha from their colour |
 | 4 | The freeze at the cryo bay's calibration | not seen again (2026-10-04) |
-| 5 | The Frame's controllers | in test: their own profile, the Xbox's layout |
-| 6 | Frame rate, resolution | |
+| 5 | The Frame's controllers | done: their own profile, the Xbox's layout |
+| 6 | Frame rate, resolution | done: 72 Hz steady, multiview on |
 | 7 | Multiplayer, voice, cross-play with the Quest | |
 | 8 | Installing it, for others | |
 
@@ -85,3 +85,11 @@ page of buttons shows this layout on the Frame.
   home connection for a while (too many connections from tests that day);
   broker.emqx.io came back within minutes. Lepton's network is the Frame's
   own (same IP), DNS works.
+- 2026-10-04: the refresh rate is SteamOS's setting; the runtime offers
+  only that one (the game asks for the highest at or below
+  `vr.refresh_rate`, and logs the rates offered). At 72 Hz the game holds
+  72 fps (about 11.6 ms a frame with multiview, eyes 7.6 ms; without it
+  eyes about 9 ms). At 90 Hz it cannot (11.1 ms a frame), and SteamVR's
+  making up of the missed frames showed as a doubled picture when turning
+  the head. Keep the Frame at 72 Hz, or lower `vr.resolution_scale` (about
+  0.85) for 90.

@@ -885,6 +885,13 @@ static void refresh_rate_choose(float wanted)
 	{
 		return;
 	}
+	{
+		char line[128] = "";
+
+		for (index = 0; index < count; index++)
+			snprintf(line + strlen(line), sizeof(line) - strlen(line), " %.0f", rates[index]);
+		host_logf(HOST_LOG_INFO, "xr: refresh rates offered:%s Hz", line);
+	}
 	/* the highest rate not above the one wanted (0: the highest) */
 	for (index = 0; index < count; index++)
 	{
