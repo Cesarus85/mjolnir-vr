@@ -6332,7 +6332,7 @@ static void ui_join_code_render(
 		}
 		/* (in the key bar's free left, and under it: clear of the map's
 		picture) */
-		ui_join_code_draw_text(40, 420, 420, "%x-button Online games, join code", TRUE, 0, &hint_color);
+		ui_join_code_draw_text(8, 200, 420, "%x-button Online / code", TRUE, 0, &hint_color);
 		switch (p2p_join_code_status())
 		{
 		case _join_code_looking: status = "Looking for the game of that code..."; break;
