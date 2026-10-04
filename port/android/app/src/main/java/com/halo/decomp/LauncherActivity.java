@@ -35,6 +35,7 @@ import java.nio.channels.FileChannel;
  */
 public class LauncherActivity extends Activity {
     private static final int PICK_IMAGE = 1;
+    private static final String SHARED_DATA_ROOT = "/home/steamos/Documents/HaloCE";
 
     private File dataRoot;
     private TextView status;
@@ -46,6 +47,12 @@ public class LauncherActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         dataRoot = getExternalFilesDir(null);
+        // the Steam Frame: Lepton empties the app's own folders whenever it
+        // starts again; the game's data lives in the SteamOS user's
+        // Documents instead, when it is there (port/android/STEAM_FRAME.md;
+        // the same choice as host_main.c's)
+        if (new File(SHARED_DATA_ROOT, "maps/ui.map").isFile() && new File(SHARED_DATA_ROOT).canWrite())
+            dataRoot = new File(SHARED_DATA_ROOT);
         // created by the app, so that files pushed into it with adb stay
         // readable (a directory adb creates there belongs to the shell user)
         if (dataRoot != null)
