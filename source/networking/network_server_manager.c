@@ -473,13 +473,19 @@ symbols in this file:
 
 #include "cache/cache_files.h"
 #include "interface/player_ui.h"
+#include "tag_files/tag_files.h"
 
-/* port: internet play's Discord presence (port/linux/src/p2p.c) */
+/* port: internet play's Discord presence (port/linux/src/p2p.c), and the
+server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
 #ifdef HALO_ANDROID
 void p2p_set_game_description(char const *name, char const *map, char const *mode, int players,
 	int maximum_players);
+void p2p_set_hosting_public(int public_game);
+int p2p_public_game(void);
 #endif
+void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
+	int in_progress, int has_teams);
 
 /* ---------- constants */
 
@@ -1321,6 +1327,40 @@ static boolean network_game_server_network_lost(
 	return now - down_time > NETWORK_GAME_SERVER_CLIENT_TIMEOUT;
 }
 
+/* port: wide text as the listing has it: ASCII, a Latin letter with a mark
+its plain letter ('?' for the rest: player_name_character_ascii, as the
+server browser validates the name as a player's) */
+static void listing_text(char *text, int size, wchar_t const *wide, int length)
+{
+	int index;
+
+	for (index = 0; index < size - 1 && index < length && wide[index]; index++)
+		text[index] = player_name_character_ascii(wide[index]);
+	text[index] = 0;
+}
+
+/* port: the server browser's listing of the game (shown only if hosted
+for the internet and public: p2p_lobby.c), as its advertisement has it
+(network_server_message_handler.c) */
+static void network_game_server_list(
+	struct network_game_server *server)
+{
+	struct network_game *game = &server->game;
+	short state = network_game_server_get_state(server, NULL);
+	char name[NUMBEROF(game->name) + 1];
+	char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
+	boolean in_progress = state != _network_game_server_state_pregame || network_game_server_game_is_loading(server);
+	boolean open = state == _network_game_server_state_ingame ? network_game_server_accepts_late_joins(server) :
+		network_game_server_game_is_open(server) && network_game_has_free_player_slot(game);
+
+	listing_text(name, sizeof(name), game->name, NUMBEROF(game->name));
+	listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
+		NUMBEROF(game->variant.human_readable_game_description));
+	/* (the scenario's name, not its path: the listing has 32 characters) */
+	p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
+		in_progress, game->variant.universal_variant.teams);
+}
+
 boolean network_game_server_idle(
 	struct network_game_server *server)
 {
@@ -1337,7 +1377,8 @@ boolean network_game_server_idle(
 		}
 	}
 
-	/* (what Discord shows of a game hosted for internet play) */
+	/* (what Discord shows of a game hosted for internet play, and the
+	server browser's listing) */
 	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);
 #ifdef HALO_ANDROID
 	/* (and what a public game's listing says: port/linux/src/p2p_list.c) */
@@ -1373,8 +1414,12 @@ boolean network_game_server_idle(
 			mode[sizeof(mode) - 1] = 0;
 		}
 		p2p_set_game_description(name, map, mode, server->game.player_count, server->game.maximum_players);
+		/* (listed in the server browser too, as public as the VR port's list
+		has it) */
+		p2p_set_hosting_public(p2p_public_game());
 	}
 #endif
+	network_game_server_list(server);
 
 	if (network_game_server_game_is_valid(server))
 	{
@@ -1847,6 +1892,14 @@ boolean network_game_server_game_is_open(
 		(TRUE == game_is_open) || (FALSE == game_is_open));
 
 	return game_is_open;
+}
+
+/* port: whether the host's game is being played (not its lobby, before or
+after one) */
+boolean network_game_server_playing(
+	struct network_game_server *server)
+{
+	return server->state == _network_game_server_state_ingame;
 }
 
 /* port: whether the machines are loading the game (its start sent, still
