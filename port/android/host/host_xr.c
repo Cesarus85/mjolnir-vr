@@ -895,13 +895,11 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	/* the loader and the runtime keep the activity */
 	activity = (*environment)->NewGlobalRef(environment, activity);
 
-	/* The Steam Frame lists an implicit API layer of its own for Vulkan
-	apps (fragment density maps, XR_APILAYER_VALVE_fdm_injection) whose
-	library an app cannot load from its namespace; the loader then fails
-	xrCreateInstance altogether (XR_ERROR_FILE_ACCESS_ERROR). This game
-	draws with OpenGL ES and has no use for it: off, by the variable its
-	manifest names. */
-	setenv("DISABLE_VULKAN_FDM_INJECTION_LAYER", "1", 0);
+	/* (The Steam Frame lists an implicit API layer of its own for Vulkan
+	apps, XR_APILAYER_VALVE_fdm_injection, whose library an app cannot load
+	from its namespace, failing xrCreateInstance; the Android loader reads
+	no variable to turn it off, so the app carries a pass-through layer
+	under that library's name: port/android/xr_layer/fdm_injection_stub.c) */
 
 	if (!XR_SUCCEEDED(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
 		(PFN_xrVoidFunction *)&initialize_loader)) || !initialize_loader)
