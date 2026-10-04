@@ -173,6 +173,45 @@ def _find_ndk() -> Optional[Path]:
     return None
 
 
+# SDL3's Java takes the clipboard service for granted: Lepton, the Steam
+# Frame's Android, has none, and the activity died starting. These edits let
+# it do without one (the clipboard is then empty and keeps nothing).
+SDL_JAVA_PATCHES = [
+    ("       mClipMgr = (ClipboardManager) SDL.getContext().getSystemService(Context.CLIPBOARD_SERVICE);\n"
+     "       mClipMgr.addPrimaryClipChangedListener(this);\n",
+     "       mClipMgr = (ClipboardManager) SDL.getContext().getSystemService(Context.CLIPBOARD_SERVICE);\n"
+     "       if (mClipMgr != null) /* halo-ce-vr: none in Lepton */\n"
+     "           mClipMgr.addPrimaryClipChangedListener(this);\n"),
+    ("    public boolean clipboardHasText() {\n",
+     "    public boolean clipboardHasText() {\n"
+     "        if (mClipMgr == null) /* halo-ce-vr */\n"
+     "            return false;\n"),
+    ("    public String clipboardGetText() {\n",
+     "    public String clipboardGetText() {\n"
+     "        if (mClipMgr == null) /* halo-ce-vr */\n"
+     "            return null;\n"),
+    ("    public void clipboardSetText(String string) {\n",
+     "    public void clipboardSetText(String string) {\n"
+     "        if (mClipMgr == null) /* halo-ce-vr */\n"
+     "            return;\n"),
+]
+
+
+def patch_sdl_java() -> None:
+    """SDL_JAVA_PATCHES, once, into the cloned SDL3's Java."""
+    path = SDL_DIR / "android-project" / "app" / "src" / "main" / "java" / "org" / "libsdl" / "app" / "SDLActivity.java"
+    if not path.is_file():
+        return
+    text = path.read_text()
+    if "halo-ce-vr: none in Lepton" in text:
+        return
+    for old, new in SDL_JAVA_PATCHES:
+        if text.count(old) != 1:
+            raise SystemExit(f"cannot patch {path}: SDL3's clipboard handler has changed")
+        text = text.replace(old, new)
+    path.write_text(text)
+
+
 def fetch_third_party() -> None:
     """Download musl and SDL3 (configure time, once)."""
     THIRD_PARTY.mkdir(parents=True, exist_ok=True)
@@ -190,6 +229,7 @@ def fetch_third_party() -> None:
         print(f"Cloning Opus {OPUS_TAG}")
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", OPUS_TAG, OPUS_URL, str(OPUS_DIR)],
                        check=True)
+    patch_sdl_java()
     if not OPENXR_DIR.is_dir():
         print(f"Downloading {OPENXR_URL}")
         import zipfile
@@ -596,6 +636,17 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     )
     n.build(outputs=libmain, rule="android_host_link", inputs=host_objects, implicit=[libsdl, libopus])
 
+    # a do-nothing OpenXR layer under the Steam Frame's implicit layer's
+    # library name (port/android/xr_layer/fdm_injection_stub.c)
+    fdm_stub = jni_dir / "libVkLayer_VALVE_fdm_injection.so"
+    n.rule(
+        name="android_xr_layer",
+        command=(f"$android_host_cc -O2 -fPIC -shared -fvisibility=hidden -I{OPENXR_DIR}/include -o $out $in "
+                 "-Wl,-z,max-page-size=16384"),
+        description="ANDROID XR LAYER $out",
+    )
+    n.build(outputs=fdm_stub, rule="android_xr_layer", inputs=PORT_DIR / "xr_layer" / "fdm_injection_stub.c")
+
     # ---------- staging for Gradle
 
     staged_sdl = jni_dir / "libSDL3.so"
@@ -603,7 +654,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     n.rule(name="android_copy", command="cp $in $out", description="ANDROID STAGE $out")
     n.build(outputs=staged_sdl, rule="android_copy", inputs=libsdl)
     n.build(outputs=staged_image, rule="android_copy", inputs=image)
-    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image])
+    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, fdm_stub])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     n.rule(
@@ -614,6 +665,6 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         description="ANDROID GRADLE $out",
         pool="console",
     )
-    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image])
+    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, fdm_stub])
     n.build(outputs="android_apk", rule="phony", inputs=apk)
     n.newline()

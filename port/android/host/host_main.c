@@ -90,6 +90,8 @@ int host_errno(void)
 
 static char data_root[512];
 static char save_root[512];
+/* where a device that empties the app's folders keeps the game's data */
+#define SHARED_DATA_ROOT "/home/steamos/Documents/HaloCE"
 
 void host_android_path(int which, char *buffer, uint32_t size)
 {
@@ -269,6 +271,12 @@ static void *game_main(void *unused)
 	external = SDL_GetAndroidExternalStoragePath();
 	if (!external)
 		host_fatal("Android storage is unavailable: %s", SDL_GetError());
+	/* the Steam Frame: Lepton empties the app's own folders whenever it
+	starts again; the game's data lives in the SteamOS user's Documents
+	instead, when it is there (port/android/STEAM_FRAME.md; the same choice
+	as LauncherActivity's) */
+	if (directory_has_maps(SHARED_DATA_ROOT) && access(SHARED_DATA_ROOT, W_OK) == 0)
+		external = SHARED_DATA_ROOT;
 	snprintf(data_root, sizeof(data_root), "%s", external);
 	snprintf(save_root, sizeof(save_root), "%s/save", external);
 	/* readable by adb (the shell user), for managing saves */

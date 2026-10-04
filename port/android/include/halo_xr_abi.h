@@ -53,6 +53,23 @@ enum
 	HALO_XR_BUTTON_TRIGGER = 1 << 4,    /* trigger past its click point */
 	HALO_XR_BUTTON_SQUEEZE = 1 << 5,    /* grip past its click point */
 	HALO_XR_BUTTON_THUMBREST = 1 << 6,  /* thumb resting (touch) */
+	/* the Steam Frame's controllers' (HALO_XR_LAYOUT_FRAME): the left one's
+	View button and D-pad, either one's bumper (their right one's X, Y and
+	menu button come as the left hand's A, B and MENU: the game's X, Y and
+	Start, as on the Quest) */
+	HALO_XR_BUTTON_VIEW = 1 << 7,
+	HALO_XR_BUTTON_BUMPER = 1 << 8,
+	HALO_XR_BUTTON_DPAD_UP = 1 << 9,
+	HALO_XR_BUTTON_DPAD_DOWN = 1 << 10,
+	HALO_XR_BUTTON_DPAD_LEFT = 1 << 11,
+	HALO_XR_BUTTON_DPAD_RIGHT = 1 << 12,
+};
+
+/* the controllers' layout, for what the game tells the player */
+enum
+{
+	HALO_XR_LAYOUT_TOUCH = 0, /* the Quest's: X, Y and menu on the left */
+	HALO_XR_LAYOUT_FRAME = 1, /* the Steam Frame's: A, B, X, Y and menu on the right, a D-pad on the left */
 };
 
 /* halo_xr_hand.flags, halo_xr_view.flags, halo_xr_frame.head_flags */
@@ -112,6 +129,7 @@ struct halo_xr_frame
 	struct halo_xr_pose head;
 	struct halo_xr_view views[HALO_XR_EYE_COUNT];
 	struct halo_xr_hand hands[HALO_XR_HAND_COUNT];
+	int controller_layout;  /* HALO_XR_LAYOUT_* */
 };
 
 /* halo_xr_submit.overlay_mode */

@@ -231,6 +231,7 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
+#include "physics/collisions.h"
 #endif
 
 /* port/linux/game/pal_tags.c's */
@@ -2205,6 +2206,10 @@ static void trigger_create_projectiles(
 		long target_object_index= NONE;
 		long projectile_definition_index;
 		short projectile_count;
+#ifdef HALO_ANDROID
+		/* VR: fired from the muzzle of the weapon in the hand */
+		boolean vr_from_muzzle= FALSE;
+#endif
 
 		if (!TEST_FLAG(trigger_definition->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit) &&
 			unit &&
@@ -2282,6 +2287,7 @@ static void trigger_create_projectiles(
 						origin.x = vr_origin[0];
 						origin.y = vr_origin[1];
 						origin.z = vr_origin[2];
+						vr_from_muzzle = TRUE;
 					}
 				}
 #endif
@@ -2383,6 +2389,26 @@ static void trigger_create_projectiles(
 						real_point3d camera_position;
 
 						unit_get_camera_position(owner_object_index, &camera_position);
+#ifdef HALO_ANDROID
+						if (vr_from_muzzle)
+						{
+							/* VR: from the eyes down to the hand the line runs through
+							the player's own body, which the game's test hits, moving the
+							shot up towards the eyes (it then flies parallel to the aim,
+							above it): only the level stops it, a hand through a wall */
+							struct collision_result collision;
+							struct object_datum *projectile_object= object_get(projectile_object_index);
+
+							if (collision_test_line(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+									&camera_position, &projectile_object->object.position, owner_object_index, &collision) &&
+								collision.location.cluster_index!=NONE)
+							{
+								object_translate(projectile_object_index, &collision.point, &collision.location);
+								object_compute_node_matrices(projectile_object_index);
+							}
+						}
+						else
+#endif
 						object_force_inside_bsp(projectile_object_index, &camera_position);
 					}
 					if (target_object_index!=NONE)
