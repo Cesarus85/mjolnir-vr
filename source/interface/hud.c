@@ -961,6 +961,11 @@ static void hud_draw_players(
 	long player_index = local_player_get_player_index(render.local_player_index);
 	long team_index = player_get(player_index)->team_index;
 
+#ifdef HALO_ANDROID
+	/* (VR: over the heads, with the names: hud_draw_player_name) */
+	if (halo_vr_names_apart())
+		return;
+#endif
 	if (player_index != NONE)
 	{
 		/* the native builds' sessions hold more than 16 players */
@@ -1135,6 +1140,7 @@ static void hud_draw_player_name(
 	long player_index,
 	boolean ally,
 	boolean indicator,
+	boolean name_shown,
 	real enemy_range,
 	boolean vr_apart)
 {
@@ -1176,7 +1182,7 @@ static void hud_draw_player_name(
 
 		point[0] = head_position.x;
 		point[1] = head_position.y;
-		point[2] = head_position.z + (indicator ? 0.15f : 0.0f);
+		point[2] = head_position.z + (indicator ? 0.06f : 0.0f);
 		slot = halo_vr_add_name(point);
 		if (slot < 0)
 			return;
@@ -1185,7 +1191,31 @@ static void hud_draw_player_name(
 		y = (short)(slot_bounds[3] - 4);
 		/* (an ally's whole at any distance it is drawn at) */
 		view_position.z = -1.0f;
+		if (indicator)
+		{
+			/* (a teammate's triangle at the slot's foot, the name over it:
+			the game's, drawn on the HUD, would hang before the eyes) */
+			struct bitmap_data *bitmap = bitmap_group_get_bitmap_from_sequence(
+				interface_get_tag_index(_interface_bitmap_multiplayer_hud), 0, 0);
+
+			if (bitmap && _texture_cache_bitmap_get_hardware_format(bitmap, FALSE, TRUE))
+			{
+				point2d tip;
+				real_rectangle2d whole;
+
+				tip.x = x;
+				tip.y = (short)(slot_bounds[3] - 2);
+				whole.x0 = 0.0f;
+				whole.x1 = 1.0f;
+				whole.y0 = 0.0f;
+				whole.y1 = 1.0f;
+				interface_draw_bitmap(bitmap, &tip, &whole, 0.6f, 0.0f, 1.0f);
+				y = (short)(tip.y - bitmap->registration_point.y * 0.6f);
+			}
+		}
 		indicator = FALSE;
+		if (!name_shown)
+			return;
 	}
 	else
 #endif
@@ -1271,7 +1301,8 @@ static void hud_draw_player_names_now(
 	long team_index;
 	real enemy_range;
 
-	if (setting == _player_names_none || player_index == NONE)
+	/* (VR: the triangles over teammates go with the names, shown or not) */
+	if ((setting == _player_names_none && !vr_apart) || player_index == NONE)
 		return;
 	team_index = player_get(player_index)->team_index;
 	indicators = game_engine_display_team_indicators();
@@ -1281,12 +1312,14 @@ static void hud_draw_player_names_now(
 	{
 		/* (allies as the game's triangles tell them: the same team) */
 		boolean ally = player->team_index == team_index;
+		boolean shown = !(setting == _player_names_none || (ally && setting == _player_names_enemies) ||
+			(!ally && setting == _player_names_allies));
 
 		if (iterator.datum_index == player_index || player->unit_index == NONE)
 			continue;
-		if ((ally && setting == _player_names_enemies) || (!ally && setting == _player_names_allies))
+		if (!shown && !(vr_apart && ally && indicators))
 			continue;
-		hud_draw_player_name(iterator.datum_index, ally, ally && indicators, enemy_range, vr_apart);
+		hud_draw_player_name(iterator.datum_index, ally, ally && indicators, shown, enemy_range, vr_apart);
 	}
 
 	return;
