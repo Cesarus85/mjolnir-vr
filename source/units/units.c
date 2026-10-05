@@ -691,6 +691,19 @@ symbols in this file:
 #include "saved games/game_state.h"
 #include "sound/game_sound.h"
 #include "vehicles.h"
+#include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "coop_enemies.h" /* port: port/linux/game/coop_enemies.c */
+
+/* port: the control and animation impulses the host's actors give their
+units go to the clients' copies (port/linux/game/network_actors.c) */
+void network_actors_note_control(long unit_index, struct unit_control_data const *control_data);
+void network_actors_note_impulse(long unit_index, short animation_impulse, real_vector2d const *alignment_vector);
+void network_actors_note_melee(long unit_index, real_vector2d const *alignment_vector);
+void network_actors_note_leap(long unit_index, real_vector2d const *alignment_vector);
+/* port/linux/game/network_objects.c: the host's pick of a flinch or death animation */
+short network_objects_damage_animation(long unit_index, short type, short animation_index);
+void network_actors_note_user_animation(long unit_index, long animation_graph_index, short animation_index,
+	boolean interpolate);
 
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
@@ -737,14 +750,6 @@ enum
 enum
 {
 	_unit_debug_function_active_bit = 2,
-};
-
-enum
-{
-	_unit_damage_animation_soft_ping = 0,
-	_unit_damage_animation_hard_ping,
-	_unit_damage_animation_soft_kill,
-	_unit_damage_animation_hard_kill,
 };
 
 enum
@@ -981,6 +986,8 @@ static long unit_get_weapon(struct unit_datum *unit, short index);
 static void unit_drop_item(long unit_index, long item_index);
 /* port/linux/game/network_objects.c's */
 boolean network_objects_creating_host_object(void);
+/* port/linux/game/network_damage.c's */
+void network_damage_note_grenade(long unit_index, short grenade_type);
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
 static void unit_drop_grenades(
@@ -2331,6 +2338,7 @@ boolean unit_custom_animation_at_frame(
 		{
 			unit->object.animation.state.frame_index = frame_index;
 			success = TRUE;
+			network_coop_note_unit_animation_frame(unit_index, frame_index);
 		}
 	}
 
@@ -3716,6 +3724,7 @@ void unit_detach_from_parent(
 
 	if (unit->object.parent_object_index != NONE)
 	{
+		long parent_index = unit->object.parent_object_index;
 		real_point3d parent_origin;
 		real_point3d unit_origin;
 		real_vector3d velocity;
@@ -3745,6 +3754,10 @@ void unit_detach_from_parent(
 			&unit->object.translational_velocity);
 		object_set_visibility(unit_index, TRUE);
 		object_compute_node_matrices(unit_index);
+		/* port: a vehicle dropped by another comes with more in a large
+		co-op game (port/linux/game/network_coop.c) */
+		if (unit->object.type == _object_type_vehicle && object_get(parent_index)->object.type == _object_type_vehicle)
+			network_coop_vehicle_dropped(unit_index, parent_index);
 	}
 
 	return;
@@ -4061,6 +4074,13 @@ boolean unit_start_user_animation(
 							TRUE);
 						object_compute_node_matrices_recursive(unit_index);
 						animation_started = TRUE;
+						network_coop_note_unit_animation(unit_index, animation_graph_index, animation_index,
+							interpolate);
+						if (unit->unit.player_index == NONE)
+						{
+							network_actors_note_user_animation(unit_index, animation_graph_index, animation_index,
+								interpolate);
+						}
 					}
 				}
 			}
@@ -4111,9 +4131,98 @@ void unit_stop_custom_animation(
 	if (unit_index!=NONE && unit_get(unit_index)->unit.animation.state==_unit_state_user_animation)
 	{
 		unit_animation_set_state(unit_index, _unit_state_idle);
+		network_coop_note_unit_animation(unit_index, NONE, NONE, FALSE);
 	}
 
 	return;
+}
+
+/* port: a unit that feigned death gets back up (a Flood combat form). The
+host's does when its timer runs out (unit_update); a client's copy when the
+host's word on it says it is alive again (network_actors.c). */
+void unit_port_resurrect(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	short new_state = TEST_FLAG(unit->unit.animation.flags, _unit_animation_fallen_on_front_bit) ?
+		_unit_state_resurrect_front : _unit_state_resurrect_back;
+
+	SET_FLAG(unit->object.damage_flags, _object_dead_bit, FALSE);
+	unit_set_actively_controlled(unit_index, TRUE);
+	unit_set_or_test_seat_and_weapon_label(unit_index, base_seat_label_get(_unit_animation_state_suspicious), NULL,
+		TRUE);
+	unit_animation_set_state(unit_index, new_state);
+	SET_FLAG(unit->unit.animation.flags, _unit_animation_ignore_translation_bit, FALSE);
+	if (unit->object.type == _object_type_biped)
+		biped_stop_limp_body_physics(unit_index);
+	unit_scream(unit_index, _unit_scream_resurrection);
+}
+
+/* how far into its own flinch or death animation a client's unit still
+switches to the host's pick */
+#define DAMAGE_ANIMATION_SWITCH_TICKS 10
+
+/* port: whether the unit plays a flinch or death animation of the type
+(the host's pick, port/linux/game/network_objects.c): it is switched to the
+host's if its own has only just begun. FALSE if it plays none. */
+boolean unit_port_correct_damage_animation(
+	long unit_index,
+	short type,
+	short animation_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	long animation_graph_index = unit_definition_get(unit->definition_index)->object.animation_graph.index;
+
+	if (type == _unit_damage_animation_soft_ping)
+	{
+		/* (an overlay, beside the unit's animation) */
+		if (unit->unit.animation.soft_ping_animation.index == NONE)
+			return FALSE;
+		if (unit->unit.animation.soft_ping_animation.frame_index < DAMAGE_ANIMATION_SWITCH_TICKS)
+			unit->unit.animation.soft_ping_animation.index = animation_index;
+		return TRUE;
+	}
+	if (type == _unit_damage_animation_hard_ping ?
+		unit->unit.animation.state != _unit_state_hard_ping :
+		unit->unit.animation.state != _unit_state_dying && unit->unit.animation.state != _unit_state_dying_airborne)
+	{
+		return FALSE;
+	}
+	if (unit->object.animation.state.index != animation_index &&
+		unit->object.animation.state.frame_index < DAMAGE_ANIMATION_SWITCH_TICKS)
+	{
+		unit_set_animation(unit_index, animation_graph_index, animation_index);
+		object_compute_node_matrices_recursive(unit_index);
+	}
+	return TRUE;
+}
+
+/* port: a co-op client plays the custom animation the host's unit started
+(network_coop.c): exactly that animation, not another random permutation */
+void unit_port_play_user_animation(
+	long unit_index,
+	long animation_graph_index,
+	short animation_index,
+	boolean interpolate,
+	short frame_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct animation_graph *animation_graph = animation_graph_definition_get(animation_graph_index);
+	struct animation *animation;
+
+	if (animation_index < 0 || animation_index >= animation_graph->animations.count)
+		return;
+	animation = TAG_BLOCK_GET_ELEMENT(&animation_graph->animations, animation_index, struct animation);
+	if (animation->type != _animation_base)
+		return;
+	if (interpolate)
+		object_start_interpolation(unit_index, 6);
+	unit->unit.animation.state = _unit_state_user_animation;
+	unit_set_animation(unit_index, animation_graph_index, animation_index);
+	SET_FLAG(unit->unit.animation.flags, _unit_animation_postpone_weapon_ik_until_interpolation_ends_bit, TRUE);
+	if (frame_index > 0 && frame_index < animation->frame_count)
+		unit->object.animation.state.frame_index = frame_index;
+	object_compute_node_matrices_recursive(unit_index);
 }
 
 boolean unit_melee_attack_begin(
@@ -4195,6 +4304,9 @@ boolean unit_melee_attack_begin(
 				else
 				{
 					unit->unit.melee_attack_state = 1;
+					/* port: the AI's swing, played on the clients too */
+					if (unit->unit.player_index == NONE)
+						network_actors_note_melee(unit_index, alignment_vector);
 				}
 				result = TRUE;
 			}
@@ -4248,6 +4360,9 @@ boolean unit_leap_begin(
 				{
 					unit_align_facing(unit_index, alignment_vector);
 				}
+				/* port: the AI's leap, played on the clients too */
+				if (unit->unit.player_index == NONE)
+					network_actors_note_leap(unit_index, alignment_vector);
 
 				result = TRUE;
 			}
@@ -5113,6 +5228,11 @@ short vehicle_scripting_load_magic(
 		short available_seat_count;
 		long reference_index;
 		long unit_index;
+		/* port: the riders left without a seat that network co-op keeps
+		(coop_enemies.c), erased once the list is gone through */
+		long unseated_actor_indices[64];
+		short unseated_count = 0;
+		short unseated_number;
 
 		available_seat_count = vehicle_scripting_find_available_seats(
 			vehicle_index,
@@ -5131,6 +5251,7 @@ short vehicle_scripting_load_magic(
 			{
 				struct unit_datum *unit = (struct unit_datum *)object;
 				short available_seat_index;
+				long loaded_before = loaded_count;
 
 				for (available_seat_index = 0;
 					available_seat_index<available_seat_count;
@@ -5166,10 +5287,24 @@ short vehicle_scripting_load_magic(
 						}
 					}
 				}
+
+				/* port: network co-op's extra enemies (coop_enemies.c): a
+				rider seated, or one left without a seat, kept until the
+				seated get out */
+				if (loaded_count > loaded_before)
+					coop_enemies_rider_seated(vehicle_index, unit_index);
+				else if (unit->object.parent_object_index == NONE && unit->unit.actor_index != NONE &&
+					unseated_count < (short)NUMBEROF(unseated_actor_indices) &&
+					coop_enemies_rider_unseated(vehicle_index, unit_index))
+				{
+					unseated_actor_indices[unseated_count++] = unit->unit.actor_index;
+				}
 			}
 
 			unit_index = object_list_get_next(object_list_index, &reference_index);
 		}
+		for (unseated_number = 0; unseated_number < unseated_count; unseated_number++)
+			actor_erase(unseated_actor_indices[unseated_number], FALSE);
 	}
 
 	return (short)loaded_count;
@@ -5180,6 +5315,7 @@ void unit_open(
 {
 	if (unit_index!=NONE)
 	{
+		network_coop_note_unit_open(unit_index, TRUE);
 		unit_animation_set_state(unit_index, _unit_state_opening);
 	}
 
@@ -5191,6 +5327,7 @@ void unit_close(
 {
 	if (unit_index!=NONE)
 	{
+		network_coop_note_unit_open(unit_index, FALSE);
 		unit_animation_set_state(unit_index, _unit_state_closing);
 	}
 
@@ -5456,32 +5593,7 @@ boolean unit_update(
 			{
 				if (unit->object.body_vitality>0.f)
 				{
-					short new_state = TEST_FLAG(
-							unit->unit.animation.flags,
-							_unit_animation_fallen_on_front_bit) ? _unit_state_resurrect_front : _unit_state_resurrect_back;
-
-					SET_FLAG(unit->object.damage_flags, _object_dead_bit, FALSE);
-
-					unit_set_actively_controlled(unit_index, TRUE);
-					unit_set_or_test_seat_and_weapon_label(
-						unit_index,
-						base_seat_label_get(_unit_animation_state_suspicious),
-						NULL,
-						TRUE
-					);
-					unit_animation_set_state(unit_index, new_state);
-
-					SET_FLAG(
-						unit->unit.animation.flags,
-						_unit_animation_ignore_translation_bit,
-						FALSE);
-
-					if (unit->object.type==_object_type_biped)
-					{
-						biped_stop_limp_body_physics(unit_index);
-					}
-
-					unit_scream(unit_index, _unit_scream_resurrection);
+					unit_port_resurrect(unit_index);
 				}
 				else
 				{
@@ -6426,6 +6538,9 @@ static void unit_ping_animation(
 					animation_graph_index,
 					selected_damage_animation_index);
 			}
+			/* port: the host's pick on every machine (port/linux/game/network_objects.c) */
+			animation_index = network_objects_damage_animation(unit_index, _unit_damage_animation_soft_ping,
+				animation_index);
 
 			if (animation_index==NONE)
 			{
@@ -6550,6 +6665,8 @@ static void unit_ping_animation(
 					animation_graph_index,
 					selected_damage_animation_index);
 			}
+			/* port: the host's pick on every machine (port/linux/game/network_objects.c) */
+			animation_index = network_objects_damage_animation(unit_index, damage_animation_type, animation_index);
 
 			if (animation_index!=NONE)
 			{
@@ -7693,6 +7810,9 @@ static void unit_throw_grenade_move_to_hand(
 		object_attach_to_node(unit_index, object_index, marker.node_index);
 		unit->unit.grenade_object_index = object_index;
 		unit->unit.grenade_throw_state = _unit_grenade_throw_in_hand;
+		/* port: the host takes a client's report of the grenade's damage only
+		from a grenade thrown (network_damage.c) */
+		network_damage_note_grenade(unit_index, unit->unit.current_grenade_index);
 	}
 	else
 	{
@@ -8507,6 +8627,8 @@ boolean unit_start_animation_impulse(
 				{
 					unit_align_facing(unit_index, alignment_vector);
 				}
+				if (unit->unit.player_index == NONE)
+					network_actors_note_impulse(unit_index, animation_impulse, alignment_vector);
 
 				result = TRUE;
 			}
@@ -11025,6 +11147,9 @@ void unit_control(
 	struct unit_control_data const *control_data)
 {
 	struct unit_datum *unit = unit_get(unit_index);
+
+	if (unit->unit.player_index == NONE)
+		network_actors_note_control(unit_index, control_data);
 
 	match_assert(
 		"c:\\halo\\SOURCE\\units\\units.c",
