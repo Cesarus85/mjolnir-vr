@@ -1366,25 +1366,6 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 
 /* ---------- the menus' pointer */
 
-#ifdef HALO_ANDROID
-/* the controller pointing at the menus' screen in VR (halo_vr_menu_pointer) */
-int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
-{
-	int x, y, click_x, click_y, moved, clicks;
-
-	platform_menus_set_active(menus_active != 0);
-	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &click_x, &click_y, &moved, &clicks))
-		return 0;
-	memset(pointer, 0, sizeof(*pointer));
-	pointer->x = (short)(x - (halo_screen_width() - 640) / 2);
-	pointer->y = (short)y;
-	pointer->click_x = (short)(click_x - (halo_screen_width() - 640) / 2);
-	pointer->click_y = (short)click_y;
-	pointer->moved = (unsigned char)(moved != 0);
-	pointer->left_clicks = (unsigned char)(clicks < 255 ? clicks : 255);
-	return 1;
-}
-#else
 /* a point in the window, as SDL reports it, in the menus' coordinates: the
 inverse of the letterboxed display blit at presentation, the screen's
 width and the menus' centering (halo_screen_ui_offset) */
@@ -1415,6 +1396,47 @@ static void ui_point_from_window(float window_x, float window_y, short *x, short
 	*x = (short)floorf(screen_x - (float)(halo_screen_width() - 640) / 2.0f);
 	*y = (short)floorf(screen_y);
 }
+
+#ifdef HALO_ANDROID
+BOOL platform_flat_mouse(float *x, float *y);
+
+/* the controller pointing at the menus' screen in VR (halo_vr_menu_pointer);
+flat (the emulator), the mouse */
+int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
+{
+	int x, y, click_x, click_y, moved, clicks;
+
+	platform_menus_set_active(menus_active != 0);
+	if (menus_active && !halo_vr_active() && device.gl_ready)
+	{
+		static BOOL was_down;
+		static short last_x, last_y;
+		float window_x, window_y;
+		BOOL down = platform_flat_mouse(&window_x, &window_y);
+
+		memset(pointer, 0, sizeof(*pointer));
+		ui_point_from_window(window_x, window_y, &pointer->x, &pointer->y);
+		pointer->click_x = pointer->x;
+		pointer->click_y = pointer->y;
+		pointer->moved = pointer->x != last_x || pointer->y != last_y;
+		pointer->left_clicks = (unsigned char)(down && !was_down);
+		last_x = pointer->x;
+		last_y = pointer->y;
+		was_down = down;
+		return 1;
+	}
+	if (!menus_active || !halo_vr_menu_pointer(&x, &y, &click_x, &click_y, &moved, &clicks))
+		return 0;
+	memset(pointer, 0, sizeof(*pointer));
+	pointer->x = (short)(x - (halo_screen_width() - 640) / 2);
+	pointer->y = (short)y;
+	pointer->click_x = (short)(click_x - (halo_screen_width() - 640) / 2);
+	pointer->click_y = (short)click_y;
+	pointer->moved = (unsigned char)(moved != 0);
+	pointer->left_clicks = (unsigned char)(clicks < 255 ? clicks : 255);
+	return 1;
+}
+#else
 
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {

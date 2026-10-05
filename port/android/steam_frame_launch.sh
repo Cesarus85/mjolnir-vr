@@ -47,6 +47,17 @@ setsid bash -c '
     "'"$LEPTON"'" kill "'"$CONTEXT"'" >/dev/null 2>&1
 ' </dev/null >/dev/null 2>&1 &
 
+# the game's log while it runs (Lepton's logcat of its container), for
+# looking into problems: logcat.txt, anew each start
+LOGCAT="$HOME/Documents/HaloCE/logcat.txt"
+: > "$LOGCAT"
+setsid bash -c '
+    while kill -0 '"$script"' 2>/dev/null; do
+        "'"$LEPTON"'" logcat "'"$CONTEXT"'" 2>/dev/null | grep -v "^ERROR: \|^steamlaunch-\|^$" >> "'"$LOGCAT"'"
+        sleep 3
+    done
+' </dev/null >/dev/null 2>&1 &
+
 run()
 {
     "$LEPTON" waitforexitandrun -- "$APK" &

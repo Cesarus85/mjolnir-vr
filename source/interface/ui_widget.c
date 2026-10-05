@@ -5702,6 +5702,10 @@ static void ui_mouse_note_target(
 		if (!parent || ui_mouse_list_shows_several(widget) || !widget_instance_can_receive_events(widget))
 			return;
 		kind = _ui_mouse_target_value;
+		/* port: its arrows, drawn just outside it (the PC version's
+		spinners' header and footer bitmaps), its too */
+		bounds.x0 -= 12;
+		bounds.x1 += 12;
 	}
 	else if (ui_mouse_widget_is_item(widget))
 	{
@@ -6154,6 +6158,8 @@ static void ui_join_code_panel_event(
 	}
 }
 
+long network_game_server_port_bot_count(void);
+
 /* the host options panel's input: the stick or the pad's arrows up and
 down choose a row, left and right (or A) change it, B or Y closes it */
 static void ui_join_code_host_panel_event(
@@ -6202,13 +6208,18 @@ static void ui_join_code_host_panel_event(
 		break;
 	case 1:
 	{
-		/* (A goes round: past the most, none) */
-		long count = config_integer("bots.count") + change;
+		/* (from the bots there are, which the game's room may hold below
+		bots.count; A goes round: past the most there is room for, none) */
+		long before = network_game_server_port_bot_count();
+		long count = PIN(before + change, 0, MAXIMUM_BOTS_SHOWN);
 
-		if (count > MAXIMUM_BOTS_SHOWN)
+		config_write_integer("bots.count", count);
+		if (change > 0 && network_game_server_port_bot_count() <= before)
+		{
 			count = event->type == _event_type_button && event->data.button.index == _gamepad_analog_button_a ? 0 :
-				MAXIMUM_BOTS_SHOWN;
-		config_write_integer("bots.count", PIN(count, 0, MAXIMUM_BOTS_SHOWN));
+				before;
+			config_write_integer("bots.count", count);
+		}
 		break;
 	}
 	case 2:
@@ -6295,6 +6306,20 @@ static boolean ui_join_code_take_pointer(
 	}
 	if (ui_join_code_globals.panel_open)
 	{
+		/* (a click beside the panel, or on its key's B, closes it; on its
+		key's X, a code to enter, on its A, as A) */
+		if (pointer->left_clicks && (x < 40 || x >= 600 || y < 72 || y >= 410 ||
+			(y >= 384 && x >= 210 && x < 280)))
+		{
+			ui_join_code_globals.panel_open = FALSE;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+			return TRUE;
+		}
+		if (pointer->left_clicks && y >= 384 && x >= 104 && x < 210)
+		{
+			ui_join_code_launch_keyboard();
+			return TRUE;
+		}
 		if (x >= 48 && x < 592 && y >= 128 && y < 128 + ONLINE_PANEL_ROWS * 22)
 		{
 			row = (short)(ui_join_code_globals.scroll + (y - 128) / 22);
@@ -6309,6 +6334,13 @@ static boolean ui_join_code_take_pointer(
 	}
 	if (ui_join_code_globals.host_panel_open)
 	{
+		/* (a click beside the panel, or on its key's B, closes it) */
+		if (pointer->left_clicks && (x < 140 || x >= 500 || y < 150 || y >= 330 || (y >= 296 && x >= 250)))
+		{
+			ui_join_code_globals.host_panel_open = FALSE;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+			return TRUE;
+		}
 		if (x >= 148 && x < 492 && y >= 187 && y < 187 + HOST_PANEL_ROWS * 30)
 		{
 			ui_join_code_globals.host_selection = (short)((y - 187) / 30);
@@ -6531,7 +6563,7 @@ static void ui_join_code_render(
 	else if (ui_join_code_lobby_screen() && global_network_game_server_get())
 	{
 		char line[128];
-		long bots = config_integer("bots.count");
+		long bots = network_game_server_port_bot_count();
 		char bots_text[24];
 
 		if (bots > 0)
@@ -7087,7 +7119,7 @@ static void ui_vr_options_render(
 		/* (under the menu; centred by hand, as icons are drawn from the
 		left) */
 		if (strcmp(widget_globals.active_widgets[0]->name, "main_menu") == 0)
-			ui_join_code_draw_text(400, 630, 452, "%y-button VR options", TRUE, 1, &hint_color);
+			ui_join_code_draw_text(490, 630, 452, "%y-button VR options", TRUE, 0, &hint_color);
 		else
 			ui_join_code_draw_text(266, 400, 440, "%y-button VR options", TRUE, 0, &hint_color);
 		return;

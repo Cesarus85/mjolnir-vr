@@ -62,6 +62,10 @@ gone, ends: else the keyboard stays held from the game) */
 static Uint64 binding_polled_ms;
 #define BINDING_ABANDONED_MS 500
 static unsigned mouse_buttons_down;
+#ifdef HALO_ANDROID
+/* the mouse's place, flat (platform_flat_mouse) */
+static float flat_mouse_x, flat_mouse_y;
+#endif
 /* (an input taken that nothing asks for is let go after this) */
 #define BINDING_UNCLAIMED_MS 2000
 /* the multiplayer scoreboard is open (platform_scoreboard_scroll): the wheel
@@ -1313,7 +1317,10 @@ void platform_pump_events(void)
 #endif
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
-#ifndef HALO_ANDROID
+#ifdef HALO_ANDROID
+			flat_mouse_x = event.motion.x;
+			flat_mouse_y = event.motion.y;
+#else
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
@@ -1473,6 +1480,23 @@ int platform_binding_capture_poll(int *input)
 	return result;
 }
 
+#ifdef HALO_ANDROID
+/* flat, not in VR (the emulator, for testing the menus): the mouse's place
+in the window and whether its left button is down, polled */
+BOOL platform_flat_mouse(float *x, float *y)
+{
+	BOOL down;
+
+	pthread_mutex_lock(&input_lock);
+	*x = flat_mouse_x;
+	*y = flat_mouse_y;
+	/* (an injected mouse's, adb shell input mouse: button 0) */
+	down = (mouse_buttons_down & ((1u << SDL_BUTTON_LEFT) | 1u)) != 0;
+	pthread_mutex_unlock(&input_lock);
+	return down;
+}
+#endif
+
 #ifndef HALO_ANDROID
 /* ---------- the menus' pointer */
 
@@ -1523,12 +1547,17 @@ BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 	return active;
 }
 
+#endif
+
 void platform_video_window_size(int *width, int *height)
 {
+#ifdef HALO_ANDROID
+	SDL_GetWindowSizeInPixels(platform_window, width, height);
+#else
 	SDL_GetWindowSize(platform_window, width, height);
+#endif
 }
 
-#endif
 void platform_input_read(struct platform_input_state *state, BOOL consume_motion)
 {
 	pthread_mutex_lock(&input_lock);

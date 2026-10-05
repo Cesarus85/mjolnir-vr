@@ -4646,11 +4646,43 @@ found:
 	return TRUE;
 }
 
-/* (the lobby) as many bots as bots.count asks for */
+/* how many bots the lobby has: as many as bots.count asks for, none in
+co-op (a campaign level with no game engine: its own enemies), and no more
+than the game has room for beside the people (at least one): the game's
+maximum, the PC version's Server Setup's MAXIMUM PLAYERS, counts */
+static long network_game_server_bots_wanted(
+	struct network_game_server *server)
+{
+	long wanted = PIN(config_integer("bots.count"), 0, 15);
+	short people = 0;
+	long player_index;
+
+	if (!server->game.variant.game_engine_index && main_get_solo_level_from_name(server->game.map.name) != NONE)
+		return 0;
+	for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
+	{
+		struct network_player *player = &server->game.players[player_index];
+
+		if (network_player_is_valid(player) && !network_game_server_bot_machines[(long)player->machine_index])
+			people++;
+	}
+	return MIN(wanted, MAX(0, (long)server->game.maximum_players - MAX(people, 1)));
+}
+
+/* (for the host options: the bots there will be) */
+long network_game_server_port_bot_count(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server ? network_game_server_bots_wanted(server) : config_integer("bots.count");
+}
+
+/* (the lobby) as many bots as network_game_server_bots_wanted */
 static void network_game_server_update_bots(
 	struct network_game_server *server)
 {
-	long wanted = config_integer("bots.count");
+	long wanted = network_game_server_bots_wanted(server);
 	struct network_player *last;
 	short count = network_game_server_bot_count(server, &last);
 	boolean changed = FALSE;
@@ -4663,31 +4695,6 @@ static void network_game_server_update_bots(
 			server->game.machines[machine_index].machine_index != machine_index)
 		{
 			network_game_server_bot_machines[machine_index] = FALSE;
-		}
-	}
-	wanted = PIN(wanted, 0, 15);
-	/* (none in co-op, a campaign level with no game engine: its own
-	enemies) */
-	if (!server->game.variant.game_engine_index && main_get_solo_level_from_name(server->game.map.name) != NONE)
-		wanted = 0;
-	/* (room for them beside the people, at least one: the PC version's
-	Server Setup may ask for fewer players, after they came) */
-	if (wanted > 0)
-	{
-		short people = 0;
-		long player_index;
-
-		for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
-		{
-			struct network_player *player = &server->game.players[player_index];
-
-			if (network_player_is_valid(player) && !network_game_server_bot_machines[(long)player->machine_index])
-				people++;
-		}
-		if (server->game.maximum_players < MAX(people, 1) + wanted)
-		{
-			server->game.maximum_players = (byte)MIN(MAX(people, 1) + wanted, MAXIMUM_NETWORK_PLAYER_COUNT);
-			changed = TRUE;
 		}
 	}
 	while (count < wanted && network_game_server_add_bot(server, (short)(count + 1)))
