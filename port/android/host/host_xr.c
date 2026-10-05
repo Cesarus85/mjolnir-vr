@@ -119,6 +119,13 @@ static struct
 	int left_grip_valid;
 
 	int has_performance_settings;
+	/* (XR_META_performance_metrics: the compositor's counts, in the log,
+	for telling frames shown late from the game's own pace) */
+	int has_metrics;
+	PFN_xrQueryPerformanceMetricsCounterMETA query_metric;
+	XrPath metric_paths[16];
+	uint32_t metric_count;
+	struct timespec metrics_logged;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
 	PFN_xrGetDisplayRefreshRateFB get_refresh_rate;
@@ -1080,6 +1087,9 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	xr.has_refresh_rate = has_extension(extensions, extension_count, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 	if (xr.has_refresh_rate)
 		enabled[enabled_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+	xr.has_metrics = has_extension(extensions, extension_count, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
+	if (xr.has_metrics)
+		enabled[enabled_count++] = XR_META_PERFORMANCE_METRICS_EXTENSION_NAME;
 
 	android.applicationVM = machine;
 	android.applicationActivity = activity;
@@ -1224,6 +1234,25 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		refresh_rate_choose(wanted_refresh_rate);
 		if (xr.has_refresh_rate)
 			xr.get_refresh_rate(xr.session, &info->refresh_rate);
+	}
+
+	if (xr.has_metrics)
+	{
+		PFN_xrEnumeratePerformanceMetricsCounterPathsMETA enumerate = NULL;
+		PFN_xrSetPerformanceMetricsStateMETA set_state = NULL;
+		XrPerformanceMetricsStateMETA state = { XR_TYPE_PERFORMANCE_METRICS_STATE_META };
+
+		xrGetInstanceProcAddr(xr.instance, "xrEnumeratePerformanceMetricsCounterPathsMETA",
+			(PFN_xrVoidFunction *)&enumerate);
+		xrGetInstanceProcAddr(xr.instance, "xrSetPerformanceMetricsStateMETA", (PFN_xrVoidFunction *)&set_state);
+		xrGetInstanceProcAddr(xr.instance, "xrQueryPerformanceMetricsCounterMETA",
+			(PFN_xrVoidFunction *)&xr.query_metric);
+		state.enabled = XR_TRUE;
+		xr.has_metrics = enumerate && set_state && xr.query_metric &&
+			XR_SUCCEEDED(enumerate(xr.instance, 16, &xr.metric_count, xr.metric_paths)) &&
+			XR_SUCCEEDED(set_state(xr.session, &state));
+		host_logf(HOST_LOG_INFO, "xr: performance metrics %s (%u counters)", xr.has_metrics ? "on" : "off",
+			xr.has_metrics ? xr.metric_count : 0);
 	}
 
 	if (xr.has_performance_settings)
@@ -1659,6 +1688,40 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 			quad_name->size.height = submit->name_widths[name] * NAME_SLOT_ASPECT;
 			pose_to_xr(&quad_name->pose, &submit->name_poses[name]);
 			layers[layer_count++] = (const XrCompositionLayerBaseHeader *)quad_name;
+		}
+	}
+
+	/* (every five seconds, the compositor's counters) */
+	if (xr.has_metrics)
+	{
+		struct timespec now;
+
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		if (now.tv_sec - xr.metrics_logged.tv_sec >= 5)
+		{
+			char line[768] = "";
+			uint32_t counter;
+
+			xr.metrics_logged = now;
+			for (counter = 0; counter < xr.metric_count && counter < 16; counter++)
+			{
+				XrPerformanceMetricsCounterMETA value = { XR_TYPE_PERFORMANCE_METRICS_COUNTER_META };
+				char name[XR_MAX_PATH_LENGTH];
+				uint32_t length = 0;
+				char item[96];
+
+				if (!XR_SUCCEEDED(xr.query_metric(xr.session, xr.metric_paths[counter], &value)) ||
+					!XR_SUCCEEDED(xrPathToString(xr.instance, xr.metric_paths[counter], sizeof(name), &length, name)))
+				{
+					continue;
+				}
+				snprintf(item, sizeof(item), " %s=%g", strrchr(name, '/') ? strrchr(name, '/') + 1 : name,
+					(value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) ?
+						(double)value.floatValue : (double)value.uintValue);
+				if (strlen(line) + strlen(item) < sizeof(line))
+					strcat(line, item);
+			}
+			host_logf(HOST_LOG_INFO, "xr: metrics%s", line);
 		}
 	}
 
