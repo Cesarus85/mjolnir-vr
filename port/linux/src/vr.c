@@ -514,6 +514,16 @@ void halo_vr_initialize(void)
 	vr.active = 1;
 	platform_log("VR: %s, eyes %dx%d at %.0f Hz", vr.info.system_name, vr.info.eye_width, vr.info.eye_height,
 		vr.info.refresh_rate);
+	/* SteamVR (the Steam Frame): each eye drawn apart. With both drawn at
+	once the eyes' pictures did not fuse, now and then: each alone was
+	sharp, the two together doubled as the head turned (2026-10-05), and
+	one by one costs it no more (its time goes to the driver either way).
+	debug.multiview_steamvr draws them at once there again, for finding why */
+	if (vr.multiview && strstr(vr.info.system_name, "SteamVR") && !config_boolean("debug.multiview_steamvr"))
+	{
+		vr.multiview = 0;
+		platform_log("VR: SteamVR: the eyes drawn one by one (debug.multiview_steamvr)");
+	}
 }
 
 int halo_vr_active(void)
