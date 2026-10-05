@@ -41,6 +41,20 @@ What differs is found at run time, not by a build of its own.
 | 7 | Multiplayer, voice, cross-play with the Quest | |
 | 8 | Installing it, for others | |
 
+## Starting it on the Frame
+
+`port/android/steam_frame_launch.sh`, copied to
+`~/Documents/HaloCE/halo-vr.sh` with the APK as `~/Documents/HaloCE/HaloVR.apk`,
+starts the game as Steam starts an Android title: Lepton
+(`lepton waitforexitandrun -- <apk>`) runs it in a container of its own
+(`steamlaunch-4290000001`, kept between starts), installing the APK anew
+whenever the file is newer than the installed one. Updating the game is
+replacing that APK. On the first start after a new APK Lepton only
+installs it: the script then starts it again. Added to the Steam library as
+a non-Steam game, it is a button. (From the Mac, over USB the Frame's
+SteamOS is an adb device of its own, `frame`, beside Lepton's
+`<frame-ip>:5555`.)
+
 ## The game's data
 
 Lepton uninstalls the app and empties its folders whenever it starts again.
