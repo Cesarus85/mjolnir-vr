@@ -1,4 +1,4 @@
-/* the game includes <StdDef.h>; Linux file names are case sensitive.
-   #include_next, since on a case-insensitive file system (macOS) this file
-   is also what <stddef.h> finds */
+/* the game includes <StdDef.h>; Linux file names are case sensitive. On a
+case-insensitive file system (macOS) a plain <stddef.h> would find this file
+again; include_next goes to the real one, as the other shims do. */
 #include_next <stddef.h>

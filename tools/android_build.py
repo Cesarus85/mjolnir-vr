@@ -283,13 +283,23 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     import json
     config: Dict[str, Any] = json.loads(config_path.read_text(encoding="utf-8"))
 
-    # the NDK ships one prebuilt toolchain per build host (linux-x86_64,
-    # darwin-x86_64, windows-x86_64); use whichever this NDK has
     prebuilt = ndk / "toolchains" / "llvm" / "prebuilt"
-    host_tag = {"linux": "linux-x86_64", "darwin": "darwin-x86_64"}.get(sys.platform, "linux-x86_64")
-    toolchain = prebuilt / host_tag
-    if not toolchain.is_dir():
-        toolchain = next((p for p in sorted(prebuilt.iterdir()) if p.is_dir()), toolchain)
+    _host_tag = os.environ.get("ANDROID_NDK_HOST_TAG", "")
+    if not _host_tag:
+        if sys.platform == "darwin":
+            _host_tag = "darwin-x86_64"
+        elif os.name == "nt":
+            _host_tag = "windows-x86_64"
+        else:
+            _host_tag = "linux-x86_64"
+    if not (prebuilt / _host_tag).is_dir():
+        # an NDK that names its host folder differently: take the one there is
+        _tags = sorted(entry.name for entry in prebuilt.iterdir() if entry.is_dir()) if prebuilt.is_dir() else []
+        if not _tags:
+            n.comment("Android build: the NDK has no LLVM toolchain")
+            return
+        _host_tag = _tags[0]
+    toolchain = prebuilt / _host_tag
     sysroot_include = toolchain / "sysroot" / "usr" / "include"
     host_cc = toolchain / "bin" / f"aarch64-linux-android{ANDROID_API}-clang"
     ndk_bin = toolchain / "bin"
@@ -462,7 +472,11 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     game_cflags = " ".join([
         guest_abi, guest_code, " ".join(game_flags), profile_flags,
         f"-include {prefix_header}", f"-include {semantics_header}",
-        f"-I{LINUX_DIR}/include", game_defines_and_includes(config), *libc_includes, f"-idirafter {XDK_INCLUDE}",
+        f"-I{LINUX_DIR}/include",
+        # the headers of the port's own game units (port/linux/game), for the
+        # game sources that call them
+        f"-iquote {Path(config['game_sources'])}",
+        game_defines_and_includes(config), *libc_includes, f"-idirafter {XDK_INCLUDE}",
     ])
     for source in game_sources(config):
         cflags = game_cflags
@@ -629,7 +643,11 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     n.rule(name="android_copy", command="cp $in $out", description="ANDROID STAGE $out")
     n.build(outputs=staged_sdl, rule="android_copy", inputs=libsdl)
     n.build(outputs=staged_image, rule="android_copy", inputs=image)
-    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, fdm_stub])
+    # internet play's MQTT brokers, in the APK: the app writes them beside
+    # config.toml (port/android/host/host_main.c)
+    staged_brokers = assets_dir / "brokers.txt"
+    n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
+    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, fdm_stub, staged_brokers])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     n.rule(
@@ -640,6 +658,6 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         description="ANDROID GRADLE $out",
         pool="console",
     )
-    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, fdm_stub])
+    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, fdm_stub, staged_brokers])
     n.build(outputs="android_apk", rule="phony", inputs=apk)
     n.newline()
