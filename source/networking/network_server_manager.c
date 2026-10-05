@@ -708,6 +708,8 @@ desktop none is ever marked, the writes live behind the Android guard) */
 static boolean network_game_server_bot_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 #ifdef HALO_ANDROID
 static short network_game_server_bot_machine_count(struct network_game_server *server);
+static boolean network_game_server_room_for_person(struct network_game_server *server);
+static void network_game_server_bot_makes_room(struct network_game_server *server);
 #endif
 
 /* ---------- prototypes */
@@ -1401,7 +1403,11 @@ static void network_game_server_list(
 	char gametype[NUMBEROF(game->variant.human_readable_game_description) + 1];
 	boolean in_progress = state != _network_game_server_state_pregame || network_game_server_game_is_loading(server);
 	boolean open = state == _network_game_server_state_ingame ? network_game_server_accepts_late_joins(server) :
+#ifdef HALO_ANDROID
+		network_game_server_game_is_open(server) && network_game_server_room_for_person(server);
+#else
 		network_game_server_game_is_open(server) && network_game_has_free_player_slot(game);
+#endif
 
 	listing_text(name, sizeof(name), game->name, NUMBEROF(game->name));
 	listing_text(gametype, sizeof(gametype), game->variant.human_readable_game_description,
@@ -2376,6 +2382,9 @@ boolean network_game_server_add_player_to_game(
 		/* (the host chooses the player's slot, which is its datum on every
 		machine: network_game_add_player) */
 		player->player_list_index = NONE;
+#ifdef HALO_ANDROID
+		network_game_server_bot_makes_room(server);
+#endif
 		success = network_game_add_player(&server->game, player);
 		if (success == TRUE)
 		{
@@ -4547,6 +4556,41 @@ static short network_game_server_bot_count(
 	return count;
 }
 
+/* whether a person can join: a free place, or in the lobby a bot's, which
+leaves for them (network_game_server_bot_makes_room) */
+static boolean network_game_server_room_for_person(
+	struct network_game_server *server)
+{
+	struct network_player *last;
+
+	return network_game_has_free_player_slot(&server->game) ||
+		(server->state == _network_game_server_state_pregame && network_game_server_bot_count(server, &last) > 0);
+}
+
+/* a person joining a lobby the bots fill: the last bot leaves for them */
+static void network_game_server_bot_makes_room(
+	struct network_game_server *server)
+{
+	struct network_player *last;
+	long bot_machine;
+
+	if (network_game_has_free_player_slot(&server->game) ||
+		server->state != _network_game_server_state_pregame ||
+		network_game_server_bot_count(server, &last) == 0 || !last)
+	{
+		return;
+	}
+	bot_machine = last->machine_index;
+	network_game_remove_player(&server->game, last);
+	if (!network_game_server_machine_has_players(server, (short)bot_machine))
+	{
+		network_game_remove_machine(&server->game, &server->game.machines[bot_machine]);
+		network_game_server_bot_machines[bot_machine] = FALSE;
+	}
+	network_event("a bot left to make room for a person");
+	network_game_server_send_game_data_pregame(server);
+}
+
 static boolean network_game_server_add_bot(
 	struct network_game_server *server,
 	short number)
@@ -4655,7 +4699,7 @@ static long network_game_server_bots_wanted(
 {
 	long wanted = PIN(config_integer("bots.count"), 0, 15);
 	short people = 0;
-	long player_index;
+	long player_index, machine_index;
 
 	if (!server->game.variant.game_engine_index && main_get_solo_level_from_name(server->game.map.name) != NONE)
 		return 0;
@@ -4665,6 +4709,16 @@ static long network_game_server_bots_wanted(
 
 		if (network_player_is_valid(player) && !network_game_server_bot_machines[(long)player->machine_index])
 			people++;
+	}
+	/* (and a machine joined whose players are yet to come: its place kept) */
+	for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
+	{
+		if (network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[machine_index]) &&
+			!network_game_server_bot_machines[machine_index] &&
+			!network_game_server_machine_has_players(server, (short)machine_index))
+		{
+			people++;
+		}
 	}
 	return MIN(wanted, MAX(0, (long)server->game.maximum_players - MAX(people, 1)));
 }
@@ -4784,7 +4838,11 @@ static boolean network_game_server_idle_pregame_tasks(
 			else if (network_game_server_client_machine_is_joined_to_game(server, client_machine) &&
 				!network_game_server_client_machine_is_local(server, client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
+#ifdef HALO_ANDROID
+				(!network_game_server_room_for_person(server) ||
+#else
 				(!network_game_has_free_player_slot(&server->game) ||
+#endif
 					system_milliseconds() - network_game_server_client_machine_join_times[client_machine->machine_index] >
 						NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT))
 			{
