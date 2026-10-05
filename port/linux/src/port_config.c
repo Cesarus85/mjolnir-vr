@@ -512,6 +512,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.gl_thread", _config_integer, "-1", "HALO_GL_THREAD", _environment_value, _platform_android,
 		"Mesa's GL thread (its drivers: the Steam Frame's): 1 on, 0 off, -1 as the\n"
 		"driver chooses. Read when the app starts." },
+	{ "debug.gl_environment", _config_string, "\"\"", "HALO_GL_ENVIRONMENT", _environment_value, _platform_android,
+		"Variables for the GL driver, \"NAME=value NAME2=value\", set before it starts\n"
+		"(the Steam Frame's Mesa: ZINK_DEBUG, TU_DEBUG, ...), for trying. Read when\n"
+		"the app starts." },
 	{ "debug.xr_deferred_copies", _config_integer, "-1", "HALO_XR_DEFERRED", _environment_value, _platform_android,
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"

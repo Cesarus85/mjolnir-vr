@@ -918,6 +918,7 @@ static struct
 	/* what the game projects itself has its depth in z though not depth
 	tested (lens flares: d3d8_multiview_projected_depth) */
 	BOOL projected_depth;
+	BOOL tested; /* multiview_self_test */
 } multiview;
 
 /* the bound targets are the layers */
@@ -965,6 +966,102 @@ int d3d8_multiview_supported(void)
 	return device.gl_ready && xgpu_capabilities.multiview;
 }
 
+/* Whether the driver gives each view its own correction, as the game's
+vertex programs take it (nv2a_vsh.c: a row of an array uniform picked by
+gl_ViewID_OVR): a point drawn into two 2x1 layers, the left pixel's in view
+0 and the right one's in view 1 by their rows, then read back. A driver
+that gave both views the first one's would draw the right eye as the left
+eye sees, which no two eyes fuse. Once, as the layers are first made. */
+static BOOL multiview_self_test(void)
+{
+	static const char vertex_source[] =
+		"#version 300 es\n"
+		"#extension GL_OVR_multiview2 : require\n"
+		"layout(num_views = 2) in;\n"
+		"uniform vec4 rows[4];\n"
+		"void main()\n"
+		"{\n"
+		"\tint row = int(gl_ViewID_OVR) * 2;\n"
+		"\tvec4 position = vec4(0.0, 0.0, 0.5, 1.0);\n"
+		"\tposition.x = dot(vec3(position.xw, 1.0), rows[row].xyz);\n"
+		"\tgl_Position = position;\n"
+		"\tgl_PointSize = 1.0;\n"
+		"}\n";
+	static const char fragment_source[] =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"out vec4 color;\n"
+		"void main()\n"
+		"{\n"
+		"\tcolor = vec4(1.0);\n"
+		"}\n";
+	/* (x: view 0 to the left pixel's centre, view 1 to the right one's) */
+	static const float rows[4][4] =
+	{
+		{ 1.0f, 0.0f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.0f },
+		{ 1.0f, 0.0f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.0f },
+	};
+	static const GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+	GLuint vertex = compile_shader(GL_VERTEX_SHADER, vertex_source, "multiview test vertex");
+	GLuint fragment = compile_shader(GL_FRAGMENT_SHADER, fragment_source, "multiview test fragment");
+	GLuint program, texture, framebuffer;
+	GLint linked = 0;
+	unsigned char pixels[2][8];
+	BOOL passed;
+	int layer;
+
+	if (!vertex || !fragment)
+		return TRUE;
+	program = glCreateProgram();
+	glAttachShader(program, vertex);
+	glAttachShader(program, fragment);
+	glLinkProgram(program);
+	glDeleteShader(vertex);
+	glDeleteShader(fragment);
+	glGetProgramiv(program, GL_LINK_STATUS, &linked);
+	if (!linked)
+	{
+		platform_log("multiview: the self-test's program does not link; not tested");
+		return TRUE;
+	}
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
+	glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, 2, 1, 2);
+	glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+	glGenFramebuffers(1, &framebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0, 0, 2);
+	glDrawBuffers(1, &draw_buffer);
+	glViewport(0, 0, 2, 1);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CULL_FACE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glUseProgram(program);
+	glUniform4fv(glGetUniformLocation(program, "rows"), 4, &rows[0][0]);
+	glBindVertexArray(device.vertex_array);
+	glDrawArrays(GL_POINTS, 0, 1);
+	memset(pixels, 0, sizeof(pixels));
+	for (layer = 0; layer < 2; layer++)
+	{
+		glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0, layer);
+		glReadPixels(0, 0, 2, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels[layer]);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDeleteFramebuffers(1, &framebuffer);
+	glDeleteTextures(1, &texture);
+	xgpu_gl_state_invalidate();
+	/* (view 0 lit only the left pixel, view 1 only the right one) */
+	passed = pixels[0][0] > 128 && pixels[0][4] < 128 && pixels[1][0] < 128 && pixels[1][4] > 128;
+	platform_log("multiview: self-test %s (view 0 drew %d %d, view 1 %d %d: each its own pixel)",
+		passed ? "passed" : "FAILED", pixels[0][0], pixels[0][4], pixels[1][0], pixels[1][4]);
+	return passed;
+}
+
 /* rows: per view, the correction of x and of y (nv2a_vsh.c); resolve_rect:
 where each eye's picture lies in the shared camera's */
 int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
@@ -973,6 +1070,16 @@ int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 
 	if (!d3d8_multiview_supported() || !(back_buffer = render_target_get(&device.back_buffer)))
 		return FALSE;
+	if (!multiview.tested)
+	{
+		/* (failed: the eyes drawn one by one from now on, vr.c) */
+		multiview.tested = TRUE;
+		if (!multiview_self_test())
+		{
+			xgpu_capabilities.multiview = FALSE;
+			return FALSE;
+		}
+	}
 	if (!multiview.framebuffer || multiview.width != back_buffer->target.gl_width ||
 		multiview.height != back_buffer->target.gl_height)
 	{

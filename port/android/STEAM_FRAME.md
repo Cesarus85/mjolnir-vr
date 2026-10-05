@@ -136,3 +136,16 @@ page of buttons shows this layout on the Frame.
   `debug.xr_deferred_copies` = 0 brings back the old copies for comparing,
   1 defers them on any runtime; `vr.log_performance` logs the frame's parts
   and, with the compositor's counters, each copy's time.
+- 2026-10-05 later: the doubling was the eyes not fusing (each eye sharp
+  alone) with multiview, and gone drawing the eyes one by one, which is now
+  SteamVR's default (`debug.multiview_steamvr` for multiview). The per-eye
+  corrections were checked against the projection (x, y from the top after
+  the flip, the eyes' offsets in clip units) and agree with the Quest, where
+  multiview fuses; the Frame's eyes are wider and differ from each other
+  more, so a driver giving the right eye the left one's correction (zink on
+  Turnip: ViewIndex, Turnip's multi-position output) would show there. For
+  finding it: a self-test of the driver's views when the layers are made
+  (logcat "multiview: self-test"), a frame whose views are turned apart
+  drawn one by one, the views' shape in the log as it changes ("VR views:"),
+  and `debug.gl_environment` ("TU_DEBUG=nomultipos", "ZINK_DEBUG=nobgc",
+  "MESA_SHADER_CACHE_DISABLE=true") set before the driver starts.

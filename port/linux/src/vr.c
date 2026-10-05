@@ -1447,6 +1447,63 @@ static int multiview_drawing;
 about the camera, as though infinitely far: no eye stands aside of it */
 static float multiview_rows[2][4][4];
 
+/* The one camera between the eyes holds only while their views look the
+same way (the corrections move each eye's picture aside, and scale it, but
+cannot turn it): a frame whose views are turned apart, which a runtime may
+report after the start (an eye's calibration), draws the eyes one by one.
+The views' shape and how far apart they turn go to the log as they change. */
+#define MULTIVIEW_PARALLEL_DEGREES 0.05f
+
+static int views_parallel(void)
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	static float logged[HALO_XR_EYE_COUNT][4];
+	static float logged_degrees = -1.0f;
+	static unsigned long long logged_us;
+	const struct halo_xr_view *views = vr.frame.views;
+	float forward[2][3], up[2][3], along, degrees;
+	int eye, changed = 0;
+	unsigned long long now;
+
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+	{
+		quaternion_rotate(views[eye].pose.orientation, local_forward, forward[eye]);
+		quaternion_rotate(views[eye].pose.orientation, local_up, up[eye]);
+	}
+	along = fminf(forward[0][0] * forward[1][0] + forward[0][1] * forward[1][1] + forward[0][2] * forward[1][2],
+		up[0][0] * up[1][0] + up[0][1] * up[1][1] + up[0][2] * up[1][2]);
+	degrees = acosf(fminf(1.0f, along)) * 180.0f / PI;
+
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+	{
+		const float shape[4] = { views[eye].tangent_left, views[eye].tangent_right, views[eye].tangent_down,
+			views[eye].tangent_up };
+		int edge;
+
+		for (edge = 0; edge < 4; edge++)
+			changed |= fabsf(shape[edge] - logged[eye][edge]) > 0.005f;
+	}
+	changed |= fabsf(degrees - logged_degrees) > 0.02f;
+	now = now_us();
+	if (changed && now - logged_us > 5000000ULL)
+	{
+		platform_log("VR views: %.3f degrees apart; left eye %.3f..%.3f, %.3f..%.3f; right eye %.3f..%.3f, %.3f..%.3f",
+			degrees, views[0].tangent_left, views[0].tangent_right, views[0].tangent_down, views[0].tangent_up,
+			views[1].tangent_left, views[1].tangent_right, views[1].tangent_down, views[1].tangent_up);
+		for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+		{
+			logged[eye][0] = views[eye].tangent_left;
+			logged[eye][1] = views[eye].tangent_right;
+			logged[eye][2] = views[eye].tangent_down;
+			logged[eye][3] = views[eye].tangent_up;
+		}
+		logged_degrees = degrees;
+		logged_us = now;
+	}
+	return degrees <= MULTIVIEW_PARALLEL_DEGREES;
+}
+
 int halo_vr_multiview(void)
 {
 	int available = vr.active && vr.multiview && d3d8_multiview_supported();
@@ -1456,7 +1513,7 @@ int halo_vr_multiview(void)
 		platform_log("VR: both eyes %s", available ? "in one draw (multiview)" : "drawn one by one (no multiview)");
 		vr.multiview_logged = 1;
 	}
-	return available && halo_vr_stereo_frame();
+	return available && halo_vr_stereo_frame() && views_parallel();
 }
 
 void halo_vr_center_camera(const float game_position[3], float position[3], float forward[3], float up[3],

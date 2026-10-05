@@ -205,6 +205,24 @@ static double config_number(const char *path, const char *key, double fallback)
 	return value;
 }
 
+/* a string from config.toml into text (size bytes), or "" when it is not
+set */
+static void config_text(const char *path, const char *key, char *text, size_t size)
+{
+	toml_result_t result = toml_parse_file_ex(path);
+
+	text[0] = 0;
+	if (!result.ok)
+		return;
+	{
+		toml_datum_t datum = toml_seek(result.toptab, key);
+
+		if (datum.type == TOML_STRING && datum.u.s)
+			snprintf(text, size, "%s", datum.u.s);
+	}
+	toml_free(result);
+}
+
 /* POSIX TZ for the current local offset (the guest's musl has no zone
 database) */
 static void time_zone(char *buffer, size_t size)
@@ -345,6 +363,25 @@ static void *game_main(void *unused)
 
 		if (deferred >= 0.0)
 			setenv("HALO_XR_DEFERRED", deferred != 0.0 ? "1" : "0", 1);
+	}
+	{
+		/* (debug.gl_environment: "NAME=value ..." for the GL driver, set
+		before it starts: the Steam Frame's Mesa (zink on Turnip) reads
+		ZINK_DEBUG, TU_DEBUG, MESA_SHADER_CACHE_DISABLE and the like) */
+		char text[512];
+		char *item, *rest = NULL;
+
+		config_text(path, "debug.gl_environment", text, sizeof(text));
+		for (item = strtok_r(text, " ;", &rest); item; item = strtok_r(NULL, " ;", &rest))
+		{
+			char *equals = strchr(item, '=');
+
+			if (!equals || equals == item)
+				continue;
+			*equals = 0;
+			setenv(item, equals + 1, 1);
+			host_logf(HOST_LOG_INFO, "GL driver environment: %s=%s (debug.gl_environment)", item, equals + 1);
+		}
 	}
 	{
 		int eye_width, eye_height;
