@@ -123,3 +123,16 @@ page of buttons shows this layout on the Frame.
   making up of the missed frames showed as a doubled picture when turning
   the head. Keep the Frame at 72 Hz, or lower `vr.resolution_scale` (about
   0.85) for 90.
+- 2026-10-05: doubled pictures when turning at 72 Hz too, the game at the
+  edge of its frame (12.5 of 13.9 ms; SteamVR reprojecting 2-8% of the
+  frames). The time was not the drawing's but waits: the layer copies read
+  the GL state back (glGet*) and released each image at once, and with
+  Mesa's GL thread (zink) every read waits for the thread to run all that
+  is queued, every release for the GPU (the left eye's copy took 4.5-7 ms
+  of the frame, the right one's, just after it, 0.7). On SteamVR the copies
+  are now deferred (host_xr.c): no state read back (the game sets its own
+  again), the images released together as the frame ends, and the eyes'
+  work flushed to the GPU as soon as they are copied.
+  `debug.xr_deferred_copies` = 0 brings back the old copies for comparing,
+  1 defers them on any runtime; `vr.log_performance` logs the frame's parts
+  and, with the compositor's counters, each copy's time.

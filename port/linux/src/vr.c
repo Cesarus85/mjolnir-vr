@@ -239,6 +239,16 @@ void d3d8_multiview_depth(float a, float b);
 unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
+void d3d8_host_state_changed(void);
+
+/* a layer copied (host_xr_copy_layer): 2 is a deferred copy, which left GL
+as it drew, for the renderer to set again */
+static int vr_copied(int result)
+{
+	if (result == 2)
+		d3d8_host_state_changed();
+	return result != 0;
+}
 
 /* The motion tracker, the HUD's one element at its bottom left, moves from
 the HUD to the left wrist (host_xr.c draws it there): this part of the
@@ -1312,9 +1322,8 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	if (vr.overlay_mode == HALO_XR_OVERLAY_HEAD_LOCKED && vr.motion_tracker_on_wrist && vr.aim_with_controller)
 	{
 		/* the motion tracker to the wrist, and out of the HUD */
-		submit.wrist = host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture, HALO_XR_COPY_ALPHA,
-			WRIST_REGION_LEFT,
-			WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
+		submit.wrist = vr_copied(host_xr_copy_layer_region(HALO_XR_LAYER_WRIST, back_buffer_texture,
+			HALO_XR_COPY_ALPHA, WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM));
 		submit.wrist_size = vr.motion_tracker_size;
 		submit.wrist_turn = vr.motion_tracker_turn;
 		submit.wrist_right = vr.motion_tracker_right;
@@ -1345,8 +1354,8 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.scope_size = vr.scope_size;
 		submit.scope_pose = vr.scope_pose;
 	}
-	host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture,
-		vr.overlay_blend ? HALO_XR_COPY_ALPHA : HALO_XR_COPY_OPAQUE);
+	vr_copied(host_xr_copy_layer(HALO_XR_LAYER_OVERLAY, back_buffer_texture,
+		vr.overlay_blend ? HALO_XR_COPY_ALPHA : HALO_XR_COPY_OPAQUE));
 	host_xr_end_frame(&submit);
 	vr.last_overlay_mode = vr.overlay_mode;
 	vr.last_frame_stereo = submit.eyes;
@@ -1559,9 +1568,9 @@ void halo_vr_capture_multiview(void)
 	if (!multiview_drawing)
 		return;
 	multiview_drawing = 0;
-	if (host_xr_copy_layer_array(HALO_XR_LAYER_EYE_LEFT, layers, 0))
+	if (vr_copied(host_xr_copy_layer_array(HALO_XR_LAYER_EYE_LEFT, layers, 0)))
 		vr.eyes_captured |= 1;
-	if (host_xr_copy_layer_array(HALO_XR_LAYER_EYE_RIGHT, layers, 1))
+	if (vr_copied(host_xr_copy_layer_array(HALO_XR_LAYER_EYE_RIGHT, layers, 1)))
 		vr.eyes_captured |= 2;
 	if (vr.eyes_start_us)
 		vr.eyes_us += now_us() - vr.eyes_start_us;
@@ -1571,7 +1580,7 @@ void halo_vr_capture_eye(int eye)
 {
 	if (!vr.active || eye < 0 || eye >= HALO_XR_EYE_COUNT)
 		return;
-	if (host_xr_copy_layer(HALO_XR_LAYER_EYE_LEFT + eye, d3d8_back_buffer_texture(), 1))
+	if (vr_copied(host_xr_copy_layer(HALO_XR_LAYER_EYE_LEFT + eye, d3d8_back_buffer_texture(), 1)))
 		vr.eyes_captured |= 1 << eye;
 	if (eye == HALO_XR_EYE_COUNT - 1 && vr.eyes_start_us)
 		vr.eyes_us += now_us() - vr.eyes_start_us;
@@ -2402,9 +2411,9 @@ void halo_vr_capture_names(void)
 {
 	if (vr.name_count > 0)
 	{
-		vr.names_captured = host_xr_copy_layer_region(HALO_XR_LAYER_NAMES, d3d8_back_buffer_texture(),
+		vr.names_captured = vr_copied(host_xr_copy_layer_region(HALO_XR_LAYER_NAMES, d3d8_back_buffer_texture(),
 			HALO_XR_COPY_ALPHA, NAME_SLOT_LEFT / 640.0f, 0.0f, (NAME_SLOT_LEFT + NAME_SLOT_WIDTH) / 640.0f,
-			HALO_XR_MAXIMUM_NAMES * NAME_SLOT_HEIGHT / 480.0f);
+			HALO_XR_MAXIMUM_NAMES * NAME_SLOT_HEIGHT / 480.0f));
 	}
 	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
@@ -2512,8 +2521,8 @@ int halo_vr_scope_pass(void)
 void halo_vr_capture_scope(float left, float top, float right, float bottom)
 {
 	vr.scope_pass = 0;
-	vr.scope_captured = host_xr_copy_layer_region(HALO_XR_LAYER_SCOPE, d3d8_back_buffer_texture(), HALO_XR_COPY_DISC,
-		left, top, right, bottom);
+	vr.scope_captured = vr_copied(host_xr_copy_layer_region(HALO_XR_LAYER_SCOPE, d3d8_back_buffer_texture(),
+		HALO_XR_COPY_DISC, left, top, right, bottom));
 }
 
 int halo_vr_hide_crosshair(void)
@@ -2530,9 +2539,9 @@ int halo_vr_crosshair_apart(void)
 
 void halo_vr_capture_crosshair(void)
 {
-	vr.crosshair_captured = host_xr_copy_layer_region(HALO_XR_LAYER_CROSSHAIR, d3d8_back_buffer_texture(),
+	vr.crosshair_captured = vr_copied(host_xr_copy_layer_region(HALO_XR_LAYER_CROSSHAIR, d3d8_back_buffer_texture(),
 		HALO_XR_COPY_ALPHA, CROSSHAIR_REGION_LEFT, CROSSHAIR_REGION_TOP, CROSSHAIR_REGION_RIGHT,
-		CROSSHAIR_REGION_BOTTOM);
+		CROSSHAIR_REGION_BOTTOM));
 	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
 

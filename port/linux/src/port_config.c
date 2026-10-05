@@ -508,6 +508,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.gl_thread", _config_integer, "-1", "HALO_GL_THREAD", _environment_value, _platform_android,
 		"Mesa's GL thread (its drivers: the Steam Frame's): 1 on, 0 off, -1 as the\n"
 		"driver chooses. Read when the app starts." },
+	{ "debug.xr_deferred_copies", _config_integer, "-1", "HALO_XR_DEFERRED", _environment_value, _platform_android,
+		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
+		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
+		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"

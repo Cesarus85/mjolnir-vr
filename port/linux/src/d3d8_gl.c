@@ -4046,6 +4046,17 @@ unsigned int d3d8_back_buffer_texture(void)
 	return back_buffer ? back_buffer->target.texture : 0;
 }
 
+/* the headset's copy left GL as it drew (host_xr_copy_layer's 2, the
+deferred copies): every value is set again, and the vertex arrays, which
+the cache does not hold, are bound again */
+void d3d8_host_state_changed(void)
+{
+	if (!device.gl_ready)
+		return;
+	xgpu_gl_state_invalidate();
+	glBindVertexArray(device.vertex_array);
+}
+
 /* clears the whole back buffer, its alpha too, and the depth buffer */
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha)
 {

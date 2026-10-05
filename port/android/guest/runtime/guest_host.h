@@ -119,7 +119,9 @@ headset before the game started, and set HALO_VR); 0 on failure */
 int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate);
 /* waits for the next frame and reports the predicted poses */
 int host_xr_begin_frame(struct halo_xr_frame *frame);
-/* copies a render target texture (0: clears) into a layer's image */
+/* copies a render target texture (0: clears) into a layer's image: 0 not
+copied, 1 copied with the GL state put back, 2 copied with the copy's GL
+state left (the deferred copies, host_xr.c), which the game sets again */
 int host_xr_copy_layer(int layer, unsigned int texture, int clear_alpha);
 /* the same for part of the texture: left, top, right, bottom, 0..1 from its
 top left */

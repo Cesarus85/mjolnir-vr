@@ -58,6 +58,7 @@ struct xr_swapchain
 	GLuint framebuffers[MAXIMUM_SWAPCHAIN_IMAGES];
 	uint32_t acquired_index;
 	int filled; /* this frame */
+	int held;   /* acquired, released only as the frame ends (xr.deferred) */
 };
 
 struct xr_hand_actions
@@ -136,7 +137,18 @@ static struct
 	double copy_seconds[HALO_XR_LAYER_COUNT];
 	double end_seconds;
 	double acquire_seconds;
+	double release_seconds;
 	int timed_frames;
+	/* The copies without waits in the frame (SteamVR: HALO_XR_DEFERRED,
+	debug.xr_deferred_copies). Each copy otherwise reads the GL state back
+	to restore it (glGet*), and releases its image at once: with Mesa's GL
+	thread (the Steam Frame's zink) each read waits for the thread to run
+	everything queued, and each release for the GPU to finish it, so the
+	game's one thread stood still for the eyes' whole drawing in the middle
+	of every frame. Deferred, a copy leaves its GL state for the game to set
+	again (host_xr_copy_layer's 2) and keeps its image until the frame ends,
+	where all are released at once. */
+	int deferred;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
 	PFN_xrGetDisplayRefreshRateFB get_refresh_rate;
@@ -1283,6 +1295,16 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		}
 	}
 
+	{
+		/* (deferred on SteamVR; HALO_XR_DEFERRED "1" or "0" says otherwise:
+		debug.xr_deferred_copies, host_main.c) */
+		const char *choice = getenv("HALO_XR_DEFERRED");
+
+		xr.deferred = choice && *choice ? atoi(choice) != 0 : xr.steamvr;
+		host_logf(HOST_LOG_INFO, "xr: layer copies %s", xr.deferred ?
+			"deferred (no waits for the GL thread or the GPU in the frame)" : "restored and released one by one");
+	}
+
 	info->eye_width = xr.eye_width;
 	info->eye_height = xr.eye_height;
 	info->overlay_width = xr.eye_width;
@@ -1481,23 +1503,27 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 		return 0;
 	swapchain = &xr.swapchains[layer];
 	if (swapchain->filled)
-		return 1;
-	if (!xr_ok(xrAcquireSwapchainImage(swapchain->handle, &acquire, &swapchain->acquired_index),
-		"xrAcquireSwapchainImage"))
-	{
-		return 0;
-	}
+		return xr.deferred ? 2 : 1;
 	wait.timeout = XR_INFINITE_DURATION;
 	{
 		double start = xr.has_metrics ? seconds_now() : 0.0;
 
+		if (!xr_ok(xrAcquireSwapchainImage(swapchain->handle, &acquire, &swapchain->acquired_index),
+			"xrAcquireSwapchainImage"))
+		{
+			return 0;
+		}
 		if (!xr_ok(xrWaitSwapchainImage(swapchain->handle, &wait), "xrWaitSwapchainImage"))
 			return 0;
 		if (xr.has_metrics)
 			xr.acquire_seconds += seconds_now() - start;
 	}
 
-	gl_save(&saved);
+	/* (deferred: nothing read back; the game sets its state again) */
+	if (xr.deferred)
+		glActiveTexture(GL_TEXTURE0);
+	else
+		gl_save(&saved);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, swapchain->framebuffers[swapchain->acquired_index]);
 	glViewport(0, 0, swapchain->width, swapchain->height);
 	glDisable(GL_SCISSOR_TEST);
@@ -1562,13 +1588,22 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 		glBindVertexArray(xr.vertex_array);
 		glBindTexture(GL_TEXTURE_2D, texture);
 		glBindSampler(0, xr.sampler);
-		glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, &swizzle_r);
-		glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, &swizzle_b);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_BLUE);
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, swizzle_r);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, swizzle_b);
+		if (xr.deferred)
+		{
+			/* (the game's render targets, all a copy reads, have no
+			swizzle: only its uploaded textures get one, xbox_textures.c) */
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		}
+		else
+		{
+			glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, &swizzle_r);
+			glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, &swizzle_b);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_BLUE);
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, swizzle_r);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, swizzle_b);
+		}
 		if (clear_alpha == HALO_XR_COPY_OPAQUE)
 		{
 			/* an opaque layer: the game's alpha channel holds other things */
@@ -1582,11 +1617,40 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 		glClearColor(0.0f, 0.0f, 0.0f, clear_alpha ? 1.0f : 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 	}
+	swapchain->filled = 1;
+	if (xr.deferred)
+	{
+		swapchain->held = 1;
+		/* (the eyes, most of the frame's work, on to the GPU while the
+		game draws the rest) */
+		if (layer == HALO_XR_LAYER_EYE_RIGHT)
+			glFlush();
+		return 2;
+	}
 	gl_restore(&saved);
 
 	xrReleaseSwapchainImage(swapchain->handle, &release);
-	swapchain->filled = 1;
 	return 1;
+}
+
+/* deferred: the images the frame's copies kept, released before it ends */
+static void release_held(void)
+{
+	double start = xr.has_metrics ? seconds_now() : 0.0;
+	int layer;
+
+	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
+	{
+		XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+		struct xr_swapchain *swapchain = &xr.swapchains[layer];
+
+		if (!swapchain->held)
+			continue;
+		swapchain->held = 0;
+		xr_ok(xrReleaseSwapchainImage(swapchain->handle, &release), "xrReleaseSwapchainImage");
+	}
+	if (xr.has_metrics)
+		xr.release_seconds += seconds_now() - start;
 }
 
 /* The Steam Frame: Android in a container, without XR_EXT_performance_settings
@@ -1659,6 +1723,7 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	if (!xr.frame_begun)
 		return 0;
 	xr.frame_begun = 0;
+	release_held();
 
 	if (xr.frame_state.shouldRender && submit->eyes && xr.views_valid &&
 		xr.swapchains[HALO_XR_LAYER_EYE_LEFT].filled && xr.swapchains[HALO_XR_LAYER_EYE_RIGHT].filled)
@@ -1836,9 +1901,11 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 					strcat(copies, item);
 					xr.copy_seconds[timed] = 0.0;
 				}
-				host_logf(HOST_LOG_INFO, "xr: per frame ms: copies (layer:ms)%s; of them waiting for images %.2f; "
-					"xrEndFrame %.2f", copies, xr.acquire_seconds * 1e3 / frames, xr.end_seconds * 1e3 / frames);
-				xr.acquire_seconds = xr.end_seconds = 0.0;
+				host_logf(HOST_LOG_INFO, "xr: per frame ms: copies (layer:ms)%s; of them acquiring images %.2f; "
+					"releasing them at the end %.2f; xrEndFrame %.2f (copies %s)", copies,
+					xr.acquire_seconds * 1e3 / frames, xr.release_seconds * 1e3 / frames, xr.end_seconds * 1e3 / frames,
+					xr.deferred ? "deferred" : "one by one");
+				xr.acquire_seconds = xr.release_seconds = xr.end_seconds = 0.0;
 				xr.timed_frames = 0;
 			}
 		}

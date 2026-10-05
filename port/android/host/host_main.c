@@ -338,6 +338,15 @@ static void *game_main(void *unused)
 		}
 	}
 	{
+		/* (debug.xr_deferred_copies: the headset's layer copies deferred,
+		host_xr.c, or one by one; -1 as the runtime has it, deferred on
+		SteamVR) */
+		double deferred = config_number(path, "debug.xr_deferred_copies", -1.0);
+
+		if (deferred >= 0.0)
+			setenv("HALO_XR_DEFERRED", deferred != 0.0 ? "1" : "0", 1);
+	}
+	{
 		int eye_width, eye_height;
 
 		/* on a headset the game runs in VR (port/linux/src/vr.c): it
