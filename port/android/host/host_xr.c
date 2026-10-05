@@ -59,6 +59,7 @@ struct xr_swapchain
 	uint32_t acquired_index;
 	int filled; /* this frame */
 	int held;   /* acquired, released only as the frame ends (xr.deferred) */
+	int used;   /* filled the last frame: acquired ahead (xr.deferred) */
 };
 
 struct xr_hand_actions
@@ -138,6 +139,7 @@ static struct
 	double end_seconds;
 	double acquire_seconds;
 	double release_seconds;
+	double ahead_seconds;
 	int timed_frames;
 	/* The copies without waits in the frame (SteamVR: HALO_XR_DEFERRED,
 	debug.xr_deferred_copies). Each copy otherwise reads the GL state back
@@ -147,7 +149,10 @@ static struct
 	game's one thread stood still for the eyes' whole drawing in the middle
 	of every frame. Deferred, a copy leaves its GL state for the game to set
 	again (host_xr_copy_layer's 2) and keeps its image until the frame ends,
-	where all are released at once. */
+	where all are released at once. SteamVR's acquiring an image (or waiting
+	for it) itself waits for the GL work queued before it, the eyes' when the
+	left eye's copy asked: the images a frame will fill (those the last one
+	did) are acquired before it waits for the headset, which hides that. */
 	int deferred;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
@@ -1370,6 +1375,37 @@ static void handle_events(void)
 	}
 }
 
+static double seconds_now(void);
+
+/* deferred: the images the frame will fill (the last one's), acquired
+before xrWaitFrame (xr.deferred, above) */
+static void acquire_ahead(void)
+{
+	double start = xr.has_metrics ? seconds_now() : 0.0;
+	int layer;
+
+	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
+	{
+		XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+		XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+		struct xr_swapchain *swapchain = &xr.swapchains[layer];
+
+		if (!swapchain->used || swapchain->held)
+			continue;
+		if (!xr_ok(xrAcquireSwapchainImage(swapchain->handle, &acquire, &swapchain->acquired_index),
+			"xrAcquireSwapchainImage"))
+		{
+			continue;
+		}
+		wait.timeout = XR_INFINITE_DURATION;
+		/* (held either way: an image acquired must be released) */
+		swapchain->held = 1;
+		xr_ok(xrWaitSwapchainImage(swapchain->handle, &wait), "xrWaitSwapchainImage");
+	}
+	if (xr.has_metrics)
+		xr.ahead_seconds += seconds_now() - start;
+}
+
 int host_xr_begin_frame(struct halo_xr_frame *frame)
 {
 	XrFrameWaitInfo wait = { XR_TYPE_FRAME_WAIT_INFO };
@@ -1397,6 +1433,8 @@ int host_xr_begin_frame(struct halo_xr_frame *frame)
 	}
 	if (xr.frame_begun)
 		return 1;
+	if (xr.deferred)
+		acquire_ahead();
 
 	xr.frame_state.type = XR_TYPE_FRAME_STATE;
 	xr.frame_state.next = NULL;
@@ -1505,6 +1543,7 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 	if (swapchain->filled)
 		return xr.deferred ? 2 : 1;
 	wait.timeout = XR_INFINITE_DURATION;
+	if (!swapchain->held)
 	{
 		double start = xr.has_metrics ? seconds_now() : 0.0;
 
@@ -1644,6 +1683,7 @@ static void release_held(void)
 		XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
 		struct xr_swapchain *swapchain = &xr.swapchains[layer];
 
+		swapchain->used = swapchain->filled;
 		if (!swapchain->held)
 			continue;
 		swapchain->held = 0;
@@ -1902,10 +1942,11 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 					xr.copy_seconds[timed] = 0.0;
 				}
 				host_logf(HOST_LOG_INFO, "xr: per frame ms: copies (layer:ms)%s; of them acquiring images %.2f; "
-					"releasing them at the end %.2f; xrEndFrame %.2f (copies %s)", copies,
-					xr.acquire_seconds * 1e3 / frames, xr.release_seconds * 1e3 / frames, xr.end_seconds * 1e3 / frames,
+					"acquiring ahead (before xrWaitFrame) %.2f; releasing them at the end %.2f; xrEndFrame %.2f "
+					"(copies %s)", copies, xr.acquire_seconds * 1e3 / frames, xr.ahead_seconds * 1e3 / frames,
+					xr.release_seconds * 1e3 / frames, xr.end_seconds * 1e3 / frames,
 					xr.deferred ? "deferred" : "one by one");
-				xr.acquire_seconds = xr.release_seconds = xr.end_seconds = 0.0;
+				xr.acquire_seconds = xr.ahead_seconds = xr.release_seconds = xr.end_seconds = 0.0;
 				xr.timed_frames = 0;
 			}
 		}
