@@ -911,6 +911,11 @@ static struct
 	int failed;
 } art[MAXIMUM_ART];
 static long art_count;
+/* the lowest and highest texture the art stands for: every texture the
+renderer binds asks (xbox_textures.c), every frame of a game too, and the
+menus' lie together, made as the map loaded, mostly apart from the map's
+(in its texture cache) */
+static unsigned long art_lowest, art_highest;
 
 void halo_menus_art_register(void const *texture, char const *png)
 {
@@ -944,6 +949,10 @@ void halo_menus_art_register(void const *texture, char const *png)
 	memset(&art[index], 0, sizeof(art[index]));
 	art[index].data = data;
 	art[index].png = strdup(png);
+	if (art_count == 1 || data < art_lowest)
+		art_lowest = data;
+	if (art_count == 1 || data > art_highest)
+		art_highest = data;
 }
 
 void halo_menus_art_forget(void)
@@ -957,12 +966,15 @@ void halo_menus_art_forget(void)
 			glDeleteTextures(1, &art[index].texture);
 	}
 	art_count = 0;
+	art_lowest = art_highest = 0;
 }
 
 unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 {
 	long index;
 
+	if (!art_count || data < art_lowest || data > art_highest)
+		return 0;
 	for (index = 0; index < art_count; index++)
 	{
 		if (art[index].data == data)
