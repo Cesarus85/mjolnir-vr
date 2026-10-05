@@ -117,6 +117,10 @@ enum
 
 /* ---------- structures */
 
+/* (how many things to pick up it gives up at once, and for how long) */
+#define BOT_IGNORED_ITEMS 4
+#define BOT_IGNORE_ITEM_TICKS 600
+
 struct bot
 {
 	long player_index;
@@ -141,8 +145,13 @@ struct bot
 	while on that account: following a person, a thing to pick up */
 	short path_failures;
 	long follow_again_time;
-	long ignored_item_index;
-	long ignored_item_time;
+	/* things to pick up given up for a while (no way to them, or there and
+	not taken: on a ledge, out of reach), and how long it has stood by the
+	one it goes for */
+	long ignored_items[BOT_IGNORED_ITEMS];
+	long ignored_item_times[BOT_IGNORED_ITEMS];
+	short ignored_item_next;
+	short item_near_ticks;
 	real wander_yaw;
 	short weave_phase;
 	/* where it is going, and the way there */
@@ -642,17 +651,20 @@ static boolean bot_next_point_now(
 	return TRUE;
 }
 
-/* a goal when none is in sight: the nearest enemy, or somewhere near
-someone at random */
+/* a goal when none is in sight: an enemy, or somewhere near someone at
+random. Not all the nearest: each bot one of the three nearest (by its
+number), and while it is far, a few metres beside them, so that a team
+spreads out over the ways there instead of going as one crowd */
 static void bot_choose_goal(
 	struct bot *bot,
 	struct player_datum const *player,
 	real_point3d const *position)
 {
 	boolean teams = game_engine_has_teams();
-	real best_distance = 1000000.0f;
+	real best_distance[3] = { 1000000.0f, 1000000.0f, 1000000.0f };
+	real_point3d best_origin[3];
+	short found = 0;
 	short index;
-	boolean found = FALSE;
 
 	for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
 	{
@@ -660,6 +672,7 @@ static void bot_choose_goal(
 		long unit_index;
 		real_point3d origin;
 		real distance;
+		short rank;
 
 		if (!other || other == player || (teams && other->team_index == player->team_index))
 			continue;
@@ -668,14 +681,38 @@ static void bot_choose_goal(
 			continue;
 		object_get_origin(unit_index, &origin);
 		distance = distance3d(position, &origin);
-		if (distance < best_distance)
+		/* (kept in order, nearest first) */
+		for (rank = 0; rank < 3 && distance >= best_distance[rank]; rank++)
+			;
+		if (rank == 3)
+			continue;
+		found = (short)MIN(found + 1, 3);
 		{
-			best_distance = distance;
-			bot->goal = origin;
-			found = TRUE;
+			short move;
+
+			for (move = 2; move > rank; move--)
+			{
+				best_distance[move] = best_distance[move - 1];
+				best_origin[move] = best_origin[move - 1];
+			}
+		}
+		best_distance[rank] = distance;
+		best_origin[rank] = origin;
+	}
+	if (found)
+	{
+		short pick = (short)(DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) % found);
+
+		bot->goal = best_origin[pick];
+		if (best_distance[pick] > 25.0f)
+		{
+			real angle = (real)DATUM_INDEX_TO_ABSOLUTE_INDEX(bot->player_index) * 2.4f;
+
+			bot->goal.x += (real)cos(angle) * 6.0f;
+			bot->goal.y += (real)sin(angle) * 6.0f;
 		}
 	}
-	if (!found)
+	else
 	{
 		/* (no enemy alive: a few metres off, somewhere) */
 		real angle = bot_random() * 2.0f * _pi;
@@ -817,7 +854,36 @@ static real bot_item_worth(
 }
 
 /* the thing most worth going for near the bot, or NONE */
+static boolean bot_item_ignored(
+	struct bot const *bot,
+	long item_index)
+{
+	short index;
+
+	for (index = 0; index < BOT_IGNORED_ITEMS; index++)
+	{
+		if (bot->ignored_items[index] == item_index &&
+			game_time_get() - bot->ignored_item_times[index] < BOT_IGNORE_ITEM_TICKS &&
+			game_time_get() >= bot->ignored_item_times[index])
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void bot_ignore_item(
+	struct bot *bot,
+	long item_index)
+{
+	bot->ignored_items[bot->ignored_item_next] = item_index;
+	bot->ignored_item_times[bot->ignored_item_next] = game_time_get();
+	bot->ignored_item_next = (short)((bot->ignored_item_next + 1) % BOT_IGNORED_ITEMS);
+	bot->item_near_ticks = 0;
+}
+
 static long bot_find_item(
+	struct bot const *bot,
 	struct unit_datum const *unit,
 	real_point3d const *position,
 	real range,
@@ -840,7 +906,7 @@ static long bot_find_item(
 		if (distance > range)
 			continue;
 		worth = bot_item_worth(unit, iterator.index);
-		if (worth <= 0.0f || worth < least_worth)
+		if (worth <= 0.0f || worth < least_worth || bot_item_ignored(bot, iterator.index))
 			continue;
 		/* (the strong ones worth a longer way) */
 		score = worth * worth / (1.0f + distance / 15.0f);
@@ -2393,7 +2459,7 @@ static void bot_think(
 			game_time_get() < bot->item_look_time))
 		{
 			bot->item_look_time = game_time_get();
-			bot->item_index = bot_find_item(unit, &position, 10.0f, 4.0f);
+			bot->item_index = bot_find_item(bot, unit, &position, 10.0f, 4.0f);
 		}
 		if (bot->item_index != NONE && !bot->carrying && !bot->has_objective && object_try_and_get(bot->item_index) &&
 			bot_item_worth(unit, bot->item_index) > 0.0f)
@@ -2407,7 +2473,14 @@ static void bot_think(
 			if (bot_next_point(bot, player->unit_index, &position, &point))
 				bot_walk_to(action, bot->yaw, &position, &point);
 			if (distance3d(&position, &item_position) < 2.0f)
+			{
 				bot_take_item(bot, player, unit, action);
+				if (++bot->item_near_ticks > 45)
+				{
+					bot_ignore_item(bot, bot->item_index);
+					bot->item_index = NONE;
+				}
+			}
 		}
 		/* closes on it along its way, weaving, until near */
 		else if (bot->has_objective && bot->objective_unit_index != bot->target_unit_index)
@@ -2497,14 +2570,13 @@ static void bot_think(
 		/* something worth having near: there first */
 		else if (game_time_get() - bot->item_look_time >= ITEM_LOOK_TICKS || game_time_get() < bot->item_look_time)
 		{
-			long item = bot_find_item(unit, &position, BOT_ITEM_RANGE, 0.0f);
+			long item = bot_find_item(bot, unit, &position, BOT_ITEM_RANGE, 0.0f);
 
 			bot->item_look_time = game_time_get();
-			if (item == bot->ignored_item_index && game_time_get() - bot->ignored_item_time < 600)
-				item = NONE;
 			if (item != bot->item_index)
 			{
 				bot->item_index = item;
+				bot->item_near_ticks = 0;
 				if (item != NONE)
 				{
 					object_get_origin(item, &bot->goal);
@@ -2519,8 +2591,7 @@ static void bot_think(
 			/* (taken or gone, or no way to it: on) */
 			if (bot->path_failures >= 3)
 			{
-				bot->ignored_item_index = bot->item_index;
-				bot->ignored_item_time = game_time_get();
+				bot_ignore_item(bot, bot->item_index);
 				bot->path_failures = 0;
 				bot->item_index = NONE;
 				bot->has_goal = FALSE;
@@ -2535,7 +2606,21 @@ static void bot_think(
 				object_get_origin(bot->item_index, &bot->goal);
 				bot->goal_time = game_time_get();
 				if (distance3d(&position, &bot->goal) < 2.0f)
+				{
 					bot_take_item(bot, player, unit, action);
+					/* (there a while and not taken: out of reach, as on a
+					ledge, or not offered: given up for a while) */
+					if (++bot->item_near_ticks > 45)
+					{
+						bot_ignore_item(bot, bot->item_index);
+						bot->item_index = NONE;
+						bot->has_goal = FALSE;
+					}
+				}
+				else
+				{
+					bot->item_near_ticks = 0;
+				}
 			}
 		}
 		/* (in a team, every third bot with nothing to do keeps near the
@@ -2590,7 +2675,15 @@ static void bot_think(
 			bot->path_failures = 0;
 		}
 		wanted_yaw = bot->wander_yaw;
-		if (bot_next_point(bot, player->unit_index, &position, &point))
+		/* (holding a spot and near it: there, not pressing on into what may
+		stand on it, a pillar, a wall) */
+		if (bot->holding && bot->has_objective &&
+			(bot->goal.x - position.x) * (bot->goal.x - position.x) +
+				(bot->goal.y - position.y) * (bot->goal.y - position.y) < 1.5f * 1.5f)
+		{
+			bot->walking = FALSE;
+		}
+		else if (bot_next_point(bot, player->unit_index, &position, &point))
 		{
 			real dx = point.x - position.x;
 			real dy = point.y - position.y;
@@ -2689,7 +2782,19 @@ static void bot_think(
 			bot->stuck_ticks++;
 			if (bot->stuck_ticks == 6)
 			{
-				bot->sidestep = bot_random() < 0.5f ? 1.0f : -1.0f;
+				/* (to the side that is open, as round a pillar; either, at
+				random: left, the strafe's positive, bot_walk_to) */
+				real_point3d left = position, right = position;
+				boolean left_open, right_open;
+
+				left.x += -(real)sin(bot->yaw) * 1.2f;
+				left.y += (real)cos(bot->yaw) * 1.2f;
+				right.x -= -(real)sin(bot->yaw) * 1.2f;
+				right.y -= (real)cos(bot->yaw) * 1.2f;
+				left_open = bot_clear_walk(player->unit_index, &position, &left);
+				right_open = bot_clear_walk(player->unit_index, &position, &right);
+				bot->sidestep = left_open != right_open ? (left_open ? 1.0f : -1.0f) :
+					bot_random() < 0.5f ? 1.0f : -1.0f;
 				bot->sidestep_ticks = 10;
 				/* (near a point of its path it cannot reach, at a corner: the
 				next one) */
@@ -2707,6 +2812,10 @@ static void bot_think(
 				SET_FLAG(action->control_flags, _unit_control_jump_bit, TRUE);
 			if (bot->stuck_ticks == 24)
 				bots.long_stucks++;
+			/* (a spot to hold it cannot get to: the place's centre instead,
+			bot_hold_spot) */
+			if (bot->stuck_ticks == 18 && bot->holding)
+				bot->path_failures = 3;
 		}
 	}
 	else
@@ -2735,7 +2844,12 @@ static struct bot *bot_get(
 		free_bot->player_index = player_index;
 		free_bot->target_unit_index = NONE;
 		free_bot->item_index = NONE;
-		free_bot->ignored_item_index = NONE;
+		{
+			short ignored;
+
+			for (ignored = 0; ignored < BOT_IGNORED_ITEMS; ignored++)
+				free_bot->ignored_items[ignored] = NONE;
+		}
 		free_bot->vehicle_index = NONE;
 		free_bot->ignored_vehicle_index = NONE;
 		free_bot->step_radius = BOT_STEP_RADIUS;
