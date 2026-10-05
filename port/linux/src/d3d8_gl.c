@@ -915,6 +915,9 @@ static struct
 	/* the shared camera's projection's depth, as the game projects a point
 	itself (rasterizer_widget_project_billboard): z = [0] + [1] / depth */
 	float projection_depth[2];
+	/* what the game projects itself has its depth in z though not depth
+	tested (lens flares: d3d8_multiview_projected_depth) */
+	BOOL projected_depth;
 } multiview;
 
 /* the bound targets are the layers */
@@ -1014,6 +1017,14 @@ int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 	multiview.drawn = FALSE;
 	multiview.active = TRUE;
 	return TRUE;
+}
+
+/* the draws from now on, depth tested or not, have their depth in z (lens
+flares, drawn over the scene: a weapon's own, half a metre away, stood at
+infinity in stereo, a ball each eye saw elsewhere) */
+void d3d8_multiview_projected_depth(int projected)
+{
+	multiview.projected_depth = projected != 0;
 }
 
 /* the projection's depth for what the game projects itself: z = a + b /
@@ -2938,7 +2949,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 		depth[0] = multiview.projection_depth[0];
 		depth[1] = multiview.projection_depth[1];
-		depth[2] = has_depth && D3D__RenderState[D3DRS_ZENABLE] ? 1.0f : 0.0f;
+		depth[2] = (has_depth && D3D__RenderState[D3DRS_ZENABLE]) || multiview.projected_depth ? 1.0f : 0.0f;
 		depth[3] = 0.0f;
 		uniform_vec4(entry->mv_depth, entry->mv_depth_value, depth, 1);
 	}

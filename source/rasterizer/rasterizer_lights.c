@@ -98,6 +98,7 @@ symbols in this file:
 #include "rasterizer_console_vars.h"
 #include "objects/widgets/widget_types.h"
 #include "main/main.h"
+#include "halo_vr.h" /* port: VR's stereo of the flares */
 #include <xtl.h>
 #include "rasterizer/xbox/rasterizer_xbox.h"
 #include "main/main.h"
@@ -869,6 +870,9 @@ void rasterizer_lens_flares_draw(
 	{
 		short lens_flare_index;
 
+		/* port: in VR's both eyes at once, each eye's flare where its depth
+		puts it (port/linux/src/vr.c) */
+		halo_vr_multiview_lens_flares(TRUE);
 		rasterizer_widget_begin(_widget_type_internal_sprite, 0);
 
 		for (lens_flare_index = 0; lens_flare_index < local_lens_flare_count; lens_flare_index++)
@@ -1123,6 +1127,7 @@ void rasterizer_lens_flares_draw(
 
 		rasterizer_set_stencil_mode(RASTERIZER_STENCIL_MODE_NONE);
 		rasterizer_widget_end();
+		halo_vr_multiview_lens_flares(FALSE);
 
 		if (rasterizer_debug_options.lens_flare_sun_glow_enabled)
 		{

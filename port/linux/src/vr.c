@@ -236,6 +236,7 @@ int d3d8_multiview_supported(void);
 int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4]);
 void d3d8_multiview_rows(const float rows[4][4]);
 void d3d8_multiview_depth(float a, float b);
+void d3d8_multiview_projected_depth(int projected);
 unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
@@ -1553,6 +1554,15 @@ void halo_vr_multiview_projection(float projection_22, float projection_32)
 	d3d8_multiview_depth(-projection_22, projection_32);
 }
 
+/* lens flares are being drawn (rasterizer_lights.c): each eye's by the
+flare's depth, as the flare's test was, not at infinity (a weapon's own,
+the plasma pistol's at its prongs, half a metre away: a ball each eye saw
+elsewhere); the sun's are far enough for infinity either way */
+void halo_vr_multiview_lens_flares(int drawing)
+{
+	d3d8_multiview_projected_depth(drawing && multiview_drawing);
+}
+
 /* the sky is being drawn (render.c): as though infinitely far */
 void halo_vr_multiview_sky(int sky)
 {
@@ -2576,6 +2586,7 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 }
 void halo_vr_capture_multiview(void) {}
 void halo_vr_multiview_sky(int sky) { (void)sky; }
+void halo_vr_multiview_lens_flares(int drawing) { (void)drawing; }
 void halo_vr_multiview_projection(float projection_22, float projection_32)
 {
 	(void)projection_22; (void)projection_32;

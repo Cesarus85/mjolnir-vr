@@ -63,6 +63,9 @@ void halo_vr_multiview_sky(int sky);
 /* the shared camera's projection's [2][2] and [3][2], for what the game
 projects itself (sprites, lens flare tests) */
 void halo_vr_multiview_projection(float projection_22, float projection_32);
+/* lens flares are being drawn: placed by their depth, though not depth
+tested */
+void halo_vr_multiview_lens_flares(int drawing);
 
 /* clears the back buffer to transparent black for the overlay, after the
 eyes; menus_active chooses where the overlay is shown */
