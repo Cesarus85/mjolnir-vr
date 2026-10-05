@@ -38,6 +38,8 @@ picture; the copy flips them to GL's bottom-up images.
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sched.h>
+#include <stdio.h>
 
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_OPENGL_ES
@@ -126,6 +128,9 @@ static struct
 	XrPath metric_paths[16];
 	uint32_t metric_count;
 	struct timespec metrics_logged;
+	/* (SteamVR: the frames' thread kept on the fast cores, xr_fast_cores) */
+	int steamvr;
+	int cores_pinned;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
 	PFN_xrGetDisplayRefreshRateFB get_refresh_rate;
@@ -1123,6 +1128,7 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 		if (XR_SUCCEEDED(xrGetInstanceProperties(xr.instance, &instance)))
 		{
 			xr.quad_alpha_from_colour = strstr(instance.runtimeName, "SteamVR") != NULL;
+			xr.steamvr = xr.quad_alpha_from_colour;
 			host_logf(HOST_LOG_INFO, "xr: runtime %s", instance.runtimeName);
 		}
 		if (choice)
@@ -1549,6 +1555,59 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 	return 1;
 }
 
+/* The Steam Frame: Android in a container, without XR_EXT_performance_settings
+to ask for the clocks, and the scheduler free to put the game's one busy
+thread, which simulates and draws each frame, on a slow core (its two
+2.3 GHz ones) now and then: frames late to the compositor, shown twice,
+the picture doubled as the head turns. The thread that ends the frames is
+kept on the cores no slower than nine tenths of the fastest. */
+static void xr_fast_cores(void)
+{
+	cpu_set_t set;
+	long fastest = 0, speeds[CPU_SETSIZE];
+	int cpu, count = 0;
+	char line[128] = "";
+
+	for (cpu = 0; cpu < CPU_SETSIZE && cpu < 64; cpu++)
+	{
+		char path[96];
+		FILE *file;
+
+		speeds[cpu] = 0;
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+		file = fopen(path, "r");
+		if (!file)
+			continue;
+		if (fscanf(file, "%ld", &speeds[cpu]) != 1)
+			speeds[cpu] = 0;
+		fclose(file);
+		if (speeds[cpu] > fastest)
+			fastest = speeds[cpu];
+	}
+	if (!fastest)
+	{
+		host_logf(HOST_LOG_INFO, "xr: the cores' speeds unknown: the frames' thread left where it runs");
+		return;
+	}
+	CPU_ZERO(&set);
+	for (cpu = 0; cpu < CPU_SETSIZE && cpu < 64; cpu++)
+	{
+		if (speeds[cpu] && speeds[cpu] * 10 >= fastest * 9)
+		{
+			char item[8];
+
+			CPU_SET(cpu, &set);
+			count++;
+			snprintf(item, sizeof(item), " %d", cpu);
+			strcat(line, item);
+		}
+	}
+	if (count && sched_setaffinity(0, sizeof(set), &set) == 0)
+		host_logf(HOST_LOG_INFO, "xr: the frames' thread on the fast cores:%s (fastest %ld MHz)", line, fastest / 1000);
+	else
+		host_logf(HOST_LOG_INFO, "xr: the frames' thread could not be kept on the fast cores");
+}
+
 int host_xr_end_frame(const struct halo_xr_submit *submit)
 {
 	XrFrameEndInfo end = { XR_TYPE_FRAME_END_INFO };
@@ -1691,7 +1750,14 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		}
 	}
 
-	/* (every five seconds, the compositor's counters) */
+	if (xr.steamvr && !xr.cores_pinned)
+	{
+		xr.cores_pinned = 1;
+		if (!getenv("HALO_XR_ANY_CORE"))
+			xr_fast_cores();
+	}
+	/* (every five seconds, the compositor's counters, and the core the
+	frames' thread is on) */
 	if (xr.has_metrics)
 	{
 		struct timespec now;
@@ -1721,7 +1787,7 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 				if (strlen(line) + strlen(item) < sizeof(line))
 					strcat(line, item);
 			}
-			host_logf(HOST_LOG_INFO, "xr: metrics%s", line);
+			host_logf(HOST_LOG_INFO, "xr: metrics%s, on core %d", line, sched_getcpu());
 		}
 	}
 
