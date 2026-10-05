@@ -6570,10 +6570,11 @@ enum
 	_vr_option_crosshair,
 	_vr_option_motion_tracker,
 	_vr_option_controls,
+	_vr_option_quit,
 	NUMBER_OF_VR_OPTIONS,
 
-	VR_OPTIONS_TOP = 102,
-	VR_OPTIONS_ROW_HEIGHT = 28,
+	VR_OPTIONS_TOP = 98,
+	VR_OPTIONS_ROW_HEIGHT = 26,
 	VR_OPTIONS_FOOTER = 362,
 
 	_vr_controls_on_foot = 0,
@@ -6588,7 +6589,11 @@ static struct
 	boolean controls;
 	short selection;
 	short page;
+	/* "Quit Halo" chosen once: a second time quits */
+	boolean quit_armed;
 } ui_vr_options_globals;
+
+void platform_request_quit(void);
 
 static real const vr_snap_angles[] = { 30.0f, 45.0f, 60.0f, 90.0f };
 static real const vr_smooth_speeds[] = { 60.0f, 90.0f, 120.0f, 150.0f, 180.0f };
@@ -6661,6 +6666,13 @@ static void ui_vr_options_change(
 		ui_vr_options_globals.controls = TRUE;
 		ui_vr_options_globals.page = _vr_controls_on_foot;
 		break;
+	case _vr_option_quit:
+		/* (the Steam Frame's Steam cannot end the game, which runs in
+		Lepton's container: it ends itself; asked twice) */
+		if (ui_vr_options_globals.quit_armed)
+			platform_request_quit();
+		ui_vr_options_globals.quit_armed = TRUE;
+		break;
 	}
 	ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
 }
@@ -6668,6 +6680,7 @@ static void ui_vr_options_change(
 static void ui_vr_options_close(
 	void)
 {
+	ui_vr_options_globals.quit_armed = FALSE;
 	ui_vr_options_globals.open = FALSE;
 	ui_vr_options_globals.controls = FALSE;
 }
@@ -6754,6 +6767,7 @@ static boolean ui_vr_options_take_event(
 	else if (move)
 	{
 		ui_vr_options_globals.selection = (short)PIN(ui_vr_options_globals.selection + move, 0, NUMBER_OF_VR_OPTIONS - 1);
+		ui_vr_options_globals.quit_armed = FALSE;
 		ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 	}
 	else if (accept)
@@ -6813,7 +6827,11 @@ static boolean ui_vr_options_take_pointer(
 	if (x >= 118 && x < 522 && y >= VR_OPTIONS_TOP - 4 &&
 		y < VR_OPTIONS_TOP - 4 + NUMBER_OF_VR_OPTIONS * VR_OPTIONS_ROW_HEIGHT)
 	{
-		ui_vr_options_globals.selection = (short)((y - (VR_OPTIONS_TOP - 4)) / VR_OPTIONS_ROW_HEIGHT);
+		short row = (short)((y - (VR_OPTIONS_TOP - 4)) / VR_OPTIONS_ROW_HEIGHT);
+
+		if (row != ui_vr_options_globals.selection)
+			ui_vr_options_globals.quit_armed = FALSE;
+		ui_vr_options_globals.selection = row;
 		if (pointer->left_clicks)
 			ui_vr_options_change(1);
 	}
@@ -7065,6 +7083,10 @@ static void ui_vr_options_render(
 			break;
 		case _vr_option_controls:
 			label = "Controller buttons...";
+			break;
+		case _vr_option_quit:
+			label = ui_vr_options_globals.quit_armed && ui_vr_options_globals.selection == _vr_option_quit ?
+				"Quit Halo? Once more to quit" : "Quit Halo";
 			break;
 		}
 		if (row == ui_vr_options_globals.selection)
