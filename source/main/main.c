@@ -3338,7 +3338,13 @@ void main_loop(
 						network_game_abort();
 					}
 
+#ifdef HALO_ANDROID
+					halo_vr_phase(HALO_VR_PHASE_INPUT, 0);
+#endif
 					game_time_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+#ifdef HALO_ANDROID
+					halo_vr_phase(HALO_VR_PHASE_TICKS, game_time_get_elapsed());
+#endif
 
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
@@ -3353,6 +3359,9 @@ void main_loop(
 					observer_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 					collision_log_end_period();
 					game_engine_update_non_deterministic((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+#ifdef HALO_ANDROID
+					halo_vr_phase(HALO_VR_PHASE_CAMERA, 0);
+#endif
 				}
 
 				if (main_globals.saving_map)
@@ -3367,6 +3376,9 @@ void main_loop(
 					main_game_render((double)main_globals.seconds_elapsed);
 					render_interpolation_frame_end();
 					profile_render_end();
+#ifdef HALO_ANDROID
+					halo_vr_phase(HALO_VR_PHASE_DRAW, 0);
+#endif
 				}
 			}
 			else

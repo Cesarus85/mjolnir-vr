@@ -69,6 +69,14 @@ static struct
 	unsigned long long wait_us;
 	int report_frames;
 	int report_stereo_frames;
+	/* (the frame's parts, halo_vr_phase: when each ended, and the game's
+	ticks in it; summed apart for frames with ticks and without, with how
+	many took longer than the headset's frame) */
+	unsigned long long phase_end_us[HALO_VR_PHASE_COUNT];
+	int frame_ticks;
+	unsigned long long phase_us[2][HALO_VR_PHASE_COUNT + 1];
+	int phase_frames[2];
+	int phase_late[2];
 
 	/* the view's turning, gathered for halo_vr_look_delta */
 	float look_yaw;
@@ -530,10 +538,47 @@ static unsigned long long now_us(void)
 /* vr.log_performance: every five seconds, the frames the game gave the
 headset, and where their time went: waiting for the headset (xrWaitFrame),
 drawing the eyes, and the rest (the game's update, the overlay, the copies) */
+void halo_vr_phase(int phase, int ticks)
+{
+	if (!vr.active || !vr.log_performance || phase < 0 || phase >= HALO_VR_PHASE_COUNT)
+		return;
+	vr.phase_end_us[phase] = now_us();
+	if (phase == HALO_VR_PHASE_TICKS)
+		vr.frame_ticks = ticks;
+}
+
+/* the frame's parts, from the marks halo_vr_phase left (a part not marked
+this frame: none) */
+static void performance_phases(unsigned long long now)
+{
+	int kind = vr.frame_ticks > 0;
+	unsigned long long last = vr.frame_start_us;
+	int phase;
+
+	for (phase = 0; phase < HALO_VR_PHASE_COUNT; phase++)
+	{
+		unsigned long long end = vr.phase_end_us[phase];
+
+		if (end >= last && end <= now)
+		{
+			vr.phase_us[kind][phase] += end - last;
+			last = end;
+		}
+	}
+	vr.phase_us[kind][HALO_VR_PHASE_COUNT] += now - last;
+	vr.phase_frames[kind]++;
+	/* (late: longer than the headset's frame, less a millisecond) */
+	if (vr.info.refresh_rate > 1.0f && (float)(now - vr.frame_start_us + 1000) > 1e6f / vr.info.refresh_rate)
+		vr.phase_late[kind]++;
+	memset(vr.phase_end_us, 0, sizeof(vr.phase_end_us));
+	vr.frame_ticks = 0;
+}
+
 static void performance_report(int stereo)
 {
 	unsigned long long now = now_us();
 
+	performance_phases(now);
 	vr.work_us += now - vr.frame_start_us;
 	vr.report_frames++;
 	vr.report_stereo_frames += stereo != 0;
@@ -548,6 +593,25 @@ static void performance_report(int stereo)
 		platform_log("VR: %.1f fps (%d%% stereo); per frame %.1f ms working (eyes %.1f ms), %.1f ms waiting "
 			"for the headset", frames / seconds, (int)(100.0f * vr.report_stereo_frames / frames),
 			vr.work_us * 1e-3f / frames, vr.eyes_us * 1e-3f / frames, vr.wait_us * 1e-3f / frames);
+		{
+			int kind;
+
+			for (kind = 1; kind >= 0; kind--)
+			{
+				float count = (float)(vr.phase_frames[kind] ? vr.phase_frames[kind] : 1);
+
+				platform_log("VR:   %s: %d frames, %d late; ms input %.1f, ticks %.1f, camera %.1f, draw %.1f, "
+					"present %.1f", kind ? "with ticks" : "no ticks", vr.phase_frames[kind], vr.phase_late[kind],
+					vr.phase_us[kind][HALO_VR_PHASE_INPUT] * 1e-3f / count,
+					vr.phase_us[kind][HALO_VR_PHASE_TICKS] * 1e-3f / count,
+					vr.phase_us[kind][HALO_VR_PHASE_CAMERA] * 1e-3f / count,
+					vr.phase_us[kind][HALO_VR_PHASE_DRAW] * 1e-3f / count,
+					vr.phase_us[kind][HALO_VR_PHASE_COUNT] * 1e-3f / count);
+			}
+		}
+		memset(vr.phase_us, 0, sizeof(vr.phase_us));
+		memset(vr.phase_frames, 0, sizeof(vr.phase_frames));
+		memset(vr.phase_late, 0, sizeof(vr.phase_late));
 	}
 	vr.report_start_us = now;
 	vr.report_frames = vr.report_stereo_frames = 0;

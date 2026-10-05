@@ -131,6 +131,12 @@ static struct
 	/* (SteamVR: the frames' thread kept on the fast cores, xr_fast_cores) */
 	int steamvr;
 	int cores_pinned;
+	/* (with the metrics: the time the copies into the layers' images and
+	xrEndFrame took, since the last line, and the frames) */
+	double copy_seconds[HALO_XR_LAYER_COUNT];
+	double end_seconds;
+	double acquire_seconds;
+	int timed_frames;
 	int has_refresh_rate;
 	PFN_xrRequestDisplayRefreshRateFB request_refresh_rate;
 	PFN_xrGetDisplayRefreshRateFB get_refresh_rate;
@@ -1440,7 +1446,29 @@ int host_xr_copy_layer_array(int layer, uint32_t texture, int array_layer)
 
 /* copies part of a render target (left, top, right, bottom, 0..1 from its
 top left) into a layer's image */
+static double seconds_now(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
+}
+
+static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
+	float bottom);
+
 int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
+	float bottom)
+{
+	double start = xr.has_metrics ? seconds_now() : 0.0;
+	int copied = copy_layer_region(layer, texture, clear_alpha, left, top, right, bottom);
+
+	if (xr.has_metrics && layer >= 0 && layer < HALO_XR_LAYER_COUNT)
+		xr.copy_seconds[layer] += seconds_now() - start;
+	return copied;
+}
+
+static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
 	float bottom)
 {
 	struct xr_swapchain *swapchain;
@@ -1460,8 +1488,14 @@ int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, floa
 		return 0;
 	}
 	wait.timeout = XR_INFINITE_DURATION;
-	if (!xr_ok(xrWaitSwapchainImage(swapchain->handle, &wait), "xrWaitSwapchainImage"))
-		return 0;
+	{
+		double start = xr.has_metrics ? seconds_now() : 0.0;
+
+		if (!xr_ok(xrWaitSwapchainImage(swapchain->handle, &wait), "xrWaitSwapchainImage"))
+			return 0;
+		if (xr.has_metrics)
+			xr.acquire_seconds += seconds_now() - start;
+	}
 
 	gl_save(&saved);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, swapchain->framebuffers[swapchain->acquired_index]);
@@ -1788,6 +1822,25 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 					strcat(line, item);
 			}
 			host_logf(HOST_LOG_INFO, "xr: metrics%s, on core %d", line, sched_getcpu());
+			if (xr.timed_frames)
+			{
+				double frames = (double)xr.timed_frames;
+				char copies[256] = "";
+				int timed;
+
+				for (timed = 0; timed < HALO_XR_LAYER_COUNT; timed++)
+				{
+					char item[24];
+
+					snprintf(item, sizeof(item), " %d:%.2f", timed, xr.copy_seconds[timed] * 1e3 / frames);
+					strcat(copies, item);
+					xr.copy_seconds[timed] = 0.0;
+				}
+				host_logf(HOST_LOG_INFO, "xr: per frame ms: copies (layer:ms)%s; of them waiting for images %.2f; "
+					"xrEndFrame %.2f", copies, xr.acquire_seconds * 1e3 / frames, xr.end_seconds * 1e3 / frames);
+				xr.acquire_seconds = xr.end_seconds = 0.0;
+				xr.timed_frames = 0;
+			}
 		}
 	}
 
@@ -1795,7 +1848,17 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 	end.layerCount = layer_count;
 	end.layers = layers;
-	return xr_ok(xrEndFrame(xr.session, &end), "xrEndFrame");
+	{
+		double start = xr.has_metrics ? seconds_now() : 0.0;
+		int ended = xr_ok(xrEndFrame(xr.session, &end), "xrEndFrame");
+
+		if (xr.has_metrics)
+		{
+			xr.end_seconds += seconds_now() - start;
+			xr.timed_frames++;
+		}
+		return ended;
+	}
 }
 
 void host_xr_set_vignette(float strength)

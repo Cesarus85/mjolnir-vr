@@ -505,6 +505,9 @@ static const struct config_setting config_settings[] =
 		"machines of twice it), to test the netcode as over the internet; 0 none." },
 	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,
 		"Percent of datagrams received that are dropped, for the same; 0 none." },
+	{ "debug.gl_thread", _config_integer, "-1", "HALO_GL_THREAD", _environment_value, _platform_android,
+		"Mesa's GL thread (its drivers: the Steam Frame's): 1 on, 0 off, -1 as the\n"
+		"driver chooses. Read when the app starts." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"

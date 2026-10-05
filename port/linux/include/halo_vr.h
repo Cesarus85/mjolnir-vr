@@ -247,6 +247,18 @@ void halo_vr_network_grenade_thrown(short local_player_index, long unit_index, c
 /* the platform layer's side (vr.c) */
 void halo_vr_initialize(void);
 void halo_vr_frame_begin(void);
+/* vr.log_performance: the end of a part of the frame, for the report: the
+input and network, the game's ticks (how many), the camera and director,
+the drawing; the rest is presenting */
+enum
+{
+	HALO_VR_PHASE_INPUT,
+	HALO_VR_PHASE_TICKS,
+	HALO_VR_PHASE_CAMERA,
+	HALO_VR_PHASE_DRAW,
+	HALO_VR_PHASE_COUNT
+};
+void halo_vr_phase(int phase, int ticks);
 void halo_vr_present(unsigned int back_buffer_texture);
 /* the eye image size: the back buffer's size in pixels in VR */
 int halo_vr_eye_size(int *width, int *height);

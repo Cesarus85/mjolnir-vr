@@ -327,6 +327,17 @@ static void *game_main(void *unused)
 	wherever there is room, the Xbox window at 0x80000000 included */
 	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 	{
+		/* (debug.gl_thread: Mesa's GL thread on or off, as the driver's
+		mesa_glthread, before the GL context is made; -1 leaves it be) */
+		double gl_thread = config_number(path, "debug.gl_thread", -1.0);
+
+		if (gl_thread >= 0.0)
+		{
+			setenv("mesa_glthread", gl_thread != 0.0 ? "true" : "false", 1);
+			host_logf(HOST_LOG_INFO, "Mesa's GL thread %s (debug.gl_thread)", gl_thread != 0.0 ? "on" : "off");
+		}
+	}
+	{
 		int eye_width, eye_height;
 
 		/* on a headset the game runs in VR (port/linux/src/vr.c): it
