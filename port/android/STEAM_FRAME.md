@@ -39,21 +39,37 @@ What differs is found at run time, not by a build of its own.
 | 5 | The Frame's controllers | done: their own profile, the Xbox's layout |
 | 6 | Frame rate, resolution | done: 72 Hz steady, multiview on |
 | 7 | Multiplayer, voice, cross-play with the Quest | |
-| 8 | Installing it, for others | |
+| 8 | A button in the Steam library | done: `steam_frame_launch.sh` |
 
 ## Starting it on the Frame
 
-`port/android/steam_frame_launch.sh`, copied to
-`~/Documents/HaloCE/halo-vr.sh` with the APK as `~/Documents/HaloCE/HaloVR.apk`,
-starts the game as Steam starts an Android title: Lepton
-(`lepton waitforexitandrun -- <apk>`) runs it in a container of its own
-(`steamlaunch-4290000001`, kept between starts), installing the APK anew
-whenever the file is newer than the installed one. Updating the game is
-replacing that APK. On the first start after a new APK Lepton only
-installs it: the script then starts it again. Added to the Steam library as
-a non-Steam game, it is a button. (From the Mac, over USB the Frame's
-SteamOS is an adb device of its own, `frame`, beside Lepton's
-`<frame-ip>:5555`.)
+A button in the Steam library ("Halo VR", a non-Steam game) runs
+`~/Documents/HaloCE/halo-vr.sh` (`port/android/steam_frame_launch.sh`),
+which starts the game as Steam starts an Android title of its own:
+`lepton waitforexitandrun -- ~/Documents/HaloCE/HaloVR.apk`, in a container
+of its own (`steamlaunch-4290000001`) that Lepton installs the APK into
+anew whenever the file is newer. Updating the game is replacing that APK.
+
+What the script does that Steam would for an Android title:
+- a compat data path (`steamapps/compatdata/4290000001/internal`): after an
+  install Lepton links the app's data to it, a dangling link without it;
+  and the shader path, which Lepton reads Steam's shader dump path against;
+- a container id of its own: with the shortcut's id, SteamVR's client in the
+  container stalled in xrCreateInstance;
+- a few starts: a new APK's first start only installs it, and a start that
+  ends within 30 s is tried again (up to three times), unless the game was
+  quit (it writes `quit_requested.txt`).
+
+Steam's "Exit game" does not reach the game (its process is the container's,
+not Steam's): quit it with the VR options' "Quit Halo" (Y in the main or
+pause menu, twice). A container ended within 30 s of its start makes
+Lepton drop the app's install, so the next start installs it again.
+
+The shortcut is in `userdata/<id>/config/shortcuts.vdf` (Steam reads it when
+it starts; appid 3151454348 for this name and path), its pictures in
+`userdata/<id>/config/grid/` (from `port/android/steam_frame_grid/`). From
+the Mac, over USB the Frame's SteamOS is an adb device of its own, `frame`,
+beside Lepton's `<frame-ip>:5555`.
 
 ## The game's data
 

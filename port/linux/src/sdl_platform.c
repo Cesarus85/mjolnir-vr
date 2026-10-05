@@ -925,8 +925,10 @@ static void platform_show_pending_message(void)
 /* ---------- events */
 
 /* quits as closing the window does, when the events are next read (the
-menus' Quit: port/linux/game/menu_functions.c); Android's menus have none,
-as the system closes its apps */
+menus' Quit: port/linux/game/menu_functions.c); on Android, where the
+system closes its apps, the VR options' Quit (ui_widget.c) ends the process
+at once: on the Steam Frame, Steam cannot end the game, which runs in
+Lepton's container (port/android/STEAM_FRAME.md) */
 void platform_request_quit(void)
 {
 #ifndef HALO_ANDROID
@@ -935,6 +937,20 @@ void platform_request_quit(void)
 	memset(&event, 0, sizeof(event));
 	event.type = SDL_EVENT_QUIT;
 	SDL_PushEvent(&event);
+#else
+	{
+		/* (and says so beside the game's data: the Steam Frame's launcher
+		does not then take it for a start that failed and start it again) */
+		char path[512];
+		FILE *file;
+
+		snprintf(path, sizeof(path), "%s/quit_requested.txt", platform_data_root());
+		file = fopen(path, "wb");
+		if (file)
+			fclose(file);
+	}
+	platform_log("quit: the player asked");
+	exit(EXIT_SUCCESS);
 #endif
 }
 
