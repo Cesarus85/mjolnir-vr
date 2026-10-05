@@ -4844,6 +4844,17 @@ boolean player_name_valid(
 		return FALSE;
 	for (index = 0; index < count && (cleaned[index] || name[index]); index++)
 	{
+		/* (but the spaces it trims from the end: the Xbox's menus pad a new
+		profile's name, "New001     ") */
+		if (!cleaned[index])
+		{
+			for (; index < count && name[index]; index++)
+			{
+				if (name[index] != ' ')
+					return FALSE;
+			}
+			break;
+		}
 		if (cleaned[index] != name[index])
 			return FALSE;
 	}

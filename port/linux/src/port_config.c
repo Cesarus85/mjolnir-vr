@@ -139,6 +139,9 @@ static const struct config_setting config_settings[] =
 	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
 		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"
 		"on a flat panel instead. Read when the app starts." },
+	{ "vr.menus", _config_string, "\"pc\"", "HALO_VR_MENUS", _environment_value, _platform_android,
+		"The menus in VR: \"pc\" for the PC version's (as display.menus), \"xbox\"\n"
+		"for the Xbox's. Read when the menus' map loads." },
 	{ "vr.resolution_scale", _config_real, "1.0", "HALO_VR_RESOLUTION_SCALE", _environment_value, _platform_android,
 		"The eye images' size as a multiple of what the headset recommends;\n"
 		"lower is faster. Read when the app starts." },

@@ -1616,9 +1616,8 @@ void menu_tags_loaded(
 	{
 		return;
 	}
-	/* (in VR, the Xbox's: the VR port's join codes, game list, host options
-	and keyboard pointer are built into its screens) */
-	if (halo_vr_active())
+	/* (in VR, the Xbox's unless vr.menus asks for the PC version's) */
+	if (halo_vr_active() && strcmp(config_string("vr.menus"), "pc"))
 		return;
 	menus = halo_menus_load();
 	if (!menus)

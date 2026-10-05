@@ -4666,6 +4666,30 @@ static void network_game_server_update_bots(
 		}
 	}
 	wanted = PIN(wanted, 0, 15);
+	/* (none in co-op, a campaign level with no game engine: its own
+	enemies) */
+	if (!server->game.variant.game_engine_index && main_get_solo_level_from_name(server->game.map.name) != NONE)
+		wanted = 0;
+	/* (room for them beside the people, at least one: the PC version's
+	Server Setup may ask for fewer players, after they came) */
+	if (wanted > 0)
+	{
+		short people = 0;
+		long player_index;
+
+		for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
+		{
+			struct network_player *player = &server->game.players[player_index];
+
+			if (network_player_is_valid(player) && !network_game_server_bot_machines[(long)player->machine_index])
+				people++;
+		}
+		if (server->game.maximum_players < MAX(people, 1) + wanted)
+		{
+			server->game.maximum_players = (byte)MIN(MAX(people, 1) + wanted, MAXIMUM_NETWORK_PLAYER_COUNT);
+			changed = TRUE;
+		}
+	}
 	while (count < wanted && network_game_server_add_bot(server, (short)(count + 1)))
 	{
 		count++;

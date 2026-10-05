@@ -6058,6 +6058,26 @@ static boolean ui_join_code_screen_active(
 		strcmp(widget_globals.active_widgets[0]->name, name) == 0;
 }
 
+/* the screens the panels go over: the Xbox's, or the PC version's
+(vr.menus, port/linux/game/menu_tags.c) */
+static boolean ui_join_code_pc_screens(
+	void)
+{
+	return ui_join_code_screen_active("join_game_screen") || ui_join_code_screen_active("lobby_screen");
+}
+
+static boolean ui_join_code_join_screen(
+	void)
+{
+	return ui_join_code_screen_active("server_list_screen") || ui_join_code_screen_active("join_game_screen");
+}
+
+static boolean ui_join_code_lobby_screen(
+	void)
+{
+	return ui_join_code_screen_active("connected_pregame_screen") || ui_join_code_screen_active("lobby_screen");
+}
+
 static void ui_join_code_launch_keyboard(
 	void)
 {
@@ -6214,7 +6234,7 @@ static boolean ui_join_code_take_event(
 		return FALSE;
 	if (ui_join_code_globals.host_panel_open)
 	{
-		if (!ui_join_code_screen_active("connected_pregame_screen") || !global_network_game_server_get())
+		if (!ui_join_code_lobby_screen() || !global_network_game_server_get())
 		{
 			ui_join_code_globals.host_panel_open = FALSE;
 			return FALSE;
@@ -6224,7 +6244,7 @@ static boolean ui_join_code_take_event(
 	}
 	if (ui_join_code_globals.panel_open)
 	{
-		if (!ui_join_code_screen_active("server_list_screen"))
+		if (!ui_join_code_join_screen())
 		{
 			ui_join_code_globals.panel_open = FALSE;
 			return FALSE;
@@ -6234,7 +6254,7 @@ static boolean ui_join_code_take_event(
 	}
 	if (event->type != _event_type_button || event->data.button.value != 1)
 		return FALSE;
-	if (event->data.button.index == _gamepad_analog_button_x && ui_join_code_screen_active("server_list_screen"))
+	if (event->data.button.index == _gamepad_analog_button_x && ui_join_code_join_screen())
 	{
 		ui_join_code_globals.panel_open = TRUE;
 		ui_join_code_globals.selection = 0;
@@ -6242,7 +6262,7 @@ static boolean ui_join_code_take_event(
 		return TRUE;
 	}
 	if (event->data.button.index == _gamepad_analog_button_y &&
-		ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
+		ui_join_code_lobby_screen() && global_network_game_server_get())
 	{
 		ui_join_code_globals.host_panel_open = TRUE;
 		ui_join_code_globals.host_selection = 0;
@@ -6296,6 +6316,13 @@ static boolean ui_join_code_take_pointer(
 				ui_join_code_host_panel_event(&press);
 		}
 		return TRUE;
+	}
+	/* (on the PC version's screens, their hints top right clicked: X's and
+	Y's) */
+	if (pointer->left_clicks && x >= 420 && y < 52 && ui_join_code_pc_screens())
+	{
+		press.data.button.index = ui_join_code_join_screen() ? _gamepad_analog_button_x : _gamepad_analog_button_y;
+		return ui_join_code_take_event(widget_globals.active_widgets[0], &press);
 	}
 	return FALSE;
 }
@@ -6454,7 +6481,7 @@ static void ui_join_code_render(
 {
 	char code[16];
 
-	if (ui_join_code_screen_active("server_list_screen"))
+	if (ui_join_code_join_screen())
 	{
 		char const *status = NULL;
 		real_argb_color hint_color = { 1.0f, 0.85f, 0.85f, 0.85f };
@@ -6465,8 +6492,11 @@ static void ui_join_code_render(
 			return;
 		}
 		/* (in the key bar's free left, and under it: clear of the map's
-		picture) */
-		ui_join_code_draw_text(8, 200, 420, "%x-button Online / code", TRUE, 0, &hint_color);
+		picture; on the PC version's, top right, beside its title) */
+		if (ui_join_code_pc_screens())
+			ui_join_code_draw_text(500, 630, 12, "%x-button Join code", TRUE, 0, &hint_color);
+		else
+			ui_join_code_draw_text(8, 200, 420, "%x-button Online / code", TRUE, 0, &hint_color);
 		switch (p2p_join_code_status())
 		{
 		case _join_code_looking: status = "Looking for the game of that code..."; break;
@@ -6488,10 +6518,17 @@ static void ui_join_code_render(
 			case _join_state_lost: status = "Lost the connection to the online game's host"; break;
 			}
 		}
-		if (status)
+		/* (on the PC version's, under its list, which says itself when
+		online play is off) */
+		if (status && ui_join_code_pc_screens())
+		{
+			if (p2p_join_code_status() != _join_code_offline)
+				ui_join_code_draw_text(20, 620, 358, status, FALSE, 2, &hint_color);
+		}
+		else if (status)
 			ui_join_code_draw_line(452, status, FALSE, FALSE);
 	}
-	else if (ui_join_code_screen_active("connected_pregame_screen") && global_network_game_server_get())
+	else if (ui_join_code_lobby_screen() && global_network_game_server_get())
 	{
 		char line[128];
 		long bots = config_integer("bots.count");
@@ -6510,8 +6547,24 @@ static void ui_join_code_render(
 		{
 			snprintf(line, sizeof(line), "%%y-button Host options (%s)", bots_text);
 		}
-		/* (under the buttons' key) */
-		ui_join_code_draw_line(448, line, TRUE, TRUE);
+		/* (under the buttons' key; on the PC version's, top right, beside
+		its title, a line each) */
+		if (ui_join_code_pc_screens())
+		{
+			real_argb_color hint_color = { 1.0f, 0.85f, 0.85f, 0.85f };
+
+			if (p2p_join_code(code, sizeof(code)))
+			{
+				snprintf(line, sizeof(line), "Join code: %s", code);
+				ui_join_code_draw_text(420, 630, 12, line, FALSE, 0, &hint_color);
+			}
+			snprintf(line, sizeof(line), "%%y-button Host options (%s)", bots_text);
+			ui_join_code_draw_text(420, 630, 32, line, TRUE, 0, &hint_color);
+		}
+		else
+		{
+			ui_join_code_draw_line(448, line, TRUE, TRUE);
+		}
 		if (ui_join_code_globals.host_panel_open)
 		{
 			static char const *const skills[] = { "Easy", "Normal", "Hard" };
@@ -6609,8 +6662,10 @@ static boolean ui_vr_options_screen(
 {
 	struct widget_instance *screen = widget_globals.active_widgets[0];
 
+	/* (the Xbox's main menu, or the PC version's: vr.menus) */
 	return halo_vr_active() && screen && screen->name &&
-		(main_menu_screen_is_active() || strstr(screen->name, "pause_game") != NULL);
+		(main_menu_screen_is_active() || strstr(screen->name, "pause_game") != NULL ||
+			strcmp(screen->name, "main_menu") == 0);
 }
 
 /* which of the choices a setting is nearest */
@@ -6797,7 +6852,11 @@ static boolean ui_vr_options_take_pointer(
 	if (!ui_vr_options_globals.open)
 	{
 		/* (its hint clicked: open) */
-		if (pointer->left_clicks && x >= 256 && x < 400 && y >= 434 && y < 464 && ui_vr_options_screen())
+		boolean pc_main_menu = widget_globals.active_widgets[0] && widget_globals.active_widgets[0]->name &&
+			strcmp(widget_globals.active_widgets[0]->name, "main_menu") == 0;
+
+		if (pointer->left_clicks && ui_vr_options_screen() &&
+			(pc_main_menu ? x >= 400 && y >= 446 : x >= 256 && x < 400 && y >= 434 && y < 464))
 		{
 			ui_vr_options_globals.open = TRUE;
 			ui_vr_options_globals.controls = FALSE;
@@ -7027,7 +7086,10 @@ static void ui_vr_options_render(
 	{
 		/* (under the menu; centred by hand, as icons are drawn from the
 		left) */
-		ui_join_code_draw_text(266, 400, 440, "%y-button VR options", TRUE, 0, &hint_color);
+		if (strcmp(widget_globals.active_widgets[0]->name, "main_menu") == 0)
+			ui_join_code_draw_text(400, 630, 452, "%y-button VR options", TRUE, 1, &hint_color);
+		else
+			ui_join_code_draw_text(266, 400, 440, "%y-button VR options", TRUE, 0, &hint_color);
 		return;
 	}
 	if (ui_vr_options_globals.controls)

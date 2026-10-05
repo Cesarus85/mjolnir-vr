@@ -2060,6 +2060,14 @@ int p2p_peer_address(unsigned char const *identifier, unsigned long *address);
 int platform_clipboard_get(char *text, int size);
 void platform_clipboard_set(char const *text);
 void platform_text_field(int typing);
+#ifdef HALO_ANDROID
+/* (VR: the Xbox's on-screen keyboard, virtual_keyboard.c) */
+int halo_vr_active(void);
+boolean virtual_keyboard_launch(wchar_t *text_buffer, word buffer_size, short caption_index);
+boolean virtual_keyboard_active(void);
+boolean virtual_keyboard_last_exit_saved_text(void);
+void virtual_keyboard_set_caption(wchar_t const *caption);
+#endif
 int config_boolean(char const *name);
 void ui_widget_port_post_button(short controller_index, short button_index);
 
@@ -2114,6 +2122,30 @@ static struct
 of: its screen has gone) */
 static unsigned long text_field_shown_time;
 
+#ifdef HALO_ANDROID
+/* VR: no keyboard to type on; the Xbox's on-screen one types the field,
+which is done when it closes (its ENTER) or as it was (its BACK) */
+static struct
+{
+	boolean open;
+	wchar_t text[TEXT_FIELD_LENGTH];
+} text_field_keyboard;
+
+static void text_field_keyboard_launch(void)
+{
+	short index;
+
+	for (index = 0; index < TEXT_FIELD_LENGTH - 1 && text_field.text[index]; index++)
+		text_field_keyboard.text[index] = (wchar_t)(unsigned char)text_field.text[index];
+	text_field_keyboard.text[index] = 0;
+	virtual_keyboard_set_caption(L"Type, then ENTER");
+	text_field_keyboard.open = virtual_keyboard_launch(text_field_keyboard.text,
+		(word)(MIN(text_field.maximum + 1, TEXT_FIELD_LENGTH) * sizeof(wchar_t)), 8);
+	if (!text_field_keyboard.open)
+		virtual_keyboard_set_caption(NULL);
+}
+#endif
+
 static boolean text_field_editing(struct widget_instance *row)
 {
 	return text_field.row && (!row || text_field.row == row);
@@ -2133,6 +2165,10 @@ static void text_field_begin(struct widget_instance *row, char const *text, shor
 	while (input_get_key(&key))
 		;
 	platform_text_field(TRUE);
+#ifdef HALO_ANDROID
+	if (halo_vr_active())
+		text_field_keyboard_launch();
+#endif
 }
 
 static void text_field_end(boolean keep)
@@ -2168,6 +2204,30 @@ static void text_field_show(struct widget_instance *value, char const *text, boo
 	wchar_t shown[TEXT_FIELD_LENGTH + 2];
 	short index;
 
+#ifdef HALO_ANDROID
+	/* (VR: the on-screen keyboard closed, the field done with what it typed) */
+	if (editing && text_field_keyboard.open && !virtual_keyboard_active())
+	{
+		boolean typed = virtual_keyboard_last_exit_saved_text();
+
+		text_field_keyboard.open = FALSE;
+		virtual_keyboard_set_caption(NULL);
+		if (typed)
+		{
+			short length;
+
+			for (length = 0; length < text_field.maximum && text_field_keyboard.text[length]; length++)
+			{
+				wchar_t character = text_field_keyboard.text[length];
+
+				text_field.text[length] = character >= ' ' && character <= '~' ? (char)character : '?';
+			}
+			text_field.text[length] = 0;
+		}
+		text_field_end(typed);
+		editing = FALSE;
+	}
+#endif
 	if (editing)
 	{
 		text_field_shown_time = system_milliseconds();
@@ -5053,7 +5113,12 @@ void pc_menu_game_data_function_invoke(
 
 	if (!name)
 		return;
-	/* (a text field whose screen has gone: let go of) */
+	/* (a text field whose screen has gone: let go of; not while VR's
+	on-screen keyboard types it) */
+#ifdef HALO_ANDROID
+	if (text_field_keyboard.open)
+		text_field_shown_time = system_milliseconds();
+#endif
 	if (text_field.row && system_milliseconds() - text_field_shown_time > 500)
 		text_field_end(FALSE);
 	if (!strcmp(name, "solo map list update"))
