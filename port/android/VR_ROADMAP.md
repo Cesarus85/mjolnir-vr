@@ -103,6 +103,11 @@ the left hand animated through reloads.
 
 ## Headset tests pending (build `feature/vr-arms`, which holds all three)
 
+Quest 3, 2026-10-06: menus, laser, VR options, head turning, arms and
+hands, fingers, body modes, scope, vehicles, a bot game (bots spread and
+leave their bases) and a large online game: all good. What follows is left
+for the Steam Frame and for the two headsets together.
+
 Upstream merge (`merge/upstream-2026-10-06`):
 - Menus, a bot game, head turning (no doubled image), co-op briefly.
 - A password game hosted on the Frame, joined from the Quest.
