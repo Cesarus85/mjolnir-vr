@@ -35,7 +35,7 @@ named where code is taken over.
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
-| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Left: buttons remapped, flashlight by tapping the head, finer turning and vignette choices |
+| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Second part **built** (branch `feature/vr-comfort`, headset test pending): buttons remapped, flashlight by tapping the head, finer turning and vignette choices |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
@@ -106,7 +106,7 @@ the GPU's fill.
 
 VR options (Y): two pages, PLAY (the comfort rows, "Weapon hand",
 "Mirrored controls") and MORE ("Graphics", "Refresh rate", "Resolution",
-the controller buttons page, Quit). The refresh rate steps through what
+the controller buttons page, Quit); four since the second part (below). The refresh rate steps through what
 the runtime offers and changes at once; on the Steam Frame the row shows
 SteamOS's rate. The resolution (`vr.resolution_scale`, 70-120%) takes a
 restart. The controller buttons page shows the layout as set.
@@ -135,6 +135,100 @@ To try in the headset (Quest 3 and Steam Frame):
 5. Graphics: each preset's look and smoothness (`vr.log_performance`),
    in a bot game; Max on the Quest at 90 Hz; refresh rates 72/80/90/120
    on the Quest; the Frame's row.
+
+## Step 2, second part (built)
+
+On branch `feature/vr-comfort`, not yet tried in the headset. The VR
+options (Y) have four pages: PLAY ("Weapon hand", "Mirrored controls",
+laser, crosshair, motion tracker, body, fingers, the Warthog's wheel),
+COMFORT (turning, the vignettes), BUTTONS (the actions' buttons, the
+flashlight's tap, "Reset buttons to defaults", the controller buttons
+page) and MORE (graphics, refresh rate, resolution, Quit).
+
+Buttons remapped (BUTTONS page; `vr.c` `controls_remapped`):
+- Jump, the flashlight (held: switch grenades), action/reload, switch
+  weapon, crouch, zoom and melee each go on one of seven buttons: A, B,
+  X, Y, the move stick's click, the turning stick's, the weapon hand's
+  grip. Moving an action to a button swaps it with the action there, so
+  none is ever left without one.
+- The triggers, the free hand's grip, the menu button, the Steam Frame's
+  bumpers, D-pad and View button keep theirs; the menus keep the buttons
+  as they are.
+- Applied after the left-handed mirroring, on the gamepad's sides: the
+  same on the Touch and the Frame controllers, and a left-handed player's
+  buttons are the mirror image of the right-handed ones (on the Frame,
+  mirrored, the left D-pad's). The defaults are the old layout, the
+  host's bindings and the ABI unchanged.
+- The melee's aim and jab follow its button; the grips on a Warthog's
+  wheel press nothing, whatever the grip does.
+- The controller buttons page shows each action where its button is.
+
+Flashlight by tapping the head (`vr.c` `flashlight_gesture_update`,
+after HaloCE-Quest-VR, CC0): either hand to the side or the top of the
+head and away, as a tap, toggles it; the button still does. A zone in
+the head's axes beside or over the head, never more than 6 cm in front
+of the eyes (a scope at the eye, a two-handed weapon, a punch and the
+wrist's tracker are in front of the face); the hand comes from 35 cm
+away, slower than 3 m/s, stays 40 to 600 ms, alone, and leaves; a second
+between toggles. None in the menus, with a grenade held or just thrown,
+just after a melee, with both hands on the weapon, the weapon hand while
+the scope is drawn, a hand on the wheel. A short rumble in the tapping
+hand. Its logic was run in a harness off the headset; the feel is the
+headset's to judge.
+
+Comfort (COMFORT page): snap turns 10 to 45 degrees by 5, 60, 75, 90;
+smooth turning 30 to 150 degrees a second by 15, then to 300 by 30; the
+vehicle vignette Off, 15 to 100%; the on-foot vignette (off by default)
+while the stick turns smoothly, or also while the move stick moves, as
+far as the sticks are pushed, with its own strength. The old values are
+among the steps; defaults unchanged.
+
+Transparent geometry: room for 2048 groups a window (the Xbox's 384,
+below).
+
+| Setting | Values |
+| --- | --- |
+| `vr.button_jump` | `"a"` (default), `"b"`, `"x"`, `"y"`, `"move_stick"`, `"turn_stick"`, `"grip"`: as right-handed, mirrored with `vr.mirror_controls` |
+| `vr.button_light` | the flashlight, held switch grenades; `"b"` (default) |
+| `vr.button_action` | action, reload; `"x"` (default) |
+| `vr.button_weapon` | switch weapon; `"y"` (default) |
+| `vr.button_crouch` | `"move_stick"` (default) |
+| `vr.button_zoom` | `"turn_stick"` (default) |
+| `vr.button_melee` | `"grip"` (default) |
+| `vr.flashlight_gesture` | `true` (default): a tap of the head toggles the flashlight |
+| `vr.foot_vignette` | `"off"` (default), `"turning"` (smooth turns), `"moving"` (and moving) |
+| `vr.foot_vignette_strength` | 0.15 to 1, `0.7` (default) |
+| `debug.vr_options` | `false` (default); `true` shows the VR options off the headset (the emulator) |
+
+Checked in the emulator (`debug.vr_options`): the four pages without
+overlaps, each row's values, swaps and reset, the controller buttons page
+right- and left-handed after swaps, the settings kept over a restart, a
+15-bot game as before.
+
+To try in the headset (Quest 3 and Steam Frame):
+1. Defaults: every button as before (jump, light/held grenades, action,
+   switch weapon, crouch, zoom, melee by grip and by swing), right- and
+   left-handed, mirrored and not; the menus' A and B.
+2. BUTTONS: swap jump and melee (jump on the grip, melee on A): both work,
+   the melee jabs and aims where the head looks; light on a stick click
+   (tap: light, hold: grenades); the controller buttons page says so.
+   At the Warthog's wheel with jump on the grip: no jump while holding
+   the wheel. Reset: all back.
+3. The same left-handed with mirrored controls (on the Frame the left
+   D-pad), and with `Mirrored controls: Off`.
+4. Flashlight tap with either hand, beside the head and over it; the
+   rumble; the flashlight button still works. No toggle while: aiming
+   through the sniper's and the pistol's scope, holding the weapon with
+   both hands, holding and throwing a grenade (overhand past the ear),
+   punching and swinging, putting on or adjusting the headset with both
+   hands or one, looking at the wrist's tracker, at the wheel.
+5. COMFORT: snap 10 and 90, smooth 30 and 300; vehicle vignette 15% and
+   100%; on-foot vignette "Smooth turns" (nothing with snap turns),
+   "Moving, turning", strength 15% and 100%; no vignette in a vehicle
+   from the on-foot one, none in the menus.
+6. A game of 30 and more players: effects, glass and water stay; the log
+   (`adb logcat -s halo`) says `rasterizer: N transparent geometry groups
+   in a window` once a window passes 384; frame time as before.
 
 ## Step 3a (done)
 
@@ -194,8 +288,11 @@ the left hand animated through reloads.
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
   not merged.
-- Transparent geometry groups: the Xbox's 384 a window overflow in games
-  of 30 and more players.
+- Transparent geometry groups: the Xbox's 384 a window overflowed in
+  games of 30 and more players (the last submitted, glass, water,
+  particles, contrails, vanished). Raised to 2048 (320 KB) on
+  `feature/vr-comfort`, to check in a large game (step 2, second part,
+  test 6); upstream still has 384.
 
 ## Headset tests (2026-10-06, all three in `main`)
 
