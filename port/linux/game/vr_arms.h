@@ -53,6 +53,8 @@ void vr_solve_arm(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices,
 	real_vector3d const *pole, boolean hand_stays, struct vr_limb_history *history);
 /* the hand's roll from the animation (old_fore, old_hand: the arm as
 animated) shared by the forearm and the upper arm */
+void vr_align_elbow(real_matrix4x3 *matrices, short const bones[NUMBER_OF_VR_ARM_BONES],
+	real_matrix4x3 const *old_upper, real_matrix4x3 const *old_fore, real_matrix4x3 const *old_hand);
 void vr_distribute_arm_twist(real_matrix4x3 *matrices, short const bones[NUMBER_OF_VR_ARM_BONES],
 	real_matrix4x3 const *old_fore, real_matrix4x3 const *old_hand, struct vr_limb_history *history);
 

@@ -74,6 +74,17 @@ boolean vr_skeleton_under(
 
 /* ---------- rotations (column vectors) */
 
+/* v += a * scale */
+static void vr_vector_scale_add_local(
+	real_vector3d *v,
+	real_vector3d const *a,
+	real scale)
+{
+	v->i += a->i * scale;
+	v->j += a->j * scale;
+	v->k += a->k * scale;
+}
+
 static real vr_length(
 	real_vector3d const *v)
 {
@@ -447,7 +458,7 @@ void vr_solve_arm(
 /* The controller's roll shared along the arm rather than all of it at the
 wrist's skin: the hand's turn about the forearm from where the animation
 has it against its forearm (old_fore, old_hand), 85% of it on the forearm
-and 25% on the upper arm, within 110 degrees, running on across half a
+(none on the upper arm: vr_align_elbow rolls it), within 110 degrees, running on across half a
 turn (history). The bones' places and the hand stay. */
 void vr_distribute_arm_twist(
 	real_matrix4x3 *matrices,
@@ -511,16 +522,64 @@ void vr_distribute_arm_twist(
 	vr_rotate_vector(rotation, &fore->forward, &fore->forward);
 	vr_rotate_vector(rotation, &fore->left, &fore->left);
 	vr_rotate_vector(rotation, &fore->up, &fore->up);
-	vr_point_minus(&fore->position, &matrices[bones[_vr_arm_upper]].position, &axis);
-	if (vr_unit_vector(&axis))
-	{
-		real_matrix4x3 *upper = &matrices[bones[_vr_arm_upper]];
+}
 
-		vr_axis_rotation(&axis, angle * 0.25f, rotation);
-		vr_rotate_vector(rotation, &upper->forward, &upper->forward);
-		vr_rotate_vector(rotation, &upper->left, &upper->left);
-		vr_rotate_vector(rotation, &upper->up, &upper->up);
+/* The upper arm rolled about its length so that the elbow bends in the
+plane the arm now bends in, as the animation has it bend: the shortest
+turn that took the upper arm to its new direction leaves its hinge where
+it was, and with the elbow out to the side the elbow's skin turned in
+(Quest, 2026-10-06). The hinge is the animation's bend (upper arm by
+forearm, old_upper, old_fore, old_hand) in the upper arm's own axes. A
+straight arm, then or now, has no bend: left as it is. */
+void vr_align_elbow(
+	real_matrix4x3 *matrices,
+	short const bones[NUMBER_OF_VR_ARM_BONES],
+	real_matrix4x3 const *old_upper,
+	real_matrix4x3 const *old_fore,
+	real_matrix4x3 const *old_hand)
+{
+	real_matrix4x3 *upper = &matrices[bones[_vr_arm_upper]];
+	real_matrix4x3 const *fore = &matrices[bones[_vr_arm_fore]];
+	real_matrix4x3 const *hand = &matrices[bones[_vr_arm_hand]];
+	real_vector3d old_along, old_below, old_bend, along, below, bend, hinge;
+	real c_forward, c_left, c_up, angle, rotation[3][3];
+
+	vr_point_minus(&old_fore->position, &old_upper->position, &old_along);
+	vr_point_minus(&old_hand->position, &old_fore->position, &old_below);
+	cross_product3d(&old_along, &old_below, &old_bend);
+	vr_point_minus(&fore->position, &upper->position, &along);
+	vr_point_minus(&hand->position, &fore->position, &below);
+	cross_product3d(&along, &below, &bend);
+	if (vr_length(&old_bend) < 1e-4f * vr_length(&old_along) * vr_length(&old_below) ||
+		vr_length(&bend) < 0.05f * vr_length(&along) * vr_length(&below) ||
+		!vr_unit_vector(&old_bend) || !vr_unit_vector(&bend) || !vr_unit_vector(&along))
+	{
+		return;
 	}
+	/* (the hinge in the upper arm's axes, then where those axes are now) */
+	c_forward = dot_product3d(&old_bend, &old_upper->forward);
+	c_left = dot_product3d(&old_bend, &old_upper->left);
+	c_up = dot_product3d(&old_bend, &old_upper->up);
+	hinge.i = upper->forward.i * c_forward + upper->left.i * c_left + upper->up.i * c_up;
+	hinge.j = upper->forward.j * c_forward + upper->left.j * c_left + upper->up.j * c_up;
+	hinge.k = upper->forward.k * c_forward + upper->left.k * c_left + upper->up.k * c_up;
+	/* (both across the arm: the turn about it between them) */
+	vr_vector_scale_add_local(&hinge, &along, -dot_product3d(&hinge, &along));
+	vr_vector_scale_add_local(&bend, &along, -dot_product3d(&bend, &along));
+	if (!vr_unit_vector(&hinge) || !vr_unit_vector(&bend))
+		return;
+	{
+		real_vector3d cross;
+
+		cross_product3d(&hinge, &bend, &cross);
+		angle = (real)atan2(dot_product3d(&cross, &along), dot_product3d(&hinge, &bend));
+	}
+	if (!isfinite(angle))
+		return;
+	vr_axis_rotation(&along, angle, rotation);
+	vr_rotate_vector(rotation, &upper->forward, &upper->forward);
+	vr_rotate_vector(rotation, &upper->left, &upper->left);
+	vr_rotate_vector(rotation, &upper->up, &upper->up);
 }
 
 /* ---------- the fingers

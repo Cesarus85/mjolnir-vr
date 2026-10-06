@@ -1569,6 +1569,7 @@ static void first_person_weapon_vr_arms(
 	float head[3], neck[3], body_forward[3];
 	real_vector3d forward, left, weapon_left, weapon_right;
 	real_point3d eye;
+	real_matrix4x3 animated_upper[2];
 	real_matrix4x3 animated_forearm[2];
 	real_matrix4x3 animated_wrist[2];
 	short side;
@@ -1675,6 +1676,8 @@ static void first_person_weapon_vr_arms(
 		{
 			animated_forearm[side] = node_matrices[vr_arm_nodes.fore[side]];
 			animated_wrist[side] = node_matrices[vr_arm_nodes.wrist[side]];
+			if (vr_arm_nodes.upper[side] != NONE)
+				animated_upper[side] = node_matrices[vr_arm_nodes.upper[side]];
 		}
 	}
 
@@ -1723,7 +1726,7 @@ static void first_person_weapon_vr_arms(
 		neck: in front of it, the open end of the sleeve came into view
 		looking down to the side), to the side, square to the torso */
 		shoulder = eye;
-		point_from_line3d(&shoulder, global_up3d, -0.25f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		point_from_line3d(&shoulder, global_up3d, -0.20f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &forward, -0.04f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &left, outward * 0.19f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		/* the elbow bends down, out and back */
@@ -1749,6 +1752,7 @@ static void first_person_weapon_vr_arms(
 		weapon): the arm bends to it */
 		vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder, &node_matrices[bones[_vr_arm_hand]].position,
 			&pole, TRUE, &vr_arm_history[side]);
+		vr_align_elbow(node_matrices, bones, &animated_upper[side], &animated_forearm[side], &animated_wrist[side]);
 		vr_distribute_arm_twist(node_matrices, bones, &animated_forearm[side], &animated_wrist[side],
 			&vr_arm_history[side]);
 	}
