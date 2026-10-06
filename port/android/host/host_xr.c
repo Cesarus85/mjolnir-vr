@@ -120,10 +120,10 @@ static struct
 	XrAction haptic;
 	struct xr_hand_actions hands[HALO_XR_HAND_COUNT];
 
-	/* where the head and the left hand are this frame (the wrist layer) */
+	/* where the head and the hands are this frame (the wrist layer) */
 	XrPosef head;
-	XrPosef left_grip;
-	int left_grip_valid;
+	XrPosef grips[HALO_XR_HAND_COUNT];
+	int grips_valid[HALO_XR_HAND_COUNT];
 
 	int has_performance_settings;
 	/* (XR_META_performance_metrics: the compositor's counts, in the log,
@@ -946,11 +946,8 @@ static void hands_read(struct halo_xr_frame *frame)
 		{
 			out->flags = flags_from_location(location.locationFlags);
 			pose_from_xr(&out->grip, &location.pose);
-			if (hand == HALO_XR_HAND_LEFT)
-			{
-				xr.left_grip = location.pose;
-				xr.left_grip_valid = (out->flags & HALO_XR_POSE_VALID) != 0;
-			}
+			xr.grips[hand] = location.pose;
+			xr.grips_valid[hand] = (out->flags & HALO_XR_POSE_VALID) != 0;
 		}
 		location.locationFlags = 0;
 		if (XR_SUCCEEDED(xrLocateSpace(xr.hands[hand].aim_space, xr.local_space,
@@ -1048,7 +1045,9 @@ On the back of the left wrist, like a watch: behind the palm, where the
 grip pose is, and out of the back of the hand. In the left grip pose -Z
 runs to the fingers, +Y up the handle and -X out of the back of the hand;
 the layer faces -X with its top towards the elbow, as the wrist turned to
-the eyes reads it. Shown only while it is. */
+the eyes reads it. Shown only while it is. Left-handed (wrist_hand), on the
+right wrist, as the mirror image: there +X runs out of the back of the
+hand. */
 
 #define WRIST_IMAGE_SIZE 512
 #define CROSSHAIR_IMAGE_SIZE 256
@@ -1088,26 +1087,32 @@ static void quaternion_rotate_vector(const XrQuaternionf *q, const XrVector3f *v
 
 static int wrist_pose(const struct halo_xr_submit *submit, XrPosef *pose)
 {
-	/* the layer's axes in the grip's: x = -Y, y = +Z, z = -X, so the
-	layer's right and down, as it is read, are the grip's -Y and -Z */
-	static const XrQuaternionf layer_in_grip = { 0.5f, -0.5f, -0.5f, 0.5f };
-	const XrVector3f offset = { -WRIST_ABOVE_HAND, -WRIST_DOWN_HANDLE - submit->wrist_right,
-		WRIST_BEHIND_PALM - submit->wrist_down };
+	/* the layer's axes in the left grip's: x = -Y, y = +Z, z = -X, so the
+	layer's right and down, as it is read, are the grip's -Y and -Z; in the
+	right grip's x = +Y, y = +Z, z = +X (the mirror image, read the right
+	way round: its x turned back) */
+	static const XrQuaternionf layer_in_left_grip = { 0.5f, -0.5f, -0.5f, 0.5f };
+	static const XrQuaternionf layer_in_right_grip = { 0.5f, 0.5f, 0.5f, 0.5f };
+	int right = submit->wrist_hand == HALO_XR_HAND_RIGHT;
+	const XrPosef *grip = &xr.grips[right ? HALO_XR_HAND_RIGHT : HALO_XR_HAND_LEFT];
+	const XrVector3f offset = { right ? WRIST_ABOVE_HAND : -WRIST_ABOVE_HAND,
+		-WRIST_DOWN_HANDLE - submit->wrist_right, WRIST_BEHIND_PALM - submit->wrist_down };
 	const XrVector3f layer_normal = { 0.0f, 0.0f, 1.0f };
-	/* clockwise as read: about the layer's normal, negatively */
-	float half_turn = -submit->wrist_turn * WRIST_PI / 360.0f;
+	/* clockwise as read: about the layer's normal, negatively (the mirror
+	image's the other way) */
+	float half_turn = (right ? 1.0f : -1.0f) * submit->wrist_turn * WRIST_PI / 360.0f;
 	XrQuaternionf turn = { 0.0f, 0.0f, sinf(half_turn), cosf(half_turn) };
 	XrQuaternionf unturned;
 	XrVector3f moved, normal, to_eyes;
 	float distance;
 
-	if (!xr.left_grip_valid)
+	if (!xr.grips_valid[right ? HALO_XR_HAND_RIGHT : HALO_XR_HAND_LEFT])
 		return 0;
-	quaternion_rotate_vector(&xr.left_grip.orientation, &offset, &moved);
-	pose->position.x = xr.left_grip.position.x + moved.x;
-	pose->position.y = xr.left_grip.position.y + moved.y;
-	pose->position.z = xr.left_grip.position.z + moved.z;
-	quaternion_multiply(&xr.left_grip.orientation, &layer_in_grip, &unturned);
+	quaternion_rotate_vector(&grip->orientation, &offset, &moved);
+	pose->position.x = grip->position.x + moved.x;
+	pose->position.y = grip->position.y + moved.y;
+	pose->position.z = grip->position.z + moved.z;
+	quaternion_multiply(&grip->orientation, right ? &layer_in_right_grip : &layer_in_left_grip, &unturned);
 	quaternion_multiply(&unturned, &turn, &pose->orientation);
 
 	quaternion_rotate_vector(&pose->orientation, &layer_normal, &normal);
@@ -1555,7 +1560,7 @@ int host_xr_begin_frame(struct halo_xr_frame *frame)
 		pose_from_xr(&frame->head, &head.pose);
 		xr.head = head.pose;
 	}
-	xr.left_grip_valid = 0;
+	xr.grips_valid[HALO_XR_HAND_LEFT] = xr.grips_valid[HALO_XR_HAND_RIGHT] = 0;
 	if (xr.focused)
 		hands_read(frame);
 	return 1;

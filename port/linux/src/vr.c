@@ -1588,6 +1588,7 @@ void halo_vr_present(unsigned int back_buffer_texture)
 		submit.wrist_turn = vr.motion_tracker_turn;
 		submit.wrist_right = vr.motion_tracker_right;
 		submit.wrist_down = vr.motion_tracker_down;
+		submit.wrist_hand = free_hand();
 		d3d8_clear_back_buffer_region(WRIST_REGION_LEFT, WRIST_REGION_TOP, WRIST_REGION_RIGHT, WRIST_REGION_BOTTOM);
 	}
 	/* the crosshair, drawn apart (halo_vr_capture_crosshair), to where the
