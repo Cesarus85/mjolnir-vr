@@ -20,6 +20,7 @@ of the game.
 ## Contents
 
 - [What you get](#what-you-get)
+- [What you can play](#what-you-can-play)
 - [What you need](#what-you-need)
 - [Install on Meta Quest 3 / 3S](#install-on-meta-quest-3--3s)
 - [Install on Steam Frame](#install-on-steam-frame)
@@ -41,9 +42,25 @@ of the game.
 - **Comfort**: snap or smooth turning in fine steps, comfort vignettes,
   left-handed mode, buttons remapped freely, graphics presets, refresh
   rate and resolution, all in the in-game VR options (**Y**).
-- **Multiplayer**: the PC version's menus and server browser, join codes,
-  password lobbies, co-op campaign and bots, up to 128 players;
-  cross-play with the PC and phone builds of
+- **The PC version's menus**, clicked with a laser pointer, and an
+  on-screen keyboard for names, codes and passwords.
+
+## What you can play
+
+- **The whole campaign**: all ten missions, on every difficulty, saved as
+  you go.
+- **Co-op campaign** with friends, online or on your local network, with
+  settings for friendly fire and extra enemies per player.
+- **LAN multiplayer** (system link) with everyone on your network.
+- **Online multiplayer**, no server of your own needed: host a game and
+  share its join code, find public games in the server browser, or protect
+  a lobby with a password. Up to 128 players.
+- **Bots** to fill a game, on foot, in vehicles and at turrets; they make
+  room when a person joins.
+- **All 13 multiplayer maps** and the Xbox game's game types: Slayer,
+  Capture the Flag, King of the Hill, Oddball and Race.
+- **Cross-play**: VR players on the Quest and the Steam Frame, together with
+  players of the PC and phone builds of
   [OpenCE](https://github.com/OpenCommunityEdition/OpenCE).
 
 ## What you need
