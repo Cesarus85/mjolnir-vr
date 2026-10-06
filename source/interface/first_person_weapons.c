@@ -1740,6 +1740,40 @@ static void first_person_weapon_vr_arms(
 		pole.k = -global_up3d->k;
 		vr_vector_scale_add(&pole, &left, outward * 0.6f);
 		vr_vector_scale_add(&pole, &forward, -0.3f);
+		/* and as the hand rolls: an elbow lifted out to the side rolls the
+		controller's top in, an elbow tucked in rolls it out. Its underside
+		(away from the thumb) leads the elbow: the right hand's the weapon's,
+		the free left hand's its controller's (the hand on the foregrip
+		keeps the default) */
+		{
+			real_vector3d below;
+			boolean rolls = FALSE;
+
+			if (side)
+			{
+				below.i = -weapon_camera->up.i;
+				below.j = -weapon_camera->up.j;
+				below.k = -weapon_camera->up.k;
+				rolls = TRUE;
+			}
+			else if (left_free)
+			{
+				below.i = -hand_up[0];
+				below.j = -hand_up[1];
+				below.k = -hand_up[2];
+				rolls = TRUE;
+			}
+			if (rolls && normalize3d(&pole) > 0.f)
+			{
+				vr_vector_scale_add(&pole, &below, 1.5f);
+				if (normalize3d(&pole) <= 0.f)
+				{
+					pole.i = -global_up3d->i;
+					pole.j = -global_up3d->j;
+					pole.k = -global_up3d->k;
+				}
+			}
+		}
 		bones[_vr_arm_upper] = vr_arm_nodes.upper[side];
 		bones[_vr_arm_fore] = vr_arm_nodes.fore[side];
 		bones[_vr_arm_hand] = vr_arm_nodes.wrist[side];
