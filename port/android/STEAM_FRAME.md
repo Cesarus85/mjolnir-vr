@@ -29,9 +29,14 @@ the release job of `.github/workflows/build.yml`) and runs its
   shortcut replaced;
 - the maps folder out of the disc image (`steam_frame_xiso.py`, the app's
   `XisoExtractor.java` in Python), unless `maps/ui.map` is there;
-- the Steam shortcut (`shortcuts.vdf` as below, with `OpenVR` set, and the
-  library pictures), unless it is there: Steam is closed for that, as it
-  writes its shortcuts back when it quits.
+- the Steam shortcut, unless it is there: added by Steam itself
+  (`steam://addnonsteamgame`, as SteamOS's "Add to Steam" does) from
+  `Ringfall Mjolnir VR.desktop` beside the game, then the library pictures
+  under the id Steam gave it. Steam is not closed: on the Frame, Desktop
+  Mode runs inside Gaming Mode's session, and closing Steam ends it (and the
+  installer with it). An old "Halo VR" shortcut is left for the player to
+  remove (Steam would write it back);
+- what it did in `install.log` beside the game.
 
 `HALO_VR_UNATTENDED=1` (and `HALO_VR_IMAGE=<image>`) runs it without
 dialogs, for testing over adb; it leaves Steam and its shortcuts alone.

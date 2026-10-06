@@ -13,9 +13,12 @@
 #   original Xbox game (.iso or .xiso) found in Downloads, Documents, the
 #   Desktop or on a memory card, or chosen, unless it is there already;
 # - the game in the Steam library, with its pictures, unless it is there
-#   already (the shortcut of the builds before the name replaced): Steam is
-#   closed for that (it keeps its shortcuts in memory and writes them back
-#   when it quits), and started again in Gaming Mode.
+#   already: added by Steam itself (steam://addnonsteamgame, as SteamOS's
+#   "Add to Steam" does), from a desktop file beside the game. Steam is not
+#   closed: it keeps its shortcuts in memory and writes them back, and on the
+#   Steam Frame Desktop Mode runs inside Gaming Mode's session, which ends
+#   with Steam. The shortcut of the builds before the name ("Halo VR") is
+#   left for the player to remove (Steam would write it back).
 # RINGFALL_UNATTENDED=1 answers every question with its default and prints
 # instead of showing dialogs (RINGFALL_IMAGE: the disc image to use), for
 # testing over adb; it never closes Steam.
@@ -29,10 +32,11 @@ NAME="Ringfall: Mjolnir VR"
 APK_NAME="RingfallMjolnirVR.apk"
 LAUNCHER="ringfall-mjolnir-vr.sh"
 EXE="\"$GAME_DIR/$LAUNCHER\""
+# (the desktop file Steam adds the game from)
+NAME_FILE="Ringfall Mjolnir VR"
 # the builds before the name: their folder and Steam shortcut
 OLD_DIR="$HOME/Documents/HaloCE"
 OLD_NAME="Halo VR"
-OLD_EXE="\"$OLD_DIR/halo-vr.sh\""
 
 # what the installer did, for looking into problems: written to /tmp while
 # it runs, then kept beside the game as install.log
@@ -115,41 +119,36 @@ extract_maps()
     rm -f "$log"
 }
 
-# the shortcut's id as Steam makes it for a non-Steam game: its pictures in
-# config/grid are named after it
+# the Steam users' shortcut files (userdata/0 is no user)
+shortcut_files()
+{
+    local config
+    for config in "$STEAM_DIR"/userdata/*/config; do
+        case "$config" in */userdata/0/*) continue ;; esac
+        [ -f "$config/shortcuts.vdf" ] && echo "$config/shortcuts.vdf"
+    done
+}
+
+# whether a Steam user's library holds the launcher given
+have_shortcut_to()
+{
+    local file
+    while read -r file; do
+        grep -qaF "$1" "$file" && return 0
+    done < <(shortcut_files)
+    return 1
+}
+
+have_shortcut() { have_shortcut_to "$GAME_DIR/$LAUNCHER"; }
+
+# the id Steam gave the shortcut whose Exe is $2, in shortcuts.vdf $1 (Steam
+# picks it; its library pictures in config/grid are named after it)
 shortcut_id()
 {
-    python3 -c 'import sys, zlib; print(zlib.crc32((sys.argv[1] + sys.argv[2]).encode()) | 0x80000000)' "$1" "$2"
-}
+    python3 - "$1" "$2" <<'PYTHON'
+import struct, sys
 
-# whether every Steam user's shortcuts.vdf already holds the game
-have_shortcut()
-{
-    local found=1 config
-    for config in "$STEAM_DIR"/userdata/*/config; do
-        [ -d "$config" ] || continue
-        case "$config" in */userdata/0/*) continue ;; esac
-        grep -qaF "$GAME_DIR/$LAUNCHER" "$config/shortcuts.vdf" 2>/dev/null || return 1
-        found=0
-    done
-    return $found
-}
-
-# the game added to every Steam user's shortcuts.vdf (Steam closed), as a VR
-# title, with its pictures; the builds' before the name gone
-add_shortcut()
-{
-    local id old_id config
-    id="$(shortcut_id "$EXE" "$NAME")"
-    old_id="$(shortcut_id "$OLD_EXE" "$OLD_NAME")"
-    for config in "$STEAM_DIR"/userdata/*/config; do
-        [ -d "$config" ] || continue
-        case "$config" in */userdata/0/*) continue ;; esac
-        python3 - "$config/shortcuts.vdf" "$id" "$NAME" "$EXE" "\"$GAME_DIR/\"" "$OLD_EXE" <<'PYTHON' || return 1
-import os, struct, sys
-
-path, appid, name, exe, start, old_exe = (sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5],
-    sys.argv[6])
+path, exe = sys.argv[1], sys.argv[2].encode()
 
 # Steam's binary VDF: 0x00 a map, 0x01 a string, 0x02 an int32, 0x08 a map's end
 def read_map(data, at):
@@ -158,7 +157,7 @@ def read_map(data, at):
         kind = data[at]; at += 1
         if kind == 0x08:
             return items, at
-        end = data.index(b"\0", at); key = data[at:end]; at = end + 1
+        end = data.index(b"\0", at); key = data[at:end].lower(); at = end + 1
         if kind == 0x00:
             value, at = read_map(data, at)
         elif kind == 0x01:
@@ -167,62 +166,45 @@ def read_map(data, at):
             value = struct.unpack_from("<I", data, at)[0]; at += 4
         else:
             raise ValueError("unknown VDF type %d" % kind)
-        items.append((kind, key, value))
+        items.append((key, value))
 
-def write_map(items):
-    out = b""
-    for kind, key, value in items:
-        out += bytes([kind]) + key + b"\0"
-        if kind == 0x00:
-            out += write_map(value)
-        elif kind == 0x01:
-            out += value + b"\0"
-        else:
-            out += struct.pack("<I", value)
-    return out + b"\x08"
-
-shortcuts = []
-if os.path.exists(path):
-    with open(path, "rb") as file:
-        data = file.read()
-    if data:
-        top, _ = read_map(data, 0)
-        for kind, key, value in top:
-            if key.lower() == b"shortcuts" and kind == 0x00:
-                shortcuts = [entry for entry in value if entry[0] == 0x00]
-# (an older entry of the game's replaced, and the builds' before the name)
-shortcuts = [entry for entry in shortcuts
-    if not any(k.lower() == b"exe" and v in (exe.encode(), old_exe.encode()) for _, k, v in entry[2])]
-
-def text(key, value):
-    return (0x01, key.encode(), value.encode())
-
-def number(key, value):
-    return (0x02, key.encode(), value)
-
-entry = [
-    number("appid", appid), text("AppName", name), text("Exe", exe), text("StartDir", start),
-    text("icon", ""), text("ShortcutPath", ""), text("LaunchOptions", ""), number("IsHidden", 0),
-    number("AllowDesktopConfig", 1), number("AllowOverlay", 1), number("OpenVR", 1), number("Devkit", 0),
-    text("DevkitGameID", ""), number("DevkitOverrideAppID", 0), number("LastPlayTime", 0),
-    text("FlatpakAppID", ""), text("sortas", ""), (0x00, b"tags", []),
-]
-shortcuts.append((0x00, b"", entry))
-shortcuts = [(0x00, str(index).encode(), value) for index, (_, _, value) in enumerate(shortcuts)]
-data = write_map([(0x00, b"shortcuts", shortcuts)])
-with open(path + ".tmp", "wb") as file:
-    file.write(data)
-os.replace(path + ".tmp", path)
+with open(path, "rb") as file:
+    top, _ = read_map(file.read(), 0)
+for key, shortcuts in top:
+    if key == b"shortcuts":
+        for _, entry in shortcuts:
+            fields = dict(entry)
+            if fields.get(b"exe") == exe and b"appid" in fields:
+                print(fields[b"appid"])
+                sys.exit(0)
+sys.exit(1)
 PYTHON
-        rm -f "$config/grid/${old_id}.png" "$config/grid/${old_id}p.png" "$config/grid/${old_id}_hero.png" \
-            "$config/grid/${old_id}_logo.png"
-        log "shortcut $id written to $config/shortcuts.vdf"
-        mkdir -p "$config/grid"
-        cp "$BUNDLE/grid/library.png" "$config/grid/${id}.png"
-        cp "$BUNDLE/grid/libraryp.png" "$config/grid/${id}p.png"
-        cp "$BUNDLE/grid/library_hero.png" "$config/grid/${id}_hero.png"
-        cp "$BUNDLE/grid/library_logo.png" "$config/grid/${id}_logo.png"
-    done
+}
+
+# the game added to the library of the Steam user logged in, by Steam (it
+# must run), from a desktop file beside the game; then its pictures
+add_shortcut()
+{
+    local desktop="$GAME_DIR/$NAME_FILE.desktop" url file id
+    printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nPath=%s\nIcon=steam\nTerminal=false\n' \
+        "$NAME" "$GAME_DIR/$LAUNCHER" "$GAME_DIR" > "$desktop" && chmod 755 "$desktop" || return 1
+    url="steam://addnonsteamgame/$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$desktop")"
+    log "asking Steam: $url"
+    # (Steam's own "Add to Steam" touches this first: steamos-add-to-steam)
+    touch /tmp/addnonsteamgamefile
+    steam "$url" >/dev/null 2>&1 &
+    for _ in $(seq 30); do have_shortcut && break; sleep 1; done
+    have_shortcut || return 1
+    while read -r file; do
+        id="$(shortcut_id "$file" "$EXE")" || continue
+        log "shortcut $id in $file"
+        mkdir -p "$(dirname "$file")/grid"
+        cp "$BUNDLE/grid/library.png" "$(dirname "$file")/grid/${id}.png"
+        cp "$BUNDLE/grid/libraryp.png" "$(dirname "$file")/grid/${id}p.png"
+        cp "$BUNDLE/grid/library_hero.png" "$(dirname "$file")/grid/${id}_hero.png"
+        cp "$BUNDLE/grid/library_logo.png" "$(dirname "$file")/grid/${id}_logo.png"
+    done < <(shortcut_files)
+    return 0
 }
 
 # --- the game
@@ -283,36 +265,24 @@ fi
 
 # --- Steam
 
-steam_closed=0
 if have_shortcut; then
     log "the Steam shortcut is there"
+elif unattended; then
+    echo "info: the Steam shortcut is missing (not added unattended)"
+elif ! steam_running; then
+    info "Steam is not running, so $NAME could not be added to your library.\n\nStart Steam and run the installer again."
 else
-    if unattended; then
-        echo "info: the Steam shortcut is missing (not added unattended)"
-    else
-        info "$NAME is now added to your Steam library. Steam closes for a moment for that."
-        if steam_running; then
-            log "closing Steam"
-            steam -shutdown >/dev/null 2>&1 &
-            for _ in $(seq 90); do steam_running || break; sleep 1; done
-            steam_running && fail "Steam did not close. Close it (Steam menu > Exit) and run the installer again."
-            # (its last writes, after its processes end)
-            sleep 2
-        fi
-        log "Steam closed"
-        steam_closed=1
-        add_shortcut || fail "Could not add $NAME to the Steam library."
-        have_shortcut || fail "Could not add $NAME to the Steam library (its shortcut is missing after writing it)."
-    fi
+    add_shortcut || fail "Steam did not add $NAME to your library. Run the installer again; if it happens again, add\n$GAME_DIR/$NAME_FILE.desktop\nwith Steam's \"Add a Non-Steam Game\"."
 fi
 
 if unattended; then
     echo "info: installed in $GAME_DIR"
     exit 0
 fi
-if ask "$NAME is installed.${image_note:-}\n\nSwitch to Gaming Mode now? Start $NAME from your library there." yes; then
+if have_shortcut_to "$OLD_DIR/halo-vr.sh"; then
+    info "The library still shows the old \"$OLD_NAME\" from before the game's new name. It no longer starts: remove it in Steam (its gear or Manage > Remove non-Steam game)."
+fi
+if ask "$NAME is installed.${image_note:-}\n\nSwitch to Gaming Mode now? Start $NAME from your library there (its pictures may show once Steam starts again)." yes; then
     steamos-session-select gamescope >/dev/null 2>&1 ||
         info "Switch to Gaming Mode yourself (the \"Return to Gaming Mode\" icon or the power menu)."
-elif [ "$steam_closed" = 1 ]; then
-    setsid steam >/dev/null 2>&1 < /dev/null &
 fi
