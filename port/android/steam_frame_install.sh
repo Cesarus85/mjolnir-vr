@@ -34,6 +34,27 @@ OLD_DIR="$HOME/Documents/HaloCE"
 OLD_NAME="Halo VR"
 OLD_EXE="\"$OLD_DIR/halo-vr.sh\""
 
+# what the installer did, for looking into problems: written to /tmp while
+# it runs, then kept beside the game as install.log
+LOG="/tmp/ringfall-mjolnir-vr-install.log"
+: > "$LOG"
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+keep_log() { [ -d "$GAME_DIR" ] && cp -f "$LOG" "$GAME_DIR/install.log" 2>/dev/null; }
+trap keep_log EXIT
+log "installer from $BUNDLE"
+
+# whether Steam runs: its pid file (~/.steam/steam.pid), or its client's
+# process (ubuntu12_32/steam: the process is not always named "steam")
+steam_running()
+{
+    local pid
+    pid="$(cat "$HOME/.steam/steam.pid" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    pgrep -f 'ubuntu12_32/steam( |$)' >/dev/null || pgrep -x steam >/dev/null
+}
+
 unattended() { [ "${RINGFALL_UNATTENDED:-0}" = 1 ] || ! command -v zenity >/dev/null; }
 
 info()
@@ -43,6 +64,7 @@ info()
 
 fail()
 {
+    log "error: $1"
     if unattended; then printf "error: %b\n" "$1" >&2; else zenity --error --title="$TITLE" --width=460 --text="$1"; fi
     exit 1
 }
@@ -194,6 +216,7 @@ os.replace(path + ".tmp", path)
 PYTHON
         rm -f "$config/grid/${old_id}.png" "$config/grid/${old_id}p.png" "$config/grid/${old_id}_hero.png" \
             "$config/grid/${old_id}_logo.png"
+        log "shortcut $id written to $config/shortcuts.vdf"
         mkdir -p "$config/grid"
         cp "$BUNDLE/grid/library.png" "$config/grid/${id}.png"
         cp "$BUNDLE/grid/libraryp.png" "$config/grid/${id}p.png"
@@ -212,6 +235,7 @@ done
 # the builds before the name: their folder becomes the game's (settings,
 # saves and game data kept), without their APK and launcher
 if [ -d "$OLD_DIR" ] && [ ! -e "$GAME_DIR" ]; then
+    log "renaming $OLD_DIR to $GAME_DIR"
     mv "$OLD_DIR" "$GAME_DIR" || fail "Could not rename $OLD_DIR to $GAME_DIR."
     rm -f "$GAME_DIR/HaloVR.apk" "$GAME_DIR/halo-vr.sh"
 fi
@@ -251,6 +275,7 @@ if [ ! -f "$GAME_DIR/maps/ui.map" ]; then
         fi
         image="$(choose_image)" || fail "No disc image was chosen. Run the installer again once it is on the Frame (for example in Downloads)."
     fi
+    log "extracting $image"
     extract_maps "$image"
     chmod -R a+rwX "$GAME_DIR/maps"
     image_note="\n\nThe disc image itself is no longer needed:\n$image"
@@ -259,18 +284,25 @@ fi
 # --- Steam
 
 steam_closed=0
-if ! have_shortcut; then
+if have_shortcut; then
+    log "the Steam shortcut is there"
+else
     if unattended; then
         echo "info: the Steam shortcut is missing (not added unattended)"
     else
         info "$NAME is now added to your Steam library. Steam closes for a moment for that."
-        if pgrep -x steam >/dev/null; then
+        if steam_running; then
+            log "closing Steam"
             steam -shutdown >/dev/null 2>&1 &
-            for _ in $(seq 60); do pgrep -x steam >/dev/null || break; sleep 1; done
-            pgrep -x steam >/dev/null && fail "Steam did not close. Close it (Steam menu > Exit) and run the installer again."
+            for _ in $(seq 90); do steam_running || break; sleep 1; done
+            steam_running && fail "Steam did not close. Close it (Steam menu > Exit) and run the installer again."
+            # (its last writes, after its processes end)
+            sleep 2
         fi
+        log "Steam closed"
         steam_closed=1
         add_shortcut || fail "Could not add $NAME to the Steam library."
+        have_shortcut || fail "Could not add $NAME to the Steam library (its shortcut is missing after writing it)."
     fi
 fi
 
