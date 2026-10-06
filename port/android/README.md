@@ -43,7 +43,7 @@ ninja) and these items:
 ## Game data
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
-`.iso`) of any version of the game. The app extracts `maps/` from the disc
+`.iso`) made from your own copy of the game, any version. The app extracts `maps/` from the disc
 image. The app keeps the data in `/sdcard/Android/data/io.github.cesarus85.ringfall/files`.
 
 To install the data with the app:

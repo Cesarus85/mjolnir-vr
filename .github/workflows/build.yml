@@ -262,6 +262,8 @@ jobs:
           # the Steam Frame's installer (port/android/STEAM_FRAME.md): its
           # bundle with the release APK, and the desktop file that fetches it
           python3 tools/steam_frame_bundle.py artifacts/halo-android-release/app-release.apk release "$GH_REPO"
+          # the APK itself, for sideloading on the Quest (SideQuest, adb)
+          cp artifacts/halo-android-release/app-release.apk release/RingfallMjolnirVR.apk
           ls -l release
 
       - name: Publish
@@ -273,10 +275,18 @@ jobs:
         run: |
           tag="build-$GITHUB_RUN_NUMBER"
           subject="$(printf '%s' "${MESSAGE:-manual run}" | head -n 1)"
-          printf '%s\n\nCommit: %s\nBuild: %s\n\nThe release builds are for playing; the debug builds stop at the first failed assertion and log it.\n' \
-            "$subject" "$COMMIT_URL" "$RUN_URL" > notes.md
+          readme="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          {
+            printf '%s\n\n' "$subject"
+            printf '**Ringfall: Mjolnir VR** is an unofficial VR mod for Halo: Combat Evolved. It needs a disc image of your own, purchased Xbox copy of the game; no game files are included.\n\n'
+            printf '| Headset | Download | How to install |\n| --- | --- | --- |\n'
+            printf '| Meta Quest 3 / 3S | `RingfallMjolnirVR.apk` | [Install on Quest](%s#install-on-meta-quest-3--3s) |\n' "$readme"
+            printf '| Steam Frame | `Install-Ringfall-Mjolnir-VR.desktop` (open it in Desktop Mode) | [Install on Steam Frame](%s#install-on-steam-frame) |\n\n' "$readme"
+            printf 'The other files are for the built-in updater and the Steam Frame installer.\n\n'
+            printf 'Commit: %s\nBuild: %s\n' "$COMMIT_URL" "$RUN_URL"
+          } > notes.md
           gh release create "$tag" release/* --target "$GITHUB_SHA" --latest \
-            --title "Build $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7})" --notes-file notes.md
+            --title "Ringfall: Mjolnir VR, build $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7})" --notes-file notes.md
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Keep the last five

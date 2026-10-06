@@ -1,0 +1,38 @@
+name: Problem report
+description: Something does not work as it should
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please do **not** ask for, link to or attach game files or disc images; such issues are closed and deleted.
+  - type: dropdown
+    id: headset
+    attributes:
+      label: Headset
+      options:
+        - Meta Quest 3
+        - Meta Quest 3S
+        - Steam Frame
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build number
+      description: The release you installed, e.g. "build 180".
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Attach `debug.txt`. Quest: `Android/data/io.github.cesarus85.ringfall/files/debug.txt` (SideQuest's file manager). Steam Frame: `Documents/RingfallMjolnirVR/debug.txt`, and `logcat.txt` and `install.log` beside it.
