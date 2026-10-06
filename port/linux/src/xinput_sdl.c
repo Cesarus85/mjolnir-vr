@@ -851,6 +851,14 @@ Holding a Warthog's wheel (vr.c), the right trigger is the throttle and the
 left one the brake (backwards, once stopped): the left stick pushed up or
 down as far, unless it is pushed further.
 
+Left-handed (vr.handedness), vr.c hands the controllers over with the sides
+swapped where the hands' jobs are (halo_vr_controllers): the left trigger
+fires and the left grip strikes, the right ones hold and throw the grenade
+and grip the foregrip; and with vr.mirror_controls the sticks, bumpers and
+face buttons too (the right stick moves, X jumps, A reloads; on the Steam
+Frame the left D-pad takes A, B, X and Y). Here "right" and "left" are the
+sides so handed over.
+
 In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 #include "guest_host.h"
@@ -1038,12 +1046,15 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
 #ifdef HALO_ANDROID
-	/* VR: the heavy (left) motor in the left hand, the light one in the
-	right, as the game refreshes them every frame */
+	/* VR: the heavy (left) motor in the free hand, the light one in the
+	weapon's (left-handed, the other way round), as the game refreshes them
+	every frame */
 	if (port == 0 && halo_vr_active())
 	{
-		host_xr_haptic(HALO_XR_HAND_LEFT, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
-		host_xr_haptic(HALO_XR_HAND_RIGHT, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
+		int weapon = halo_vr_weapon_hand();
+
+		host_xr_haptic(HALO_XR_HAND_COUNT - 1 - weapon, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
+		host_xr_haptic(weapon, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
 	}
 #endif
 	count = sdl_gamepads(gamepads);

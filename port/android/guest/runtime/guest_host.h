@@ -135,6 +135,11 @@ into a layer's image, opaque */
 int host_xr_copy_layer_array(int layer, unsigned int texture, int array_layer);
 /* darkens the eye images from their edges, strength 0..1 (0: off) */
 void host_xr_set_vignette(float strength);
+/* the refresh rates the headset offers (Hz, at most maximum of them; 0 when
+it lets none be chosen), and the one it runs at (0: unknown); and asking
+for the highest offered at or below wanted (0: the highest) */
+int host_xr_refresh_rates(float *rates, int maximum, float *current);
+void host_xr_set_refresh_rate(float wanted);
 
 /* ---------- Android */
 

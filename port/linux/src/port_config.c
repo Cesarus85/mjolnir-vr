@@ -16,6 +16,7 @@ it exists, so that the player's edits and comments stay.
 
 #include <SDL3/SDL.h>
 #include <ctype.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,6 +165,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
+	{ "vr.graphics", _config_string, "\"high\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
+		"Which of the costlier effects are drawn: \"high\" all of them; \"medium\"\n"
+		"no object shadows, environment reflections or lens flares; \"low\" nor\n"
+		"specular light, bump maps, grass, the screen's fog, contrails, weather\n"
+		"or camouflage's second pass (a client in another's game keeps grass,\n"
+		"lens flares and fog); \"max\" all of them, the models lit for each\n"
+		"pixel and shadows at 512x512." },
 	{ "vr.positional_tracking", _config_boolean, "true", "HALO_VR_POSITIONAL", _environment_value, _platform_android,
 		"Moving your head moves the view (leaning, ducking); false only turns it.\n"
 		"The view recentres when play starts or resumes after a cinematic, and\n"
@@ -180,8 +188,19 @@ static const struct config_setting config_settings[] =
 		"Log the frame rate and where the frame time goes every five seconds\n"
 		"(adb logcat -s halo)." },
 	{ "vr.aim_with", _config_string, "\"controller\"", "HALO_VR_AIM_WITH", _environment_value, _platform_android,
-		"\"controller\": the weapon is in your right hand and aims where it points,\n"
-		"while you move and look with your head; \"head\": you aim where you look." },
+		"\"controller\": the weapon is in your hand (vr.handedness) and aims where\n"
+		"it points, while you move and look with your head; \"head\": you aim\n"
+		"where you look." },
+	{ "vr.handedness", _config_string, "\"right\"", "HALO_VR_HANDEDNESS", _environment_value, _platform_android,
+		"The hand that holds the weapon: \"right\", or \"left\", which mirrors the\n"
+		"weapon and the arms, throws grenades and grips the foregrip with the\n"
+		"right hand, and fires with the left trigger." },
+	{ "vr.mirror_controls", _config_boolean, "true", "HALO_VR_MIRROR_CONTROLS", _environment_value,
+		_platform_android,
+		"Left-handed, the sticks and buttons swap sides too: the right stick moves\n"
+		"and the left one turns, X jumps and A reloads (on the Steam Frame the\n"
+		"D-pad takes A, B, X and Y as their mirror image); false keeps them as\n"
+		"right-handed. The menus keep their buttons either way." },
 	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
@@ -196,7 +215,7 @@ static const struct config_setting config_settings[] =
 	{ "vr.weapon_down", _config_real, "0.14", "HALO_VR_WEAPON_DOWN", _environment_value, _platform_android,
 		"See weapon_forward." },
 	{ "vr.two_hand_reach", _config_real, "0.2", "HALO_VR_TWO_HAND_REACH", _environment_value, _platform_android,
-		"How near, in metres, the left hand must be to the weapon's foregrip for\n"
+		"How near, in metres, the free hand must be to the weapon's foregrip for\n"
 		"its grip button to take hold of it with both hands." },
 	{ "vr.body", _config_string, "\"arms\"", "HALO_VR_BODY", _environment_value, _platform_android,
 		"What of your body is drawn with the weapon: \"arms\", the arms and hands\n"
@@ -212,17 +231,17 @@ static const struct config_setting config_settings[] =
 		"false keeps the arm's shape as on the weapon, pointed at the shoulder." },
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
-		"melee attack (the right grip is too); 0 turns it off." },
+		"melee attack (the weapon hand's grip is too); 0 turns it off." },
 	{ "vr.grenade_throw_speed", _config_real, "1.5", "HALO_VR_GRENADE_THROW", _environment_value, _platform_android,
-		"A grenade is held while the left trigger is, and thrown as it lets go:\n"
-		"along the hand's throw, when the hand moved faster than this (metres per\n"
-		"second; full strength at 4), else as the game throws it. 0 turns the\n"
-		"hand's throw off." },
+		"A grenade is held while the free hand's trigger is, and thrown as it\n"
+		"lets go: along the hand's throw, when the hand moved faster than this\n"
+		"(metres per second; full strength at 4), else as the game throws it. 0\n"
+		"turns the hand's throw off." },
 	{ "vr.grenade_scale", _config_real, "0.55", "HALO_VR_GRENADE_SCALE", _environment_value, _platform_android,
-		"The size the grenade held in the left hand is drawn at (1 as in the game)." },
+		"The size the grenade held in the free hand is drawn at (1 as in the game)." },
 	{ "vr.grenade_right", _config_real, "0.055", "HALO_VR_GRENADE_RIGHT", _environment_value, _platform_android,
-		"Where the held grenade is drawn, in metres from the left controller's\n"
-		"grip: towards the palm (right),", },
+		"Where the held grenade is drawn, in metres from the free controller's\n"
+		"grip: towards the palm (the left hand's right),", },
 	{ "vr.grenade_forward", _config_real, "0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
 		"the grip's forward (through the fist, towards the index finger),", },
 	{ "vr.grenade_down", _config_real, "0.01", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
@@ -554,6 +573,10 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.mirror_first_person", _config_boolean, "false", "HALO_MIRROR_FIRST_PERSON", _environment_value,
+		_platform_android,
+		"Off the headset (flat), the first-person weapon drawn mirrored, as the\n"
+		"left hand's is in VR: a test aid for what reads mirrored there. Read once." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"
@@ -695,13 +718,24 @@ static char *config_read_file(const char *path, size_t *size)
 static int config_write_file(const char *path, const char *text)
 {
 #ifdef HALO_ANDROID
-	FILE *file = fopen(path, "wb");
+	/* written beside it and renamed over it: a file the app may not write
+	(one pushed by adb belongs to the shell) is replaced all the same, as the
+	folder is the app's, and a write cut short leaves the old file whole */
+	char temporary[1100];
+	FILE *file;
 	int written;
 
+	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
+	file = fopen(temporary, "wb");
 	if (!file)
 		return 0;
 	written = fwrite(text, 1, strlen(text), file) == strlen(text);
-	return fclose(file) == 0 && written;
+	written = fclose(file) == 0 && written;
+	if (written && rename(temporary, path) == 0)
+		return 1;
+	platform_log("settings: cannot replace %s (%s)", path, strerror(errno));
+	remove(temporary);
+	return 0;
 #else
 	return SDL_SaveFile(path, text, strlen(text));
 #endif

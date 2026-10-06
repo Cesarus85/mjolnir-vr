@@ -25,6 +25,8 @@ named where code is taken over.
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
 | Multiplayer | Up to date with OpenCE (network version 20): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
+| Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
+| Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
 | Arms and hands | Both arms by IK from shoulders that follow the torso, the elbow led by the hand's roll; fingers from trigger, grip and touch; `vr.body` arms / hands / off, `vr.fingers` (2026-10-06) |
 
 ## Next, in order
@@ -33,11 +35,106 @@ named where code is taken over.
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
-| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | |
+| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Left: buttons remapped, flashlight by tapping the head, finer turning and vignette choices |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
 | 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | |
+
+## Step 2, first part (done)
+
+Left-handed mode and graphics presets, after HaloCE-Quest-VR (CC0): its
+mirrored first-person model, its graphics switches.
+
+Left-handed (`vr.handedness = "left"`):
+- The weapon in the left hand: aim, shots, muzzle, laser, crosshair,
+  scope disc, turret aim. The first-person model is posed as the right
+  hand's in a mirror image of the room ("model space", `halo_vr.h`) and
+  mirrored back; a model whose node matrices mirror has its triangles'
+  winding turned over (`rasterizer_set_model_skinning`, `d3d8_gl.c`). The
+  arms reach to the other shoulders, the foregrip is gripped with the
+  right hand, the right hand's fingers follow its controller.
+- Grenades held and thrown with the right trigger and hand; melee by the
+  left grip (a swing of either hand, as before); the motion tracker on the
+  right wrist (`halo_xr_submit.wrist_hand`); the rumble's light motor in
+  the weapon hand.
+- The left trigger fires, the right one throws; at the Warthog's wheel the
+  left trigger accelerates, the right one brakes.
+- With `vr.mirror_controls` (default): the right stick moves, the left
+  turns and steers; their clicks, the bumpers and the face buttons change
+  sides (Quest: X jumps, Y light / held grenades, A action and reload, B
+  switch weapon; Steam Frame: the left D-pad does A, B, X, Y as their
+  mirror image, down jump, left light, right action, up switch weapon,
+  and A, B, X, Y do the D-pad's). The menus keep their buttons; the
+  laser pointer works from either hand as before.
+- Other machines see the shots leave the left hand (the network message
+  is unchanged: aim and muzzle from the camera).
+- The assault rifle's ammo counter and compass read the right way round
+  on the mirrored model (2026-10-06): their geometry stays mirrored, each
+  digit's bitmap is drawn turned over in u and the digits' order across
+  the display swapped (numeric shaders drawn mirrored,
+  `rasterizer_xbox_transparent_geometry.c`). Checked flat in the emulator
+  with `debug.mirror_first_person` (the first-person weapon mirrored off
+  the headset): 60, 48, 36 ... 06 read correctly. Steam Frame good
+  (2026-10-06).
+- Kept as they are (accepted 2026-10-06): the small static icons under the
+  counter (round and "x") stay mirror images (a texture atlas, not
+  numeric). The game's prompts still name the Xbox's buttons.
+- Settings kept: on Android `config.toml` is written beside itself and
+  renamed over (`port_config.c`), so one pushed by adb (the shell's, which
+  the app could not open for writing) no longer loses the VR options'
+  changes at a restart.
+- Headset tests 2026-10-06: Quest 3 and Steam Frame good (left hand,
+  controls mirrored and not, counter, presets, refresh rates, resolution,
+  settings kept over a restart).
+
+Graphics (`vr.graphics`, `port/linux/game/vr_graphics.c`), set each frame
+on the game's own switches:
+
+| Preset | Leaves out |
+| --- | --- |
+| `"high"` (default) | nothing: as before |
+| `"medium"` | object shadows, environment reflections, lens flares |
+| `"low"` | also specular light, bump maps, grass and other detail objects, the screen's fog layer, contrails, weather, camouflage's second pass |
+| `"max"` | nothing; models lit for each pixel, shadows at 512x512 |
+
+A client in another's game keeps grass, lens flares and the fog layer as
+the host's rules have them (`cheats.c`). Shadows, specular passes,
+reflections and detail objects are draws (CPU, which the Frame's GL
+driver is short of); bump maps, fog, camouflage and per-pixel lighting
+the GPU's fill.
+
+VR options (Y): two pages, PLAY (the comfort rows, "Weapon hand",
+"Mirrored controls") and MORE ("Graphics", "Refresh rate", "Resolution",
+the controller buttons page, Quit). The refresh rate steps through what
+the runtime offers and changes at once; on the Steam Frame the row shows
+SteamOS's rate. The resolution (`vr.resolution_scale`, 70-120%) takes a
+restart. The controller buttons page shows the layout as set.
+
+| Setting | Values |
+| --- | --- |
+| `vr.handedness` | `"right"` (default), `"left"` |
+| `vr.mirror_controls` | `true` (default): sticks and buttons mirrored when left-handed; `false`: as right-handed (triggers and grips still follow the hands) |
+| `vr.graphics` | `"low"`, `"medium"`, `"high"` (default), `"max"` |
+| `vr.refresh_rate` | Hz, as offered (Quest 3: 72, 80, 90, 120) |
+| `vr.resolution_scale` | 0.7 to 1.2, on restart |
+
+To try in the headset (Quest 3 and Steam Frame):
+1. Left-handed: aim, laser, crosshair, scope of sniper and rocket
+   launcher; weapon held right in the left hand, arms from the right
+   shoulders, nothing inside out (faces culled the wrong way would show
+   the inside of the gun or the glove).
+2. Two-handed grip with the right hand; grenades in the right hand (held
+   and thrown); melee by grip and by swing; motion tracker on the right
+   wrist.
+3. Buttons and sticks mirrored on the Touch and the Frame controllers
+   (every function reachable), then `Mirrored controls: Off`.
+4. Vehicles: wheel, throttle and brake, steering stick, a gunner's aim;
+   menus and the laser pointer; a network game (shots from the left hand
+   on the other machine).
+5. Graphics: each preset's look and smoothness (`vr.log_performance`),
+   in a bot game; Max on the Quest at 90 Hz; refresh rates 72/80/90/120
+   on the Quest; the Frame's row.
 
 ## Step 3a (done)
 

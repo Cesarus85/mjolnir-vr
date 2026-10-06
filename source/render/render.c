@@ -92,6 +92,9 @@ symbols in this file:
 #include "physics/collisions.h"
 #include "units/units.h"
 #include "halo_vr.h"
+
+/* port/linux/game/vr_graphics.c */
+void vr_graphics_update(void);
 #endif
 #include "main/main.h"
 #include "structures/structures.h"
@@ -948,6 +951,11 @@ void render_frame(
 
 	render.frame_index++;
 	render.time_delta_since_tick_sec = time_delta_since_tick_sec;
+#ifdef HALO_ANDROID
+	/* VR: the graphics preset's effects (port/linux/game/vr_graphics.c) */
+	if (halo_vr_active())
+		vr_graphics_update();
+#endif
 	memset(&parameters, 0, sizeof(parameters));
 	/* continuous between ticks (render_interpolation.c) */
 	parameters.game_time_sec = render_interpolation_game_time_sec(game_time_get());

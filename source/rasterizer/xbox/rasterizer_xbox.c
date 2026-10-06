@@ -1227,6 +1227,11 @@ void rasterizer_set_model_lighting(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* port/linux/src/d3d8_gl.c */
+void d3d8_set_mirrored_skinning(int mirrored);
+#endif
+
 void rasterizer_set_model_skinning(
 	struct render_skinning const *skinning)
 {
@@ -1263,6 +1268,21 @@ void rasterizer_set_model_skinning(
 		constants[2][2] = scale * matrix->up.k;
 		constants[2][3] = matrix->position.z;
 	}
+#ifdef HALO_ANDROID
+	/* port: node matrices that mirror (VR, the left hand's first-person
+	weapon: first_person_weapons.c) turn the triangles' winding over while
+	they are drawn (after HaloCE-Quest-VR, CC0); _rasterizer_model_end and
+	rasterizer_transparent_geometry_group_draw end it */
+	{
+		real_matrix4x3 const *m = &skinning->node_matrices[0];
+		real determinant =
+			m->forward.i * (m->left.j * m->up.k - m->left.k * m->up.j) -
+			m->forward.j * (m->left.i * m->up.k - m->left.k * m->up.i) +
+			m->forward.k * (m->left.i * m->up.j - m->left.j * m->up.i);
+
+		d3d8_set_mirrored_skinning(determinant < 0.0f);
+	}
+#endif
 	D3DDevice_SetVertexShaderConstant(
 		-36,
 		vsh_constants__nodematrices,

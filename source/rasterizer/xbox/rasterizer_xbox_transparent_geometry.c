@@ -970,7 +970,81 @@ real_vector4d *offset_vector4d(
 	return result;
 }
 
+#ifdef HALO_ANDROID
+/* port: a group's draw, its mirroring (rasterizer_set_model_skinning) put
+back after it to what it was: a group drawn in the middle of a model's
+(not queued) leaves the model's own */
+int d3d8_mirrored_skinning(void);
+void d3d8_set_mirrored_skinning(int mirrored);
+
+/* port: a numeric display drawn mirrored (rasterizer_set_model_skinning:
+the left hand's first-person weapon in VR; the assault rifle's ammo counter
+and compass) reads the right way round. Its geometry stays mirrored with the
+weapon (its vertices hang from the gun's nodes as well as the display's);
+instead each digit's quad shows its bitmap turned over in u
+(rasterizer_numeric_mirror_u), and as the quads' order across the display is
+turned over too, the quad of the n-th digit from the right shows the n-th
+from the left. The digits: as many as the counter's largest value needs,
+that value itself wrapping to 0 (the compass's whole turn). FALSE, the
+digit untouched, when not mirrored. Only for a first map in the model's own
+u and v (2d, not in screen space), which rasterizer_numeric_mirror_u turns. */
+static boolean rasterizer_numeric_mirrored_digit(
+	real value,
+	short counter_limit,
+	short frame_count,
+	short digit_index,
+	short *bitmap_sequence_index)
+{
+	short counter_value;
+	short digit_count;
+	short place;
+	long power;
+
+	if (!d3d8_mirrored_skinning() || frame_count < 2)
+		return FALSE;
+
+	counter_value = PIN(fast_ftol(floor(counter_limit*value + 0.5f)), 0, counter_limit);
+	digit_count = 1;
+	for (power = frame_count; power < counter_limit; power *= frame_count)
+		digit_count++;
+	place = digit_count - 1 - digit_index;
+	if (place < 0)
+		place = digit_index;
+	while (place-- > 0)
+		counter_value /= frame_count;
+	*bitmap_sequence_index = counter_value%frame_count;
+
+	return TRUE;
+}
+
+/* the first map's u turned over (1-u: each digit's quad spans its bitmap) */
+static void rasterizer_numeric_mirror_u(
+	real u_transform[4])
+{
+	u_transform[0] = -u_transform[0];
+	u_transform[1] = -u_transform[1];
+	u_transform[2] = -u_transform[2];
+	u_transform[3] = 1.0f - u_transform[3];
+}
+
+static void rasterizer_transparent_geometry_group_draw_unmirrored(
+	struct transparent_geometry_group *group,
+	boolean dirty);
+
 void rasterizer_transparent_geometry_group_draw(
+	struct transparent_geometry_group *group,
+	boolean dirty)
+{
+	int mirrored = d3d8_mirrored_skinning();
+
+	rasterizer_transparent_geometry_group_draw_unmirrored(group, dirty);
+	d3d8_set_mirrored_skinning(mirrored);
+}
+
+static void rasterizer_transparent_geometry_group_draw_unmirrored(
+#else
+void rasterizer_transparent_geometry_group_draw(
+#endif
 	struct transparent_geometry_group *group,
 	boolean dirty)
 {
@@ -1813,6 +1887,9 @@ void rasterizer_transparent_geometry_group_draw(
 							short map_index;
 							short stage_index;
 							long result;
+#ifdef HALO_ANDROID
+							boolean numeric_mirrored = FALSE;
+#endif
 
 							for (layer_index = 0;
 								layer_index < shader_transparent_generic->generic.extra_layers.count;
@@ -1872,6 +1949,18 @@ void rasterizer_transparent_geometry_group_draw(
 									counter_value /= frame_count;
 
 								bitmap_sequence_index = counter_value%frame_count;
+#ifdef HALO_ANDROID
+								numeric_mirrored =
+									shader_transparent_generic->generic.type==_shader_transparent_generic_type_2d_map &&
+									!TEST_FLAG(shader_transparent_generic->generic.flags,
+										_shader_transparent_flag_first_map_is_in_screenspace_bit) &&
+									rasterizer_numeric_mirrored_digit(
+										group->animation->values[function_index],
+										counter_limit,
+										frame_count,
+										group->shader_permutation_index,
+										&bitmap_sequence_index);
+#endif
 							}
 
 							if (shader_transparent_generic->generic.maps.count > 0)
@@ -2034,6 +2123,10 @@ void rasterizer_transparent_geometry_group_draw(
 									}
 							}
 
+#ifdef HALO_ANDROID
+							if (numeric_mirrored)
+								rasterizer_numeric_mirror_u(vsh_constants__texanim[0]);
+#endif
 							result = IDirect3DDevice8_SetVertexShaderConstant(
 								global_d3d_device,
 								VSH_CONSTANTS__TEXANIM_OFFSET,
@@ -2300,6 +2393,9 @@ void rasterizer_transparent_geometry_group_draw(
 							short layer_index;
 							short map_index;
 							long result;
+#ifdef HALO_ANDROID
+							boolean numeric_mirrored = FALSE;
+#endif
 
 							/* BUG (preserved for exact matching): January never advances layer_index, so the
 							 * loop redraws extra layer 0 for as long as the block is non-empty (the bytes push
@@ -2374,6 +2470,18 @@ void rasterizer_transparent_geometry_group_draw(
 										counter_value /= frame_count;
 
 									bitmap_sequence_index = counter_value%frame_count;
+#ifdef HALO_ANDROID
+									numeric_mirrored =
+										shader_transparent_chicago->chicago.type==_shader_transparent_chicago_type_2d_map &&
+										!TEST_FLAG(shader_transparent_chicago->chicago.flags,
+											_shader_transparent_flag_first_map_is_in_screenspace_bit) &&
+										rasterizer_numeric_mirrored_digit(
+											group->animation->values[function_index],
+											counter_limit,
+											frame_count,
+											group->shader_permutation_index,
+											&bitmap_sequence_index);
+#endif
 								}
 							}
 
@@ -2548,6 +2656,10 @@ void rasterizer_transparent_geometry_group_draw(
 								}
 							}
 
+#ifdef HALO_ANDROID
+							if (numeric_mirrored)
+								rasterizer_numeric_mirror_u(vsh_constants__texanim[0]);
+#endif
 							result = IDirect3DDevice8_SetVertexShaderConstant(
 								global_d3d_device,
 								VSH_CONSTANTS__TEXANIM_OFFSET,

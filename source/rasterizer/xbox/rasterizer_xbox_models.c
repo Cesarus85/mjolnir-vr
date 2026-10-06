@@ -596,9 +596,18 @@ void _rasterizer_models_end(
 	return;
 }
 
+#ifdef HALO_ANDROID
+/* port/linux/src/d3d8_gl.c: the model's mirroring (rasterizer_xbox.c) ends
+with it */
+void d3d8_set_mirrored_skinning(int mirrored);
+#endif
+
 void _rasterizer_model_end(
 	void)
 {
+#ifdef HALO_ANDROID
+	d3d8_set_mirrored_skinning(0);
+#endif
 	if (rasterizer_debug_options.draw_models)
 	{
 		match_assert(
