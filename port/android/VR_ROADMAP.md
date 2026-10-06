@@ -196,8 +196,6 @@ the left hand animated through reloads.
   not merged.
 - Transparent geometry groups: the Xbox's 384 a window overflow in games
   of 30 and more players.
-- The VR on-screen keyboard shows a password in the clear while it is
-  typed.
 
 ## Headset tests (2026-10-06, all three in `main`)
 
