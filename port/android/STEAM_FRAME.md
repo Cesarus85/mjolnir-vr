@@ -4,6 +4,35 @@ The same APK as for the Quest runs on the Steam Frame, in Lepton (SteamOS's
 Android, a Waydroid fork: Android 11, arm64), with SteamVR's OpenXR runtime.
 What differs is found at run time, not by a build of its own.
 
+## Installing it (players)
+
+On the Frame, in Desktop Mode (Steam menu > Power > Switch to Desktop):
+1. Put a disc image of Halo: Combat Evolved for the Xbox (`.iso` or
+   `.xiso`, any version) in Downloads (or Documents, the Desktop, a memory
+   card).
+2. Download `Install-Halo-VR.desktop` from the latest release and open it
+   (double-click; confirm running it).
+3. Answer the dialogs: the installer finds the disc image (or asks for it),
+   copies the game data out of it, adds "Halo VR" to the Steam library and
+   switches back to Gaming Mode. Start Halo VR from the library there.
+
+Opening the same file again updates the game (settings, saves and game data
+stay).
+
+The desktop file (`steam_frame_installer.desktop`) downloads the latest
+release's `halo-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
+the release job of `.github/workflows/build.yml`) and runs its
+`install.sh` (`steam_frame_install.sh`), with zenity dialogs:
+- `~/Documents/HaloCE`: the launcher (`halo-vr.sh`) and the release APK;
+- the maps folder out of the disc image (`steam_frame_xiso.py`, the app's
+  `XisoExtractor.java` in Python), unless `maps/ui.map` is there;
+- the Steam shortcut (`shortcuts.vdf` as below, with `OpenVR` set, and the
+  library pictures), unless it is there: Steam is closed for that, as it
+  writes its shortcuts back when it quits.
+
+`HALO_VR_UNATTENDED=1` (and `HALO_VR_IMAGE=<image>`) runs it without
+dialogs, for testing over adb; it leaves Steam and its shortcuts alone.
+
 ## The device
 
 - Steam Settings > System > Enable Developer Mode; then start "Lepton
@@ -75,9 +104,11 @@ beside Lepton's `<frame-ip>:5555`.
 
 Lepton uninstalls the app and empties its folders whenever it starts again.
 The game's data lives in the SteamOS user's Documents instead: when
-`/home/steamos/Documents/HaloCE` holds `maps/ui.map` and is writable, the
-launcher and the game take it as their data folder (config.toml, saves and
-debug.txt go there too). Once:
+`/home/steamos/Documents` can be written, the launcher makes
+`/home/steamos/Documents/HaloCE` and the launcher and the game take it as
+their data folder (config.toml, saves and debug.txt go there too), so a
+disc image imported in the app stays as well. The installer above fills it;
+by hand, once:
 
     adb -s <frame-ip>:5555 shell mkdir -p /home/steamos/Documents/HaloCE/maps
     adb -s <frame-ip>:5555 push assets/maps/. /home/steamos/Documents/HaloCE/maps/

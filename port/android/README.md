@@ -155,7 +155,15 @@ select "Yes":
 To install over the previous version, each build must have the same
 signature. GitHub Actions signs each build with the key in the
 `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets of the
-repository. If you installed a build that has a different signature, remove
+repository. A computer that builds for its own devices signs with the same
+key when `port/android/signing.properties` (not in the repository) names it:
+
+    storeFile=/path/to/halo-vr-release.jks
+    password=<the keystore's password>
+    keyAlias=halo
+
+Keep the keystore and its password safe: a lost key means every player must
+remove the app before the next version. If you installed a build that has a different signature, remove
 that build before you install a new build. Removing the app deletes its data
 folder: first make a copy of `maps/` and `save/`.
 

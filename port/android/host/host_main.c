@@ -273,9 +273,9 @@ static void *game_main(void *unused)
 		host_fatal("Android storage is unavailable: %s", SDL_GetError());
 	/* the Steam Frame: Lepton empties the app's own folders whenever it
 	starts again; the game's data lives in the SteamOS user's Documents
-	instead, when it is there (port/android/STEAM_FRAME.md; the same choice
-	as LauncherActivity's) */
-	if (directory_has_maps(SHARED_DATA_ROOT) && access(SHARED_DATA_ROOT, W_OK) == 0)
+	instead, whenever they can be written (port/android/STEAM_FRAME.md; the
+	same choice as LauncherActivity's, which makes the folder) */
+	if (access(SHARED_DATA_ROOT, W_OK) == 0)
 		external = SHARED_DATA_ROOT;
 	snprintf(data_root, sizeof(data_root), "%s", external);
 	snprintf(save_root, sizeof(save_root), "%s/save", external);
