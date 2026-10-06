@@ -33,7 +33,7 @@ named where code is taken over.
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
-| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | partly **built** (branch `feature/vr-lefthanded-graphics`): left-handed mode, graphics presets, refresh rate and resolution in the VR options; not yet tried in the headset |
+| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | partly **built** (branch `feature/vr-lefthanded-graphics`): left-handed mode, graphics presets, refresh rate and resolution in the VR options; Steam Frame good (2026-10-06), Quest 3 test pending |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
@@ -73,10 +73,11 @@ Left-handed (`vr.handedness = "left"`):
   the display swapped (numeric shaders drawn mirrored,
   `rasterizer_xbox_transparent_geometry.c`). Checked flat in the emulator
   with `debug.mirror_first_person` (the first-person weapon mirrored off
-  the headset): 60, 48, 36 ... 06 read correctly. Headset check pending.
-- Known: the small static icons under the counter (round and "x") are
-  still mirror images (a texture atlas, not numeric); the game's prompts
-  still name the Xbox's buttons.
+  the headset): 60, 48, 36 ... 06 read correctly. Steam Frame good
+  (2026-10-06).
+- Kept as they are (accepted 2026-10-06): the small static icons under the
+  counter (round and "x") stay mirror images (a texture atlas, not
+  numeric). The game's prompts still name the Xbox's buttons.
 
 Graphics (`vr.graphics`, `port/linux/game/vr_graphics.c`), set each frame
 on the game's own switches:
