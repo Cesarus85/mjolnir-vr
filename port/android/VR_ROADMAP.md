@@ -31,7 +31,7 @@ named where code is taken over.
 | # | Step | State |
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies; then measured in the headset | built (branch `frame/performance-2`) |
-| 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | built (branch `feature/vr-arms`) |
+| 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | tried on the Quest 3 (good, 2026-10-06); Steam Frame to try; branch `feature/vr-arms` |
 | 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
@@ -73,6 +73,21 @@ Y on the main or pause menu):
 | `vr.fingers` | `true` (default): fingers follow the controller; `false`: as the weapon's animation has them |
 | `vr.arm_ik` | `true` (default): the free arm bends at the elbow; `false`: rigid as before, should its skin tear |
 
+After the first Quest tries (2026-10-06):
+- The shoulders 13 cm behind the eyes and 20 cm below the neck: the open
+  end of the sleeve was in view. Looking hard down to the side one still
+  sees into the arm (the model ends at the shoulder): left as it is.
+- The elbow bends in the arm's plane (`vr_align_elbow`): it had turned in
+  with the elbow out to the side; the upper arm takes none of the hand's
+  roll.
+- The free arm is solved first and its hand turned after (as
+  HaloCE-Quest-VR does): turned first, its skin stretched like a rubber
+  band.
+- The elbow follows the hand's roll (lifted out, the controller rolls in):
+  before, it bent only towards a fixed direction.
+- Arm length, shoulder width, fingers, grenade grip, body modes, scope,
+  vehicles: fine.
+
 Not in it (3a.7): the glove fitted to each weapon's grip (gun anchor) and
 the left hand animated through reloads.
 
@@ -106,4 +121,5 @@ with `vr.log_performance = true`:
 - Quest: 90 Hz held as before in a bot game and in a large online game;
   nothing slower than the last build.
 
-Arms and hands (3a): the list in the section above.
+Arms and hands (3a): on the Steam Frame, as on the Quest (fingers on its
+controllers, every button still working).
