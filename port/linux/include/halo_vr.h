@@ -88,13 +88,14 @@ degrees on an axis (the other axis 0); nonzero if it has. The game counts
 it as looking around (player_control.c's action tests). */
 int halo_vr_look_delta(float *yaw, float *pitch);
 
-/* The weapon in the right hand (vr.aim_with = "controller"; each returns 0,
-and the game does as before, when the hand is not tracked):
+/* The weapon in the right hand, or the left one (vr.handedness; vr.aim_with
+= "controller"; each returns 0, and the game does as before, when the hand
+is not tracked):
 - the direction the player's weapon aims, where the controller points (the
   body and the view keep facing where the head looks);
 - where its shots start, as an offset from the unit's camera (world units);
 - the camera the first-person weapon model is posed from, so that it lies
-  in the hand;
+  in the hand (in model space, below);
 - the aiming laser's start and direction; */
 int halo_vr_aim_vector(short local_player_index, float vector[3]);
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
@@ -104,9 +105,18 @@ int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
 int halo_vr_weapon_origin(short local_player_index, float origin[3]);
 int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
+/* Model space: the first-person model (first_person_weapons.c) is always
+posed as the right hand's. Left-handed, it is posed in a mirror image of
+the room and drawn mirrored back (its triangles' winding turned over); the
+mirror: a point on it (world units) and its normal, or 0 when it is not
+mirrored. What first_person_weapons.c and vr.c exchange about the model
+is in model space: the weapon camera, the free hand, the foregrip, the
+fingers (0 the model's left hand, the free one), the barrel and the laser
+along it. */
+int halo_vr_first_person_mirror(short local_player_index, float point[3], float normal[3]);
 /* the laser for this frame, along the barrel (first_person_weapons.c: while
-an animation turns the weapon, as in a reload), and the laser at the ready,
-where the controller aims */
+an animation turns the weapon, as in a reload; model space), and the laser
+at the ready, where the controller aims (in the room) */
 void halo_vr_set_laser(short local_player_index, const float start[3], const float direction[3]);
 int halo_vr_ready_laser(short local_player_index, float start[3], float direction[3]);
 /* The arms (interface/first_person_weapons.c):
@@ -114,16 +124,16 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
   and the torso's flat heading (which follows the head beyond a few
   degrees, and the hands; the stick's turns turn it at once), from which
   the shoulders hang;
-- the left hand's pose;
-- the left hand on the weapon: given where the model's left hand holds it
+- the free hand's pose (the left one, left-handed the right; model space);
+- the free hand on the weapon: given where the model's left hand holds it
   (world units) and the line from its right hand to its left in the
-  weapon's forward, right and up, whether the left hand grips it; then the
+  weapon's forward, right and up, whether the free hand grips it; then the
   weapon aims along both hands; */
 int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3]);
-int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3]);
+int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
-/* - the fingers of a hand (0 the left, 1 the right), from the controller's trigger,
-  grip and touch: the thumb, index, middle finger and the last two, each
+/* - the fingers of a hand of the model (0 the left, the free hand; 1 the
+  right, the weapon's), from the controller's trigger, grip and touch: the thumb, index, middle finger and the last two, each
   curled 0 (straight) to 1; 0 when the hand is not tracked or vr.fingers
   is off, else HALO_VR_FINGERS_CURLED, and HALO_VR_FINGERS_TOUCH too when
   the controller tells where the fingers rest (else a finger off the
@@ -156,13 +166,14 @@ int halo_vr_melee(void);
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
 float halo_vr_melee_strength(void);
-/* The grenade (units.c): whether the left trigger holds it in the hand; and
+/* The grenade (units.c): whether the free hand's trigger holds it in the
+hand; and
 as it let go, whether the hand threw it: from where (world units), which
 way (the game's axes) and how hard (0..1 of the game's throw) */
 int halo_vr_grenade_held(short local_player_index);
 int halo_vr_grenade_throw(short local_player_index, float origin[3], float direction[3], float *strength);
-/* where the held grenade is drawn (render_objects.c): in the left palm, and
-at what size */
+/* where the held grenade is drawn (first_person_weapons.c): in the free
+hand's palm, and at what size */
 int halo_vr_grenade_in_hand(short local_player_index, float position[3], float forward[3], float up[3],
 	float *scale);
 /* The scope (render.c): zoomed in by magnification, the camera for the
@@ -193,9 +204,9 @@ void halo_vr_capture_names(void);
 void halo_vr_set_scope_raise(float metres);
 void halo_vr_capture_scope(float left, float top, float right, float bottom);
 /* where the weapon's gun node is as drawn, at the ready (world units;
-first_person_weapons.c, each frame): shots, the crosshair and the laser
-start there; and the direction its barrel points in the weapon camera's
-frame (forward, left, up), which the camera is turned to aim */
+first_person_weapons.c, each frame; model space): shots, the crosshair and
+the laser start there; and the direction its barrel points in the weapon
+camera's frame (forward, left, up), which the camera is turned to aim */
 void halo_vr_set_barrel(short local_player_index, const float world[3], const float direction[3]);
 /* how far, in world units, the weapon's aim runs before it hits something
 (render.c, each frame); the crosshair floats there */
@@ -211,7 +222,8 @@ void halo_vr_capture_crosshair(void);
 /* Vehicles (player_control.c, each tick): the seat the player sits in and
 its vehicle's heading (yaw, radians). Seated, the body turns with the
 vehicle; a driver who steers by facing (HALO_VR_SEAT_STEER) steers with the
-right stick, else the right controller aims (HALO_VR_SEAT_AIM). And each
+turning stick, else the weapon hand's controller aims (HALO_VR_SEAT_AIM).
+And each
 frame (render.c) the heading as drawn, between ticks. */
 enum
 {
@@ -266,7 +278,7 @@ coming (each returns 0 otherwise, and for this machine's own players, and
 the game does as before):
 - where the weapon aims, on foot;
 - where its shots start (world units), from the unit's camera;
-- whether the left hand holds the grenade;
+- whether the free hand holds the grenade;
 - the hand's throw, once, as the grenade goes (as halo_vr_grenade_throw);
 and this machine's own VR player's throw, to send (units.c). */
 int halo_vr_network_aim(long player_index, float vector[3]);

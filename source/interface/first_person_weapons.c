@@ -488,10 +488,11 @@ static boolean first_person_weapon_vr_pose_kept(
 		first_person_weapon_vr_pose_weapon[local_player_index]==first_person_weapon_get(local_player_index)->weapon_index;
 }
 
-/* VR: the grenade the player holds (the left trigger, units.c) hangs from
-the body, which the first-person view leaves out, and with it the grenade:
-drawn instead in the left hand, as it is this frame, with the hands (which
-are drawn over the world, and would hide it wherever they overlap) */
+/* VR: the grenade the player holds (the free hand's trigger, units.c)
+hangs from the body, which the first-person view leaves out, and with it
+the grenade: drawn instead in the free hand, as it is this frame, with the
+hands (which are drawn over the world, and would hide it wherever they
+overlap; in the room, not mirrored) */
 static void first_person_weapon_draw_held_grenade(
 	long unit_index,
 	struct render_lighting *lighting,
@@ -1217,16 +1218,90 @@ static void first_person_weapon_set_state(
 #ifdef HALO_ANDROID
 /* ---------- VR arms
 
-The first-person skeleton hangs from the camera at the right controller
-(halo_vr_weapon_camera), so the weapon and the right hand lie where they
-should; its arms, though, reach up to shoulders that float with the weapon.
-Here each arm's upper arm and forearm are turned (two-bone inverse
-kinematics, port/linux/game/vr_arms.c) to run from the player's shoulders,
-below the neck and square to the torso, to its wrist, the controller's roll
-shared along the forearm. The left wrist, unless the hand holds the
-weapon's foregrip, goes to the left controller, its fingers with it. */
+The first-person skeleton hangs from the camera at the weapon hand's
+controller (halo_vr_weapon_camera), so the weapon and the right hand lie
+where they should; its arms, though, reach up to shoulders that float with
+the weapon. Here each arm's upper arm and forearm are turned (two-bone
+inverse kinematics, port/linux/game/vr_arms.c) to run from the player's
+shoulders, below the neck and square to the torso, to its wrist, the
+controller's roll shared along the forearm. The left wrist, unless the hand
+holds the weapon's foregrip, goes to the free controller, its fingers with
+it.
+
+Left-handed (vr.handedness) all this is done in model space (halo_vr.h): a
+mirror image of the room, where the left controller holds the weapon as a
+right hand would; the body is mirrored into it, and the posed skeleton
+mirrored back (vr_mirror_pose), so that the weapon lies in the left hand,
+the model's left arm reaches to the right controller. */
 
 #define VR_METRES_PER_WORLD_UNIT 3.048f
+
+/* a point or a vector across the mirror (a point on it, its normal) */
+static void vr_mirror_point(
+	float const on[3],
+	float const normal[3],
+	float point[3])
+{
+	float along = (point[0] - on[0]) * normal[0] + (point[1] - on[1]) * normal[1] + (point[2] - on[2]) * normal[2];
+
+	point[0] -= 2.f * along * normal[0];
+	point[1] -= 2.f * along * normal[1];
+	point[2] -= 2.f * along * normal[2];
+}
+
+static void vr_mirror_vector(
+	float const normal[3],
+	float vector[3])
+{
+	float along = vector[0] * normal[0] + vector[1] * normal[1] + vector[2] * normal[2];
+
+	vector[0] -= 2.f * along * normal[0];
+	vector[1] -= 2.f * along * normal[1];
+	vector[2] -= 2.f * along * normal[2];
+}
+
+/* the posed skeleton out of model space: every node mirrored, its axes too
+(a left-handed frame: rasterizer_xbox.c turns its triangles' winding over).
+The ammo counter on the assault rifle reads mirrored with it. */
+static void vr_mirror_pose(
+	short local_player_index,
+	real_matrix4x3 *node_matrices,
+	short node_count)
+{
+	float on[3], normal[3];
+	short node_index;
+
+	if (!halo_vr_first_person_mirror(local_player_index, on, normal))
+		return;
+	for (node_index = 0; node_index < node_count; node_index++)
+	{
+		real_matrix4x3 *node = &node_matrices[node_index];
+		real_vector3d *axes[3];
+		float vector[3];
+		short axis;
+
+		vector[0] = node->position.x;
+		vector[1] = node->position.y;
+		vector[2] = node->position.z;
+		vr_mirror_point(on, normal, vector);
+		node->position.x = vector[0];
+		node->position.y = vector[1];
+		node->position.z = vector[2];
+		axes[0] = &node->forward;
+		axes[1] = &node->left;
+		axes[2] = &node->up;
+		for (axis = 0; axis < 3; axis++)
+		{
+			vector[0] = axes[axis]->i;
+			vector[1] = axes[axis]->j;
+			vector[2] = axes[axis]->k;
+			vr_mirror_vector(normal, vector);
+			axes[axis]->i = vector[0];
+			axes[axis]->j = vector[1];
+			axes[axis]->k = vector[2];
+		}
+	}
+}
 
 struct vr_arm_nodes
 {
@@ -1470,6 +1545,16 @@ static void vr_laser_follows_barrel(
 	{
 		return;
 	}
+	{
+		/* (the laser at the ready is the room's: into model space) */
+		float on[3], normal[3];
+
+		if (halo_vr_first_person_mirror(local_player_index, on, normal))
+		{
+			vr_mirror_point(on, normal, laser_start);
+			vr_mirror_vector(normal, laser_direction);
+		}
+	}
 	matrix4x3_from_point_and_vectors(&camera_matrix, &weapon_camera->position, &weapon_camera->forward,
 		&weapon_camera->up);
 	matrix4x3_multiply(&camera_matrix, &vr_arm_nodes.idle_pose[vr_arm_nodes.gun], &ready_gun);
@@ -1656,6 +1741,18 @@ static void first_person_weapon_vr_arms(
 	{
 		return;
 	}
+	{
+		/* (the body is the room's: into model space, where the shoulders
+		change sides) */
+		float on[3], normal[3];
+
+		if (halo_vr_first_person_mirror(local_player_index, on, normal))
+		{
+			vr_mirror_point(on, normal, head);
+			vr_mirror_point(on, normal, neck);
+			vr_mirror_vector(normal, body_forward);
+		}
+	}
 	/* (the shoulders hang from the neck, which the head turns about) */
 	eye.x = neck[0];
 	eye.y = neck[1];
@@ -1705,7 +1802,7 @@ static void first_person_weapon_vr_arms(
 		return;
 	if (!gripping && vr_arm_nodes.wrist[0] != NONE)
 	{
-		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
+		if (halo_vr_free_hand(local_player_index, hand_position, hand_forward, hand_up))
 		{
 			/* (rigid: the hand and its arm carried to the controller now;
 			bent, the arm is solved to it first, below, and the hand turned
@@ -1834,8 +1931,8 @@ static void first_person_weapon_build_node_matrices(
 	struct first_person_weapon *first_person_weapon= first_person_weapon_get(local_player_index);
 	struct render_camera const *camera= &render.camera;
 #ifdef HALO_ANDROID
-	/* VR: posed from the right controller, so the weapon lies in the hand
-	(port/linux/src/vr.c) */
+	/* VR: posed from the weapon hand's controller, so the weapon lies in the
+	hand (port/linux/src/vr.c) */
 	struct render_camera weapon_camera;
 	float weapon_position[3], weapon_forward[3], weapon_up[3];
 
@@ -2202,6 +2299,10 @@ static void first_person_weapon_build_node_matrices(
 				(short)animation_graph->nodes.count,
 				camera,
 				first_person_weapon->state);
+			/* (left-handed: out of model space; what the frame takes from
+			the pose after, markers, effects, is then the room's) */
+			vr_mirror_pose(local_player_index, first_person_weapon->node_matrices,
+				(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION));
 			halo_vr_timing_end(HALO_VR_TIMING_ARMS, timing);
 		}
 #endif

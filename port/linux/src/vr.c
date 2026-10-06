@@ -10,8 +10,9 @@ Frames of reference. The headset reports poses in its LOCAL space: metres,
 +x right, +y up, -z forward, the origin and heading where the user last
 recentred. The game's player stands in that space's place: its origin is
 the game's camera position, and its forward is the "body" yaw kept here.
-The right stick turns the body; the head turns on top of it, so the facing
-the game uses (halo_vr_aim) is the body's yaw plus the head's.
+The right stick (left-handed, mirrored: the left) turns the body; the head
+turns on top of it, so the facing the game uses (halo_vr_aim) is the body's
+yaw plus the head's.
 */
 
 #include "halo_vr.h"
@@ -187,13 +188,13 @@ static struct
 	int laser;
 	float weapon_offset[3];  /* forward, right, down, metres: the weapon model's camera from the hand */
 	float muzzle_distance;
-	/* the left hand on the weapon (halo_vr_two_hand) */
+	/* the free hand on the weapon (halo_vr_two_hand) */
 	int two_hand_gripping;
 	int two_hand_latched;    /* the grip is held (on the weapon or not) */
 	int two_hand_valid;
 	float two_hand_reach;    /* metres from the foregrip a closing grip takes the weapon */
-	/* the grenade in the left hand (grenade_update, vr.grenade_throw_speed):
-	the left trigger held, the hand's last positions (LOCAL), and the throw
+	/* the grenade in the free hand (grenade_update, vr.grenade_throw_speed):
+	its trigger held, the hand's last positions (LOCAL), and the throw
 	as it let go */
 	float grenade_throw_speed;
 	float grenade_scale;
@@ -221,7 +222,7 @@ static struct
 	unsigned long long melee_aim_until_us;
 	int melee_grip_down;
 	float melee_strength;    /* 0..1, the last attack's swing */
-	unsigned long long melee_jab_start_us; /* the right grip's attack: the weapon jabs */
+	unsigned long long melee_jab_start_us; /* the weapon hand's grip's attack: the weapon jabs */
 	/* the laser along the barrel, for the frame it was set in */
 	unsigned long frame_number;
 	unsigned long laser_frame;
@@ -245,6 +246,10 @@ static struct
 	int torso_valid;
 	unsigned long long torso_last_us;
 	float head_level_yaw;
+	/* the hands (vr.handedness): the weapon in the left one, and with
+	vr.mirror_controls the sticks and face buttons mirrored too */
+	int left_handed;
+	int mirror_controls;
 } vr;
 
 /* d3d8_gl.c */
@@ -298,6 +303,23 @@ static int name_pose(const float point[3], struct halo_xr_pose *pose, float *wid
 static int weapon_hand_tracked(short local_player_index);
 static void controller_axes(float forward[3], float up[3], float right[3]);
 static void hand_offset(float out[3]);
+
+/* the hand that holds the weapon, the free one (the grenade, the
+foregrip), and the one whose stick turns the body and steers */
+static int weapon_hand(void)
+{
+	return vr.left_handed ? HALO_XR_HAND_LEFT : HALO_XR_HAND_RIGHT;
+}
+
+static int free_hand(void)
+{
+	return vr.left_handed ? HALO_XR_HAND_RIGHT : HALO_XR_HAND_LEFT;
+}
+
+static int turn_hand(void)
+{
+	return vr.left_handed && vr.mirror_controls ? HALO_XR_HAND_LEFT : HALO_XR_HAND_RIGHT;
+}
 
 static void quaternion_rotate(const float q[4], const float v[3], float out[3])
 {
@@ -475,6 +497,21 @@ static void vr_read_live_settings(void)
 
 		vr.body_mode = !strcmp(body, "hands") ? HALO_VR_BODY_HANDS :
 			!strcmp(body, "off") ? HALO_VR_BODY_OFF : HALO_VR_BODY_ARMS;
+	}
+	{
+		int left_handed = !strcmp(config_string("vr.handedness"), "left");
+
+		if (left_handed != vr.left_handed)
+		{
+			/* (the hands change places: what the free hand held lets go) */
+			vr.two_hand_latched = vr.two_hand_gripping = 0;
+			vr.grenade_held = vr.grenade_thrown = 0;
+			vr.grenade_sample_count = 0;
+			vr.barrel_frame = 0;
+			platform_log("VR: the weapon in the %s hand", left_handed ? "left" : "right");
+		}
+		vr.left_handed = left_handed;
+		vr.mirror_controls = config_boolean("vr.mirror_controls");
 	}
 }
 
@@ -714,15 +751,16 @@ static void look_update(void)
 	vr.look_valid = 1;
 }
 
-/* The grenade in the left hand: while the left trigger is held the game
-keeps it in the hand (halo_vr_grenade_held); as the trigger lets go, the
-fastest the hand moved in its last moments is the throw (halo_vr_grenade_throw). */
+/* The grenade in the free hand (the left one, or left-handed the right):
+while its trigger is held the game keeps it in the hand
+(halo_vr_grenade_held); as the trigger lets go, the fastest the hand moved
+in its last moments is the throw (halo_vr_grenade_throw). */
 static void grenade_update(void)
 {
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	const struct halo_xr_hand *hand = &vr.frame.hands[free_hand()];
 	unsigned long long now = now_us();
 	int valid = hand->active && (hand->flags & HALO_XR_POSE_VALID);
-	/* (at a wheel the left trigger brakes: xinput_sdl.c) */
+	/* (at a wheel the free hand's trigger brakes: xinput_sdl.c) */
 	int held = valid && vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && !vr.wheel_hands &&
 		hand->trigger > (vr.grenade_held ? 0.2f : 0.3f);
 	int count = vr.grenade_sample_count;
@@ -796,7 +834,7 @@ static void grenade_update(void)
 				vr.grenade_strength = 0.25f;
 			if (vr.grenade_strength > 1.0f)
 				vr.grenade_strength = 1.0f;
-			host_xr_haptic(HALO_XR_HAND_LEFT, 0.6f, 0.06f);
+			host_xr_haptic(free_hand(), 0.6f, 0.06f);
 			platform_log("VR: grenade thrown at %.1f m/s", best_speed);
 		}
 		vr.grenade_sample_count = 0;
@@ -814,8 +852,8 @@ int halo_vr_grenade_in_hand(short local_player_index, float position[3], float f
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
 	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
-	float held[3], offset[3], direction[3];
+	const struct halo_xr_hand *hand = &vr.frame.hands[free_hand()];
+	float held[3], offset[3], direction[3], grip_offset[3];
 	int axis;
 
 	if (!vr.aim_with_controller || local_player_index != 0 || !halo_vr_stereo_frame() || !hand->active ||
@@ -823,13 +861,16 @@ int halo_vr_grenade_in_hand(short local_player_index, float position[3], float f
 	{
 		return 0;
 	}
-	/* the grip's +x faces out of the left palm; the drawn hand's knuckles
-	run along the aim's y, and its fingers along the aim's -z
-	(first_person_weapons.c, vr_left_hand_free) */
+	/* the grip's +x faces out of the left palm, into the right one; the
+	drawn hand's knuckles run along the aim's y, and its fingers along the
+	aim's -z (first_person_weapons.c, vr_left_hand_free) */
+	memcpy(grip_offset, vr.grenade_offset, sizeof(grip_offset));
+	if (free_hand() == HALO_XR_HAND_RIGHT)
+		grip_offset[0] = -grip_offset[0];
 	{
 		float knuckles[3], fingers[3];
 
-		quaternion_rotate(hand->grip.orientation, vr.grenade_offset, held);
+		quaternion_rotate(hand->grip.orientation, grip_offset, held);
 		quaternion_rotate(hand->aim.orientation, local_up, knuckles);
 		quaternion_rotate(hand->aim.orientation, local_forward, fingers);
 		for (axis = 0; axis < 3; axis++)
@@ -878,9 +919,10 @@ static void melee_update(void)
 
 	vr.hand_last_us = now;
 	{
-		/* the right grip's melee attack (xinput_sdl.c) aims the same way */
-		int grip_down = vr.frame.hands[HALO_XR_HAND_RIGHT].active &&
-			(vr.frame.hands[HALO_XR_HAND_RIGHT].buttons & HALO_XR_BUTTON_SQUEEZE);
+		/* the weapon hand's grip's melee attack (xinput_sdl.c) aims the
+		same way */
+		int grip_down = vr.frame.hands[weapon_hand()].active &&
+			(vr.frame.hands[weapon_hand()].buttons & HALO_XR_BUTTON_SQUEEZE);
 
 		if (grip_down && !vr.melee_grip_down)
 		{
@@ -907,7 +949,7 @@ static void melee_update(void)
 		if (vr.hand_last_valid[hand] && seconds > 0.0f && seconds < 0.1f && vr.melee_swing_speed > 0.0f &&
 			!vr.wheel_held[hand] &&
 			vr.last_overlay_mode != HALO_XR_OVERLAY_SCREEN && now >= vr.melee_ready_us &&
-			!(hand == HALO_XR_HAND_LEFT && (vr.grenade_held || now - vr.grenade_released_us < 500000)))
+			!(hand == free_hand() && (vr.grenade_held || now - vr.grenade_released_us < 500000)))
 		{
 			float velocity[3], forward_speed;
 			int axis;
@@ -963,7 +1005,7 @@ static void fingers_update(void)
 			target[0] = (state->buttons & HALO_XR_BUTTON_THUMB_TOUCH) ? 0.75f : 0.0f;
 		target[1] = fmaxf(state->trigger, (state->buttons & HALO_XR_BUTTON_INDEX_TOUCH) ? 0.22f : 0.0f);
 		target[2] = target[3] = state->squeeze;
-		if (hand == HALO_XR_HAND_LEFT && vr.grenade_held)
+		if (hand == free_hand() && vr.grenade_held)
 		{
 			for (finger = 0; finger < 4; finger++)
 				target[finger] = 0.8f;
@@ -1076,6 +1118,9 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 
 	if (!vr.active || !vr.fingers || local_player_index != 0 || hand < 0 || hand >= HALO_XR_HAND_COUNT)
 		return 0;
+	/* (the model's hands: left-handed, its left is the right controller's) */
+	if (vr.left_handed)
+		hand = HALO_XR_HAND_COUNT - 1 - hand;
 	state = &vr.frame.hands[hand];
 	if (!state->active || !(state->flags & HALO_XR_POSE_VALID))
 		return 0;
@@ -1095,7 +1140,7 @@ float halo_vr_melee_strength(void)
 
 static void turn_update(void)
 {
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+	const struct halo_xr_hand *hand = &vr.frame.hands[turn_hand()];
 	unsigned long long now = SDL_GetTicks();
 	float seconds = vr.last_frame_ms ? (float)(now - vr.last_frame_ms) * 0.001f : 0.0f;
 	float x = hand->active ? hand->thumbstick[0] : 0.0f;
@@ -1144,7 +1189,7 @@ grips near it takes hold of it, and the hands turn it about its column: both
 by the line between them, one about the wheel's middle. Where it is, the
 driver's hands as drawn hold it (halo_vr_set_wheel); its column runs from
 there back towards the driver, tipped up WHEEL_COLUMN_TILT. Held, its turn
-steers (halo_vr_aim); let go, the right stick does. */
+steers (halo_vr_aim); let go, the turning stick does. */
 #define WHEEL_REACH 0.35f                       /* metres from its middle */
 #define WHEEL_COLUMN_TILT (45.0f * PI / 180.0f) /* from the horizontal */
 
@@ -1404,8 +1449,9 @@ float halo_vr_gunner_camera_back(void)
 	return vr.gunner_camera_back / METRES_PER_WORLD_UNIT;
 }
 
-/* seated at a gun or a window, where the right controller aims it: at a
-gun's handles (vr.turret_handles), the barrel rises as the hand tips down */
+/* seated at a gun or a window, where the weapon hand's controller aims it:
+at a gun's handles (vr.turret_handles), the barrel rises as the hand tips
+down */
 static void seat_aim_direction(float direction[3])
 {
 	float up[3], right[3];
@@ -1416,7 +1462,8 @@ static void seat_aim_direction(float direction[3])
 }
 
 /* seated, where the aim runs from (world units) and along: from the eyes,
-where the right controller points, or driving, the way the stick steers */
+where the weapon hand's controller points, or driving, the way the stick
+steers */
 static int seat_aim(float start[3], float direction[3])
 {
 	int axis;
@@ -1831,9 +1878,10 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 	head_angles(&head_yaw, &head_pitch);
 	if (vr.seat_mode == HALO_VR_SEAT_STEER)
 	{
-		/* driving: the right stick steers off the vehicle's heading, and
-		aims above or below the horizon (the body turns with the vehicle) */
-		const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+		/* driving: the right stick (mirrored, the left) steers off the
+		vehicle's heading, and aims above or below the horizon (the body
+		turns with the vehicle) */
+		const struct halo_xr_hand *hand = &vr.frame.hands[turn_hand()];
 		float stick[2];
 		unsigned long long now = now_us();
 		float seconds = vr.steer_last_us ? (float)(now - vr.steer_last_us) * 1e-6f : 0.0f;
@@ -1872,7 +1920,7 @@ int halo_vr_aim(short local_player_index, float current_yaw, float current_pitch
 	}
 	else if (vr.seat_mode == HALO_VR_SEAT_AIM && weapon_hand_tracked(local_player_index))
 	{
-		/* a gunner or passenger: where the right controller points */
+		/* a gunner or passenger: where the weapon hand's controller points */
 		float forward[3];
 
 		seat_aim_direction(forward);
@@ -1949,40 +1997,123 @@ static void rotate_between(const float from[3], const float to[3], float v[3])
 		v[index] = v[index] * cosine + turned[index] * sine + axis[index] * along * (1.0f - cosine);
 }
 
-/* ---------- the weapon in the right hand (vr.aim_with = "controller") */
+/* ---------- the weapon in the hand (vr.aim_with = "controller"): the right
+one, or left-handed (vr.handedness) the left */
 
 static int weapon_hand_tracked(short local_player_index)
 {
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+	const struct halo_xr_hand *hand = &vr.frame.hands[weapon_hand()];
 
 	return vr.aim_with_controller && local_player_index == 0 && halo_vr_stereo_frame() &&
 		hand->active && (hand->flags & HALO_XR_POSE_VALID);
 }
 
-/* the weapon's axes in the game's: where the right controller points */
+/* Left-handed, the first-person model (first_person_weapons.c) is posed as
+the right hand's is, in a mirror image of the room, "model space", and
+drawn mirrored back across the same mirror (as HaloCE-Quest-VR mirrors the
+whole model across the weapon, CC0): its right hand takes the left
+controller, its left hand the right one, its arms the other shoulders. The
+mirror is the upright plane through the weapon hand's grip, square to
+LOCAL's x: any upright one would do (the model, posed about the vertical
+the same, mirrors back the same), and this one leaves the weapon hand
+where it is. Right-handed, model space is the room. */
+static void model_local_point(float point[3])
+{
+	if (vr.left_handed)
+		point[0] = 2.0f * vr.frame.hands[weapon_hand()].grip.position[0] - point[0];
+}
+
+static void model_local_direction(float direction[3])
+{
+	if (vr.left_handed)
+		direction[0] = -direction[0];
+}
+
+/* the mirror in the game's world: a point on it (world units) and its
+normal, LOCAL's x */
+static void mirror_plane(float point[3], float normal[3])
+{
+	static const float local_x[3] = { 1.0f, 0.0f, 0.0f };
+	float offset[3];
+	int axis;
+
+	tracked_offset(vr.frame.hands[weapon_hand()].grip.position, offset);
+	for (axis = 0; axis < 3; axis++)
+		point[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	local_to_game(local_x, vr.body_yaw, normal);
+}
+
+/* a point or a direction in the game's world, between the room and model
+space (either way: the mirror is its own inverse) */
+static void mirror_game_point(float point[3])
+{
+	float on[3], normal[3], along;
+	int axis;
+
+	if (!vr.left_handed)
+		return;
+	mirror_plane(on, normal);
+	along = (point[0] - on[0]) * normal[0] + (point[1] - on[1]) * normal[1] + (point[2] - on[2]) * normal[2];
+	for (axis = 0; axis < 3; axis++)
+		point[axis] -= 2.0f * along * normal[axis];
+}
+
+static void mirror_game_direction(float direction[3])
+{
+	float on[3], normal[3], along;
+	int axis;
+
+	if (!vr.left_handed)
+		return;
+	mirror_plane(on, normal);
+	along = direction[0] * normal[0] + direction[1] * normal[1] + direction[2] * normal[2];
+	for (axis = 0; axis < 3; axis++)
+		direction[axis] -= 2.0f * along * normal[axis];
+}
+
+int halo_vr_first_person_mirror(short local_player_index, float point[3], float normal[3])
+{
+	if (!vr.left_handed || !weapon_hand_tracked(local_player_index))
+		return 0;
+	mirror_plane(point, normal);
+	return 1;
+}
+
 /* The weapon's frames, all in the game's axes:
 - the controller's: where it points;
 - the model's: the controller's turned so that the first-person model's
   barrel, pointed in towards the screen's centre, points where the
   controller does (barrel_direction);
 - with both hands on it, both turned alike so that the line from the
-  model's right hand to its left, in the model's frame, runs from the right
-  controller to the left one.
+  model's right hand to its left, in the model's frame, runs from the
+  weapon hand's controller to the free one's.
 The weapon aims along the controller's frame (so turned); the model hangs
-from the model's frame. */
-static void controller_axes(float forward[3], float up[3], float right[3])
+from the model's frame. Turned in model space, both; the aim is then
+mirrored back. */
+static void hand_axes(int hand, int model, float forward[3], float up[3], float right[3])
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
 	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
-	const float *orientation = vr.frame.hands[HALO_XR_HAND_RIGHT].aim.orientation;
+	const float *orientation = vr.frame.hands[hand].aim.orientation;
 	float direction[3];
 
 	quaternion_rotate(orientation, local_forward, direction);
+	if (model)
+		model_local_direction(direction);
 	local_to_game(direction, vr.body_yaw, forward);
 	quaternion_rotate(orientation, local_up, direction);
+	if (model)
+		model_local_direction(direction);
 	local_to_game(direction, vr.body_yaw, up);
-	/* the game's axes are right-handed with +z up: forward x up is right */
+	/* the game's axes are right-handed with +z up: forward x up is right
+	(in model space too: the mirrored controller's frame is a right hand's) */
 	cross3(forward, up, right);
+}
+
+/* where the weapon hand's controller points */
+static void controller_axes(float forward[3], float up[3], float right[3])
+{
+	hand_axes(weapon_hand(), 0, forward, up, right);
 }
 
 static void model_axes(const float forward[3], const float up[3], const float right[3],
@@ -2010,11 +2141,11 @@ static void model_axes(const float forward[3], const float up[3], const float ri
 }
 
 /* with both hands on the weapon, the turn that brings the model's grips in
-line with the hands (from, to); 0 without */
+line with the hands (from, to; model space); 0 without */
 static int two_hand_turn(const float model_forward[3], const float model_up[3], const float model_right[3],
 	float from[3], float to[3])
 {
-	float left[3], right_hand[3];
+	float free_grip[3], free_offset[3], weapon_offset[3];
 	int axis;
 
 	if (!vr.two_hand_gripping || !vr.two_hand_valid)
@@ -2024,10 +2155,12 @@ static int two_hand_turn(const float model_forward[3], const float model_up[3], 
 		from[axis] = model_forward[axis] * vr.two_hand_reference[0] + model_right[axis] * vr.two_hand_reference[1] +
 			model_up[axis] * vr.two_hand_reference[2];
 	}
-	tracked_offset(vr.frame.hands[HALO_XR_HAND_LEFT].grip.position, left);
-	tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, right_hand);
+	memcpy(free_grip, vr.frame.hands[free_hand()].grip.position, sizeof(free_grip));
+	model_local_point(free_grip);
+	tracked_offset(free_grip, free_offset);
+	tracked_offset(vr.frame.hands[weapon_hand()].grip.position, weapon_offset);
 	for (axis = 0; axis < 3; axis++)
-		to[axis] = left[axis] - right_hand[axis];
+		to[axis] = free_offset[axis] - weapon_offset[axis];
 	return normalize3(from) > 0.0f && normalize3(to) > 0.0f;
 }
 
@@ -2038,34 +2171,41 @@ static void turn_axes(const float from[3], const float to[3], float forward[3], 
 	cross3(forward, up, right);
 }
 
-/* where the weapon aims */
+/* where the weapon aims (in the room) */
 static void weapon_axes(float forward[3], float up[3], float right[3])
 {
 	float model_forward[3], model_up[3], model_right[3], from[3], to[3];
 
-	controller_axes(forward, up, right);
+	hand_axes(weapon_hand(), 1, forward, up, right);
 	model_axes(forward, up, right, model_forward, model_up, model_right);
 	if (two_hand_turn(model_forward, model_up, model_right, from, to))
 		turn_axes(from, to, forward, up, right);
+	if (vr.left_handed)
+	{
+		mirror_game_direction(forward);
+		mirror_game_direction(up);
+		cross3(forward, up, right);
+	}
 }
 
-/* how the weapon's model hangs */
+/* how the weapon's model hangs (model space) */
 static void weapon_model_axes(float forward[3], float up[3], float right[3])
 {
 	float controller_forward[3], controller_up[3], controller_right[3], from[3], to[3];
 
-	controller_axes(controller_forward, controller_up, controller_right);
+	hand_axes(weapon_hand(), 1, controller_forward, controller_up, controller_right);
 	model_axes(controller_forward, controller_up, controller_right, forward, up, right);
 	if (two_hand_turn(forward, up, right, from, to))
 		turn_axes(from, to, forward, up, right);
 }
 
-/* the hand's offset from the game's camera, in world units */
+/* the weapon hand's offset from the game's camera, in world units (the
+same in model space) */
 static void hand_offset(float out[3])
 {
 	int axis;
 
-	tracked_offset(vr.frame.hands[HALO_XR_HAND_RIGHT].grip.position, out);
+	tracked_offset(vr.frame.hands[weapon_hand()].grip.position, out);
 	for (axis = 0; axis < 3; axis++)
 		out[axis] /= METRES_PER_WORLD_UNIT;
 }
@@ -2087,7 +2227,10 @@ void halo_vr_set_barrel(short local_player_index, const float world[3], const fl
 {
 	if (local_player_index != 0)
 		return;
+	/* (posed in model space: the barrel as drawn, in the room; its
+	direction stays the model's, which model_axes turns) */
 	memcpy(vr.barrel, world, sizeof(vr.barrel));
+	mirror_game_point(vr.barrel);
 	vr.barrel_frame = vr.frame_number;
 	if (!vr.barrel_direction_valid || memcmp(vr.barrel_direction, direction, sizeof(vr.barrel_direction)))
 	{
@@ -2152,7 +2295,7 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 	weapon_model_axes(forward, up, right);
 	hand_offset(hand);
 	{
-		/* the right grip's melee attack, which the hand does not swing: the
+		/* the weapon hand's grip's melee attack, which it does not swing: the
 		weapon jabs forward and back (the game's own animation is held
 		off, first_person_weapons.c) */
 		float seconds = vr.melee_jab_start_us ? (float)(now_us() - vr.melee_jab_start_us) * 1e-6f : 1.0f;
@@ -2264,12 +2407,12 @@ int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], f
 	return 1;
 }
 
-int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3])
+int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
 	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
-	float offset[3], direction[3];
+	const struct halo_xr_hand *hand = &vr.frame.hands[free_hand()];
+	float grip[3], offset[3], direction[3];
 	int axis;
 
 	if (!vr.aim_with_controller || local_player_index != 0 || !halo_vr_stereo_frame() || !hand->active ||
@@ -2277,25 +2420,30 @@ int halo_vr_left_hand(short local_player_index, float position[3], float forward
 	{
 		return 0;
 	}
-	tracked_offset(hand->grip.position, offset);
+	/* (in model space: left-handed, the right controller as a left one) */
+	memcpy(grip, hand->grip.position, sizeof(grip));
+	model_local_point(grip);
+	tracked_offset(grip, offset);
 	for (axis = 0; axis < 3; axis++)
 		position[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
 	quaternion_rotate(hand->aim.orientation, local_forward, direction);
+	model_local_direction(direction);
 	local_to_game(direction, vr.body_yaw, forward);
 	quaternion_rotate(hand->aim.orientation, local_up, direction);
+	model_local_direction(direction);
 	local_to_game(direction, vr.body_yaw, up);
 	return 1;
 }
 
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3])
 {
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_LEFT];
+	const struct halo_xr_hand *hand = &vr.frame.hands[free_hand()];
 	float position[3], forward[3], up[3];
 	int squeezed = hand->squeeze > (vr.two_hand_latched ? 0.35f : 0.6f);
 
 	memcpy(vr.two_hand_reference, reference, sizeof(vr.two_hand_reference));
 	vr.two_hand_valid = 1;
-	if (!squeezed || !halo_vr_left_hand(local_player_index, position, forward, up))
+	if (!squeezed || !halo_vr_free_hand(local_player_index, position, forward, up))
 	{
 		vr.two_hand_latched = vr.two_hand_gripping = 0;
 		return 0;
@@ -2310,7 +2458,7 @@ int halo_vr_two_hand(short local_player_index, const float foregrip[3], const fl
 		vr.two_hand_latched = 1;
 		vr.two_hand_gripping = distance < vr.two_hand_reach;
 		if (vr.two_hand_gripping)
-			host_xr_haptic(HALO_XR_HAND_LEFT, 0.4f, 0.04f);
+			host_xr_haptic(free_hand(), 0.4f, 0.04f);
 	}
 	return vr.two_hand_gripping;
 }
@@ -2338,8 +2486,11 @@ void halo_vr_set_laser(short local_player_index, const float start[3], const flo
 {
 	if (local_player_index != 0)
 		return;
+	/* (from model space) */
 	memcpy(vr.laser_start, start, sizeof(vr.laser_start));
 	memcpy(vr.laser_direction, direction, sizeof(vr.laser_direction));
+	mirror_game_point(vr.laser_start);
+	mirror_game_direction(vr.laser_direction);
 	vr.laser_frame = vr.frame_number;
 }
 
@@ -2694,7 +2845,7 @@ void halo_vr_set_scope_raise(float metres)
 int halo_vr_scope(short local_player_index, float magnification, float position[3], float forward[3], float up[3],
 	float *vertical_field_of_view)
 {
-	const struct halo_xr_hand *hand = &vr.frame.hands[HALO_XR_HAND_RIGHT];
+	const struct halo_xr_hand *hand = &vr.frame.hands[weapon_hand()];
 	float right[3], game_offset[3], local_forward[3], local_up[3], local_right[3], back[3];
 	float eye_distance = 0.0f;
 	int axis;
@@ -2887,9 +3038,14 @@ int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], f
 	(void)local_player_index; (void)head; (void)neck; (void)forward;
 	return 0;
 }
-int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3])
+int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	(void)local_player_index; (void)position; (void)forward; (void)up;
+	return 0;
+}
+int halo_vr_first_person_mirror(short local_player_index, float point[3], float normal[3])
+{
+	(void)local_player_index; (void)point; (void)normal;
 	return 0;
 }
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3])

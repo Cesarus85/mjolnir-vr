@@ -3170,6 +3170,22 @@ static GLenum blend_equation(DWORD operation)
 	}
 }
 
+/* the model being drawn mirrors: its node matrices are left-handed (the
+left hand's first-person weapon in VR, first_person_weapons.c), and its
+triangles' winding is turned over (set by rasterizer_xbox.c as it sets them,
+after HaloCE-Quest-VR, CC0) */
+static int mirrored_skinning;
+
+void d3d8_set_mirrored_skinning(int mirrored)
+{
+	mirrored_skinning = mirrored != 0;
+}
+
+int d3d8_mirrored_skinning(void)
+{
+	return mirrored_skinning;
+}
+
 static void apply_raster_state(BOOL has_depth)
 {
 	DWORD *rs = D3D__RenderState;
@@ -3305,6 +3321,8 @@ static void apply_raster_state(BOOL has_depth)
 #endif
 		GLenum cull_mode = rs[D3DRS_CULLMODE] == rs[D3DRS_FRONTFACE] ? GL_FRONT : GL_BACK;
 
+		if (mirrored_skinning)
+			front_face = front_face == GL_CW ? GL_CCW : GL_CW;
 		if (gl_state.front_face != front_face)
 		{
 			gl_state.front_face = front_face;

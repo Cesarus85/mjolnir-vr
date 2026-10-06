@@ -970,7 +970,30 @@ real_vector4d *offset_vector4d(
 	return result;
 }
 
+#ifdef HALO_ANDROID
+/* port: a group's draw, its mirroring (rasterizer_set_model_skinning) put
+back after it to what it was: a group drawn in the middle of a model's
+(not queued) leaves the model's own */
+int d3d8_mirrored_skinning(void);
+void d3d8_set_mirrored_skinning(int mirrored);
+static void rasterizer_transparent_geometry_group_draw_unmirrored(
+	struct transparent_geometry_group *group,
+	boolean dirty);
+
 void rasterizer_transparent_geometry_group_draw(
+	struct transparent_geometry_group *group,
+	boolean dirty)
+{
+	int mirrored = d3d8_mirrored_skinning();
+
+	rasterizer_transparent_geometry_group_draw_unmirrored(group, dirty);
+	d3d8_set_mirrored_skinning(mirrored);
+}
+
+static void rasterizer_transparent_geometry_group_draw_unmirrored(
+#else
+void rasterizer_transparent_geometry_group_draw(
+#endif
 	struct transparent_geometry_group *group,
 	boolean dirty)
 {

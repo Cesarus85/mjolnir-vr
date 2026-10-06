@@ -180,8 +180,19 @@ static const struct config_setting config_settings[] =
 		"Log the frame rate and where the frame time goes every five seconds\n"
 		"(adb logcat -s halo)." },
 	{ "vr.aim_with", _config_string, "\"controller\"", "HALO_VR_AIM_WITH", _environment_value, _platform_android,
-		"\"controller\": the weapon is in your right hand and aims where it points,\n"
-		"while you move and look with your head; \"head\": you aim where you look." },
+		"\"controller\": the weapon is in your hand (vr.handedness) and aims where\n"
+		"it points, while you move and look with your head; \"head\": you aim\n"
+		"where you look." },
+	{ "vr.handedness", _config_string, "\"right\"", "HALO_VR_HANDEDNESS", _environment_value, _platform_android,
+		"The hand that holds the weapon: \"right\", or \"left\", which mirrors the\n"
+		"weapon and the arms, throws grenades and grips the foregrip with the\n"
+		"right hand, and fires with the left trigger." },
+	{ "vr.mirror_controls", _config_boolean, "true", "HALO_VR_MIRROR_CONTROLS", _environment_value,
+		_platform_android,
+		"Left-handed, the sticks and buttons swap sides too: the right stick moves\n"
+		"and the left one turns, X jumps and A reloads (on the Steam Frame the\n"
+		"D-pad takes A, B, X and Y as their mirror image); false keeps them as\n"
+		"right-handed. The menus keep their buttons either way." },
 	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
@@ -196,7 +207,7 @@ static const struct config_setting config_settings[] =
 	{ "vr.weapon_down", _config_real, "0.14", "HALO_VR_WEAPON_DOWN", _environment_value, _platform_android,
 		"See weapon_forward." },
 	{ "vr.two_hand_reach", _config_real, "0.2", "HALO_VR_TWO_HAND_REACH", _environment_value, _platform_android,
-		"How near, in metres, the left hand must be to the weapon's foregrip for\n"
+		"How near, in metres, the free hand must be to the weapon's foregrip for\n"
 		"its grip button to take hold of it with both hands." },
 	{ "vr.body", _config_string, "\"arms\"", "HALO_VR_BODY", _environment_value, _platform_android,
 		"What of your body is drawn with the weapon: \"arms\", the arms and hands\n"
@@ -212,17 +223,17 @@ static const struct config_setting config_settings[] =
 		"false keeps the arm's shape as on the weapon, pointed at the shoulder." },
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
-		"melee attack (the right grip is too); 0 turns it off." },
+		"melee attack (the weapon hand's grip is too); 0 turns it off." },
 	{ "vr.grenade_throw_speed", _config_real, "1.5", "HALO_VR_GRENADE_THROW", _environment_value, _platform_android,
-		"A grenade is held while the left trigger is, and thrown as it lets go:\n"
-		"along the hand's throw, when the hand moved faster than this (metres per\n"
-		"second; full strength at 4), else as the game throws it. 0 turns the\n"
-		"hand's throw off." },
+		"A grenade is held while the free hand's trigger is, and thrown as it\n"
+		"lets go: along the hand's throw, when the hand moved faster than this\n"
+		"(metres per second; full strength at 4), else as the game throws it. 0\n"
+		"turns the hand's throw off." },
 	{ "vr.grenade_scale", _config_real, "0.55", "HALO_VR_GRENADE_SCALE", _environment_value, _platform_android,
-		"The size the grenade held in the left hand is drawn at (1 as in the game)." },
+		"The size the grenade held in the free hand is drawn at (1 as in the game)." },
 	{ "vr.grenade_right", _config_real, "0.055", "HALO_VR_GRENADE_RIGHT", _environment_value, _platform_android,
-		"Where the held grenade is drawn, in metres from the left controller's\n"
-		"grip: towards the palm (right),", },
+		"Where the held grenade is drawn, in metres from the free controller's\n"
+		"grip: towards the palm (the left hand's right),", },
 	{ "vr.grenade_forward", _config_real, "0.01", "HALO_VR_GRENADE_FORWARD", _environment_value, _platform_android,
 		"the grip's forward (through the fist, towards the index finger),", },
 	{ "vr.grenade_down", _config_real, "0.01", "HALO_VR_GRENADE_DOWN", _environment_value, _platform_android,
