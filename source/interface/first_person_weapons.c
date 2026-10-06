@@ -1324,14 +1324,8 @@ static void vr_mirror_pose(
 		{
 			short ancestor = node_index;
 
-			/* (up through the parents, each before its child: the root's
-			may name itself, which hung the game, Frame 2026-10-06) */
-			while (ancestor >= 0 && ancestor != display)
-			{
-				short parent = animation_graph_node_parent(graph_index, ancestor);
-
-				ancestor = parent >= 0 && parent < ancestor ? parent : NONE;
-			}
+			while (ancestor != NONE && ancestor != display)
+				ancestor = animation_graph_node_parent(graph_index, ancestor);
 			if (ancestor == display)
 				vr_mirror_node(&node_matrices[node_index], centre, normal);
 		}
