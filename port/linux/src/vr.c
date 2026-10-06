@@ -234,6 +234,7 @@ static struct
 	/* the fingers (fingers_update, vr.fingers): each hand's thumb, index,
 	middle and the last two, curled 0 (open) to 1, and how fast */
 	int fingers;
+	int arm_ik;              /* vr.arm_ik: the free arm bends at the elbow */
 	float finger_curl[HALO_XR_HAND_COUNT][4];
 	float finger_velocity[HALO_XR_HAND_COUNT][4];
 	unsigned long long fingers_last_us;
@@ -467,6 +468,7 @@ static void vr_read_live_settings(void)
 	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
 	vr.fingers = config_boolean("vr.fingers");
+	vr.arm_ik = config_boolean("vr.arm_ik");
 }
 
 void halo_vr_initialize(void)
@@ -1044,6 +1046,16 @@ static void torso_update(void)
 		}
 	}
 	vr.torso_valid = 1;
+}
+
+int halo_vr_free_arm_bends(void)
+{
+	return vr.active && vr.arm_ik;
+}
+
+double halo_vr_pose_time(void)
+{
+	return (double)vr.frame_start_us * 1e-6;
 }
 
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
@@ -2827,6 +2839,8 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 	(void)local_player_index; (void)hand; (void)curls;
 	return 0;
 }
+int halo_vr_free_arm_bends(void) { return 0; }
+double halo_vr_pose_time(void) { return 0.0; }
 void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw)
 {
 	(void)local_player_index; (void)seat; (void)armed; (void)vehicle_yaw;

@@ -203,6 +203,10 @@ static const struct config_setting config_settings[] =
 		"trigger, the others the grip, the thumb where it rests (on the Quest's\n"
 		"and the Steam Frame's controllers); false leaves the hand as the\n"
 		"weapon's animation has it." },
+	{ "vr.arm_ik", _config_boolean, "true", "HALO_VR_ARM_IK", _environment_value, _platform_android,
+		"The free hand's arm bends at the elbow to reach it from the shoulder;\n"
+		"false keeps the arm's shape as on the weapon, pointed at the shoulder\n"
+		"(as before; should its skin tear)." },
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
 		"melee attack (the right grip is too); 0 turns it off." },

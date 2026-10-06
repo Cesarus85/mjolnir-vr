@@ -126,6 +126,7 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
+#include "vr_arms.h"
 #endif
 
 /* ---------- constants */
@@ -1216,9 +1217,10 @@ The first-person skeleton hangs from the camera at the right controller
 (halo_vr_weapon_camera), so the weapon and the right hand lie where they
 should; its arms, though, reach up to shoulders that float with the weapon.
 Here each arm's upper arm and forearm are turned (two-bone inverse
-kinematics) to run from the player's shoulders, below the head, to its
-wrist. The left wrist, unless the hand holds the weapon's foregrip, goes to
-the left controller, its fingers with it. */
+kinematics, port/linux/game/vr_arms.c) to run from the player's shoulders,
+below the neck and square to the torso, to its wrist, the controller's roll
+shared along the forearm. The left wrist, unless the hand holds the
+weapon's foregrip, goes to the left controller, its fingers with it. */
 
 #define VR_METRES_PER_WORLD_UNIT 3.048f
 
@@ -1242,6 +1244,10 @@ struct vr_arm_nodes
 
 static struct vr_arm_nodes vr_arm_nodes = { NONE, { NONE, NONE }, { NONE, NONE }, { NONE, NONE }, NONE, NONE, NONE, NONE,
 	NONE };
+/* the skeleton this frame, and each arm's last (its elbow's swing and its
+forearm's twist run on from them) */
+static struct vr_skeleton vr_arm_skeleton;
+static struct vr_limb_history vr_arm_history[2];
 
 static void vr_vector_scale_add(
 	real_vector3d *out,
@@ -1275,69 +1281,6 @@ static void vr_rotate_between(
 	v->k = v->k * cosine + turned.k * sine + axis.k * along * (1.f - cosine);
 }
 
-/* turns v about the unit axis by angle (radians) */
-static void vr_rotate_about(
-	real_vector3d const *axis,
-	real angle,
-	real_vector3d *v)
-{
-	real_vector3d turned;
-	real sin_angle = sine(angle);
-	real cos_angle = cosine(angle);
-	real along = dot_product3d(axis, v);
-
-	cross_product3d(axis, v, &turned);
-	v->i = v->i * cos_angle + turned.i * sin_angle + axis->i * along * (1.f - cos_angle);
-	v->j = v->j * cos_angle + turned.j * sin_angle + axis->j * along * (1.f - cos_angle);
-	v->k = v->k * cos_angle + turned.k * sin_angle + axis->k * along * (1.f - cos_angle);
-}
-
-/* A forearm turned only to point at the wrist keeps the animation's twist,
-while the hand may have rolled half a turn from it: the skin between them
-collapses. Twists the forearm about its bone by most of the hand's roll
-from the animation (the hand's turn from old_wrist to new_wrist, applied to
-the animated forearm old_forearm), as a real forearm twists along its
-length. */
-static void vr_twist_forearm(
-	real_matrix4x3 *forearm,
-	real_matrix4x3 const *old_forearm,
-	real_matrix4x3 const *old_wrist,
-	real_matrix4x3 const *new_wrist,
-	real_point3d const *wrist_position)
-{
-	real_vector3d const *old_axes[3];
-	real_vector3d const *new_axes[3];
-	real_vector3d bone, turned_up, up, across;
-	real along, angle;
-	short axis;
-
-	vector_from_points3d(&forearm->position, wrist_position, &bone);
-	if (normalize3d(&bone) < 1e-6f)
-		return;
-	/* the animated forearm's up, turned as the hand turned */
-	old_axes[0] = &old_wrist->forward;
-	old_axes[1] = &old_wrist->left;
-	old_axes[2] = &old_wrist->up;
-	new_axes[0] = &new_wrist->forward;
-	new_axes[1] = &new_wrist->left;
-	new_axes[2] = &new_wrist->up;
-	turned_up.i = turned_up.j = turned_up.k = 0.f;
-	for (axis = 0; axis < 3; axis++)
-		vr_vector_scale_add(&turned_up, new_axes[axis], dot_product3d(&old_forearm->up, old_axes[axis]));
-	/* both ups across the bone, and the angle between them about it */
-	up = forearm->up;
-	vr_vector_scale_add(&up, &bone, -dot_product3d(&up, &bone));
-	vr_vector_scale_add(&turned_up, &bone, -dot_product3d(&turned_up, &bone));
-	if (normalize3d(&up) < 1e-4f || normalize3d(&turned_up) < 1e-4f)
-		return;
-	cross_product3d(&up, &turned_up, &across);
-	along = dot_product3d(&up, &turned_up);
-	angle = arctangent(dot_product3d(&across, &bone), along) * 0.6f;
-	vr_rotate_about(&bone, angle, &forearm->forward);
-	vr_rotate_about(&bone, angle, &forearm->left);
-	vr_rotate_about(&bone, angle, &forearm->up);
-}
-
 /* a node turned so that the bone to its child, from old to new direction */
 static void vr_turn_bone(
 	real_matrix4x3 *node,
@@ -1354,39 +1297,6 @@ static void vr_turn_bone(
 	vr_rotate_between(&from, &to, &node->left);
 	vr_rotate_between(&from, &to, &node->up);
 	node->position = *position;
-}
-
-/* moves the descendants of a node that moved from old to new with it */
-static void vr_carry_descendants(
-	long graph_index,
-	real_matrix4x3 *node_matrices,
-	short node_count,
-	short root,
-	real_matrix4x3 const *old_root,
-	real_matrix4x3 const *new_root)
-{
-	real_matrix4x3 inverse;
-	real_matrix4x3 delta;
-	short node_index;
-
-	matrix4x3_inverse(old_root, &inverse);
-	matrix4x3_multiply(new_root, &inverse, &delta);
-	for (node_index = 0; node_index < node_count; node_index++)
-	{
-		short ancestor = animation_graph_node_parent(graph_index, node_index);
-		short steps;
-
-		/* parents come first; bounded in case of a malformed graph */
-		for (steps = 0; ancestor > 0 && ancestor != root && steps < node_count; steps++)
-			ancestor = animation_graph_node_parent(graph_index, ancestor);
-		if (ancestor == root && node_index != root)
-		{
-			real_matrix4x3 moved;
-
-			matrix4x3_multiply(&delta, &node_matrices[node_index], &moved);
-			node_matrices[node_index] = moved;
-		}
-	}
 }
 
 /* the upper arm turned about the elbow to point at the shoulder, keeping
@@ -1410,50 +1320,6 @@ static void vr_point_upper_arm(
 	vr_turn_bone(&node_matrices[upper], &old_direction, &new_direction, &position);
 }
 
-/* one arm: upper arm and forearm from the shoulder to the wrist at target */
-static void vr_arm(
-	real_matrix4x3 *node_matrices,
-	short upper,
-	short fore,
-	short wrist,
-	real_point3d shoulder,
-	real_point3d const *target,
-	real_vector3d const *pole)
-{
-	real_vector3d old_upper, old_fore, reach, bend, new_upper, new_fore;
-	real upper_length, fore_length, distance, along, height;
-	real_point3d elbow;
-
-	vector_from_points3d(&node_matrices[upper].position, &node_matrices[fore].position, &old_upper);
-	vector_from_points3d(&node_matrices[fore].position, &node_matrices[wrist].position, &old_fore);
-	upper_length = magnitude3d(&old_upper);
-	fore_length = magnitude3d(&old_fore);
-	vector_from_points3d(&shoulder, target, &reach);
-	distance = normalize3d(&reach);
-	if (upper_length < 1e-4f || fore_length < 1e-4f || distance < 1e-4f)
-		return;
-	/* out of reach: the shoulder follows the hand (the arm stays whole) */
-	if (distance > (upper_length + fore_length) * 0.999f)
-	{
-		distance = (upper_length + fore_length) * 0.999f;
-		shoulder = *target;
-		point_from_line3d(target, &reach, -distance, &shoulder);
-	}
-	along = (upper_length * upper_length - fore_length * fore_length + distance * distance) / (2.f * distance);
-	height = upper_length * upper_length - along * along;
-	height = height > 0.f ? square_root(height) : 0.f;
-	bend = *pole;
-	vr_vector_scale_add(&bend, &reach, -dot_product3d(pole, &reach));
-	normalize3d(&bend);
-	point_from_line3d(&shoulder, &reach, along, &elbow);
-	point_from_line3d(&elbow, &bend, height, &elbow);
-
-	vector_from_points3d(&shoulder, &elbow, &new_upper);
-	vector_from_points3d(&elbow, target, &new_fore);
-	vr_turn_bone(&node_matrices[upper], &old_upper, &new_upper, &shoulder);
-	vr_turn_bone(&node_matrices[fore], &old_fore, &new_fore, &elbow);
-}
-
 /* an orthonormal frame from a direction and a second one across it */
 static void vr_frame_from(
 	real_vector3d const *direction,
@@ -1470,14 +1336,14 @@ static void vr_frame_from(
 
 /* the free left hand: the wrist behind the controller's grip, the fingers
 along the controller and the knuckles, little finger to index, up its
-handle, as a hand holds it. The whole arm follows the hand as it is shaped
-on the foregrip: bent to the shoulder instead (vr_arm), the arm's skin,
-bound partly to the skeleton's root at the other hand, tears into ribbons
-wherever the hand is far from where the animation has it. */
+handle, as a hand holds it; its fingers with it. The arm is bent to it
+from the shoulder afterwards (vr_solve_arm), or, rigid (vr.arm_ik off),
+follows the hand as it is shaped on the foregrip. (The arm's skin hangs
+from the arm's bones alone, none from the skeleton's root: 3a.0's log.) */
 static void vr_left_hand_free(
-	long graph_index,
+	struct vr_skeleton const *skeleton,
 	real_matrix4x3 *node_matrices,
-	short node_count,
+	boolean rigid,
 	float const hand_position[3],
 	float const hand_forward[3],
 	float const hand_up[3])
@@ -1521,23 +1387,24 @@ static void vr_left_hand_free(
 	wrist->position.y = hand_position[1];
 	wrist->position.z = hand_position[2];
 	point_from_line3d(&wrist->position, &to[0], -0.07f / VR_METRES_PER_WORLD_UNIT, &wrist->position);
-	vr_carry_descendants(graph_index, node_matrices, node_count, wrist_index, &old_wrist, wrist);
-	/* the forearm and the upper arm with it, as they are on the foregrip */
+	/* what the wrist carries (its fingers) with it, and rigid, the forearm
+	and the upper arm too, as they are on the foregrip */
 	{
 		real_matrix4x3 inverse, delta, moved;
-		short chain[2];
-		short link;
+		short node_index;
 
-		chain[0] = vr_arm_nodes.fore[0];
-		chain[1] = vr_arm_nodes.upper[0];
 		matrix4x3_inverse(&old_wrist, &inverse);
 		matrix4x3_multiply(wrist, &inverse, &delta);
-		for (link = 0; link < 2; link++)
+		for (node_index = 0; node_index < skeleton->node_count; node_index++)
 		{
-			if (chain[link] == NONE)
+			if (node_index == wrist_index ||
+				!(vr_skeleton_under(skeleton, node_index, wrist_index) ||
+				(rigid && (node_index == vr_arm_nodes.fore[0] || node_index == vr_arm_nodes.upper[0]))))
+			{
 				continue;
-			matrix4x3_multiply(&delta, &node_matrices[chain[link]], &moved);
-			node_matrices[chain[link]] = moved;
+			}
+			matrix4x3_multiply(&delta, &node_matrices[node_index], &moved);
+			node_matrices[node_index] = moved;
 		}
 	}
 }
@@ -1647,6 +1514,7 @@ static void first_person_weapon_vr_arms(
 	short side;
 	boolean gripping;
 	boolean left_free;
+	boolean rigid = !halo_vr_free_arm_bends();
 
 	if (vr_arm_nodes.graph_index != graph_index)
 	{
@@ -1720,8 +1588,11 @@ static void first_person_weapon_vr_arms(
 	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
-	if (!halo_vr_body_frame(local_player_index, head, neck, body_forward))
+	if (!halo_vr_body_frame(local_player_index, head, neck, body_forward) ||
+		!vr_skeleton_build(&vr_arm_skeleton, graph_index, node_count))
+	{
 		return;
+	}
 	/* (the shoulders hang from the neck, which the head turns about) */
 	eye.x = neck[0];
 	eye.y = neck[1];
@@ -1770,7 +1641,7 @@ static void first_person_weapon_vr_arms(
 
 		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
 		{
-			vr_left_hand_free(graph_index, node_matrices, node_count, hand_position, hand_forward, hand_up);
+			vr_left_hand_free(&vr_arm_skeleton, node_matrices, rigid, hand_position, hand_forward, hand_up);
 			left_free = TRUE;
 		}
 	}
@@ -1779,6 +1650,7 @@ static void first_person_weapon_vr_arms(
 	{
 		real_point3d shoulder;
 		real_vector3d pole;
+		short bones[NUMBER_OF_VR_ARM_BONES];
 		real outward = side ? -1.f : 1.f; /* left is +left */
 
 		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
@@ -1796,17 +1668,22 @@ static void first_person_weapon_vr_arms(
 		pole.k = -global_up3d->k;
 		vr_vector_scale_add(&pole, &left, outward * 0.6f);
 		vr_vector_scale_add(&pole, &forward, -0.3f);
-		if (!side && left_free)
+		if (!side && left_free && rigid)
 		{
 			/* the free left arm keeps its shape (vr_left_hand_free), but
 			for the upper arm, which points back at the shoulder */
 			vr_point_upper_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], &shoulder);
 			continue;
 		}
-		vr_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], vr_arm_nodes.wrist[side],
-			shoulder, &node_matrices[vr_arm_nodes.wrist[side]].position, &pole);
-		vr_twist_forearm(&node_matrices[vr_arm_nodes.fore[side]], &animated_forearm[side], &animated_wrist[side],
-			&node_matrices[vr_arm_nodes.wrist[side]], &node_matrices[vr_arm_nodes.wrist[side]].position);
+		/* the hand stays where it is (at the controller, or on the
+		weapon): the arm bends to it */
+		bones[_vr_arm_upper] = vr_arm_nodes.upper[side];
+		bones[_vr_arm_fore] = vr_arm_nodes.fore[side];
+		bones[_vr_arm_hand] = vr_arm_nodes.wrist[side];
+		vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder, &node_matrices[bones[_vr_arm_hand]].position,
+			&pole, TRUE, &vr_arm_history[side]);
+		vr_distribute_arm_twist(node_matrices, bones, &animated_forearm[side], &animated_wrist[side],
+			&vr_arm_history[side]);
 	}
 }
 

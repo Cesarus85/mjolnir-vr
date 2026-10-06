@@ -127,6 +127,13 @@ int halo_vr_two_hand(short local_player_index, const float foregrip[3], const fl
   curled 0 (straight) to 1; 0 when the hand is not tracked or vr.fingers
   is off; */
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4]);
+/* - whether the free hand's arm bends at the elbow to reach it from the
+  shoulder (vr.arm_ik); else it keeps the shape it has on the foregrip,
+  pointed at the shoulder;
+- the time of the headset's frame (seconds, steady through the frame), by
+  which the arms' bending is eased */
+int halo_vr_free_arm_bends(void);
+double halo_vr_pose_time(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
