@@ -572,6 +572,10 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.mirror_first_person", _config_boolean, "false", "HALO_MIRROR_FIRST_PERSON", _environment_value,
+		_platform_android,
+		"Off the headset (flat), the first-person weapon drawn mirrored, as the\n"
+		"left hand's is in VR: a test aid for what reads mirrored there. Read once." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"

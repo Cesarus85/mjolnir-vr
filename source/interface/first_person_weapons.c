@@ -1260,19 +1260,18 @@ static void vr_mirror_vector(
 	vector[2] -= 2.f * along * normal[2];
 }
 
-/* the posed skeleton out of model space: every node mirrored, its axes too
+/* the posed skeleton across a mirror: every node mirrored, its axes too
 (a left-handed frame: rasterizer_xbox.c turns its triangles' winding over).
-The ammo counter on the assault rifle reads mirrored with it. */
-static void vr_mirror_pose(
-	short local_player_index,
+Numeric displays drawn so, the assault rifle's ammo counter and compass,
+are read the right way round by rasterizer_xbox_transparent_geometry.c. */
+static void vr_mirror_nodes(
+	float const on[3],
+	float const normal[3],
 	real_matrix4x3 *node_matrices,
 	short node_count)
 {
-	float on[3], normal[3];
 	short node_index;
 
-	if (!halo_vr_first_person_mirror(local_player_index, on, normal))
-		return;
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
 		real_matrix4x3 *node = &node_matrices[node_index];
@@ -1301,6 +1300,48 @@ static void vr_mirror_pose(
 			axes[axis]->k = vector[2];
 		}
 	}
+}
+
+/* the posed skeleton out of model space (left-handed) */
+static void vr_mirror_pose(
+	short local_player_index,
+	real_matrix4x3 *node_matrices,
+	short node_count)
+{
+	float on[3], normal[3];
+
+	if (halo_vr_first_person_mirror(local_player_index, on, normal))
+		vr_mirror_nodes(on, normal, node_matrices, node_count);
+}
+
+/* debug.mirror_first_person (a test aid, flat): the first-person weapon
+mirrored across the camera's own forward and up, as the left hand's is in
+VR; its numeric displays can so be checked off the headset */
+int config_boolean(char const *name);
+
+static void debug_mirror_first_person(
+	struct render_camera const *camera,
+	real_matrix4x3 *node_matrices,
+	short node_count)
+{
+	static int wanted = -1;
+	real_vector3d left;
+	float on[3], normal[3];
+
+	if (wanted < 0)
+		wanted = config_boolean("debug.mirror_first_person") ? 1 : 0;
+	if (!wanted)
+		return;
+	cross_product3d(&camera->up, &camera->forward, &left);
+	if (normalize3d(&left) == 0.0f)
+		return;
+	on[0] = camera->position.x;
+	on[1] = camera->position.y;
+	on[2] = camera->position.z;
+	normal[0] = left.i;
+	normal[1] = left.j;
+	normal[2] = left.k;
+	vr_mirror_nodes(on, normal, node_matrices, node_count);
 }
 
 struct vr_arm_nodes
@@ -2304,6 +2345,11 @@ static void first_person_weapon_build_node_matrices(
 			vr_mirror_pose(local_player_index, first_person_weapon->node_matrices,
 				(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION));
 			halo_vr_timing_end(HALO_VR_TIMING_ARMS, timing);
+		}
+		else
+		{
+			debug_mirror_first_person(camera, first_person_weapon->node_matrices,
+				(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION));
 		}
 #endif
 	}
