@@ -281,6 +281,10 @@ static long shadow_scale_choose(void)
 	long resolution = config_integer("display.shadow_resolution");
 	long scale = 1;
 
+	/* (VR's "max" graphics: 512 at least) */
+	if (halo_vr_graphics() == HALO_VR_GRAPHICS_MAX && resolution < 512)
+		resolution = 512;
+
 	while (scale < SHADOW_MAP_MAXIMUM_SCALE && SHADOW_MAP_SIZE * scale * 2 <= resolution)
 		scale *= 2;
 	return scale;
@@ -3434,9 +3438,10 @@ static void draw_flush(void)
 #endif
 }
 
-/* display.per_pixel_lighting: the model lighting programs' draws are lit for
-each pixel (nv2a_psh.c model_lighting), from shaders of their own; read
-again when a setting changes */
+/* display.per_pixel_lighting (or VR's "max" graphics, vr.graphics): the
+model lighting programs' draws are lit for each pixel (nv2a_psh.c
+model_lighting), from shaders of their own; read again when a setting
+changes */
 static BOOL per_pixel_lighting(void)
 {
 	static unsigned long read_at = (unsigned long)-1;
@@ -3445,7 +3450,7 @@ static BOOL per_pixel_lighting(void)
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
-		enabled = config_boolean("display.per_pixel_lighting") != 0;
+		enabled = config_boolean("display.per_pixel_lighting") != 0 || halo_vr_graphics() == HALO_VR_GRAPHICS_MAX;
 	}
 	return enabled;
 }

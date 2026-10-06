@@ -252,6 +252,17 @@ int halo_vr_controller_layout(void);
 /* the hand that holds the weapon (HALO_XR_HAND_*: 1 the right, 0 the left,
 vr.handedness) */
 int halo_vr_weapon_hand(void);
+/* the graphics preset (vr.graphics; HALO_VR_GRAPHICS_HIGH outside VR): which
+effects are drawn (port/linux/game/vr_graphics.c), and with "max" the
+models lit for each pixel and larger shadows (d3d8_gl.c) */
+enum
+{
+	HALO_VR_GRAPHICS_LOW = 0,
+	HALO_VR_GRAPHICS_MEDIUM,
+	HALO_VR_GRAPHICS_HIGH,
+	HALO_VR_GRAPHICS_MAX,
+};
+int halo_vr_graphics(void);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks

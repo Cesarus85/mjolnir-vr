@@ -164,6 +164,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
+	{ "vr.graphics", _config_string, "\"high\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
+		"Which of the costlier effects are drawn: \"high\" all of them; \"medium\"\n"
+		"no object shadows, environment reflections or lens flares; \"low\" nor\n"
+		"specular light, bump maps, grass, the screen's fog, contrails, weather\n"
+		"or camouflage's second pass (a client in another's game keeps grass,\n"
+		"lens flares and fog); \"max\" all of them, the models lit for each\n"
+		"pixel and shadows at 512x512." },
 	{ "vr.positional_tracking", _config_boolean, "true", "HALO_VR_POSITIONAL", _environment_value, _platform_android,
 		"Moving your head moves the view (leaning, ducking); false only turns it.\n"
 		"The view recentres when play starts or resumes after a cinematic, and\n"

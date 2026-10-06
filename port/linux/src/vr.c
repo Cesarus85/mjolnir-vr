@@ -603,6 +603,27 @@ int halo_vr_weapon_hand(void)
 	return weapon_hand();
 }
 
+int halo_vr_graphics(void)
+{
+	/* (read as it changes: d3d8_gl.c may ask before vr.c reads the live
+	settings again) */
+	static unsigned long read_at = (unsigned long)-1;
+	static int graphics = HALO_VR_GRAPHICS_HIGH;
+
+	if (!vr.active)
+		return HALO_VR_GRAPHICS_HIGH;
+	if (read_at != config_changes())
+	{
+		const char *name = config_string("vr.graphics");
+
+		read_at = config_changes();
+		graphics = !strcmp(name, "low") ? HALO_VR_GRAPHICS_LOW :
+			!strcmp(name, "medium") ? HALO_VR_GRAPHICS_MEDIUM :
+			!strcmp(name, "max") ? HALO_VR_GRAPHICS_MAX : HALO_VR_GRAPHICS_HIGH;
+	}
+	return graphics;
+}
+
 int halo_vr_eye_size(int *width, int *height)
 {
 	const char *eye_width = getenv("HALO_VR_EYE_WIDTH");
@@ -3006,6 +3027,7 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 
 int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_weapon_hand(void) { return 1; }
+int halo_vr_graphics(void) { return HALO_VR_GRAPHICS_HIGH; }
 int halo_vr_active(void) { return 0; }
 unsigned long long halo_vr_timing_start(void) { return 0; }
 unsigned long halo_vr_frame_serial(void) { return 0; }

@@ -118,6 +118,10 @@ void cheats_dispose_from_old_map(
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
+#ifdef HALO_ANDROID
+/* port/linux/game/vr_graphics.c */
+boolean vr_graphics_reduces(boolean const *game_switch);
+#endif
 /* bipeds.c's, player_control.c's */
 extern boolean rider_ejection;
 extern boolean player_autoaim_flag;
@@ -155,6 +159,12 @@ static boolean cheats_network_client_rasterizer_enforce(
 		environment_part <= &rasterizer_debug_options.draw_environment_fog_screen;
 		environment_part++)
 	{
+#ifdef HALO_ANDROID
+		/* (VR: a part the graphics preset keeps off, as it may in another's
+		game: shadows, specular light, reflections; vr_graphics.c) */
+		if (vr_graphics_reduces(environment_part))
+			continue;
+#endif
 		if (!*environment_part)
 			changed = TRUE;
 		*environment_part = TRUE;
