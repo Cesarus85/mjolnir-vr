@@ -1719,11 +1719,12 @@ static void first_person_weapon_vr_arms(
 		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
 			continue;
 
-		/* the shoulder: below the eyes, a little behind them (in front of
-		the neck), to the side, square to the torso */
+		/* the shoulder: below the eyes, behind them (a little behind the
+		neck: in front of it, the open end of the sleeve came into view
+		looking down to the side), to the side, square to the torso */
 		shoulder = eye;
 		point_from_line3d(&shoulder, global_up3d, -0.25f / VR_METRES_PER_WORLD_UNIT, &shoulder);
-		point_from_line3d(&shoulder, &forward, 0.03f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		point_from_line3d(&shoulder, &forward, -0.04f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &left, outward * 0.19f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		/* the elbow bends down, out and back */
 		pole.i = -global_up3d->i;
