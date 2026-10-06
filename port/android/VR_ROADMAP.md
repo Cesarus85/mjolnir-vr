@@ -173,6 +173,12 @@ the left hand animated through reloads.
 
 ## Open points outside the order
 
+- Left-handed: the assault rifle's ammo display reads mirrored. Mirroring
+  its node back (as HaloCE-Quest-VR does) failed here (2026-10-06): its
+  vertices are weighted to the gun's node as well, so the display smeared
+  as the weapon turned and the gun's winding went wrong; reverted. Next
+  try: flip the display's texture, not its geometry.
+
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
   not merged.
