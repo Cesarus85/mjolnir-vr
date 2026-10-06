@@ -3,19 +3,22 @@ NETWORK_VR.C
 
 VR players' hands for the other machines: an extension of the distributed
 netcode (port/linux/NETCODE.md, network_distributed.c). A VR player's
-weapon aims where the right controller points and fires from the hand, and
-the left hand holds a grenade and throws it its own way (port/linux/src/
-vr.c); the input the netcode relays has only where the head looks, so the
-other machines would show that player aiming and throwing where they look.
+weapon aims where the weapon hand's controller points and fires from the
+hand, and the free hand holds a grenade and throws it its own way
+(port/linux/src/vr.c; the right hand and the left, or left-handed the other
+way round); the input the netcode relays has only where the head looks, so
+the other machines would show that player aiming and throwing where they
+look.
 
 Every tick, a machine with a VR player sends the host that player's hands
 (_distributed_message_vr_poses, unreliable): where the weapon aims, where
-its muzzle is from the unit's camera, whether the left hand holds a
-grenade, and the last throw (from where, which way, how hard) for a second
-after it. The host keeps them, its own VR players' too, and sends each
-client those of the players of other machines. A machine drives a VR
-player of another (players.c, weapons.c, units.c) as long as their hands
-keep coming, else as before.
+its muzzle is from the unit's camera (whichever hand holds it: the others
+see shots leave the left hand of a left-handed player), whether the free
+hand holds a grenade, and the last throw (from where, which way, how hard)
+for a second after it. The host keeps them, its own VR players' too, and
+sends each client those of the players of other machines. A machine drives
+a VR player of another (players.c, weapons.c, units.c) as long as their
+hands keep coming, else as before.
 
 What the hands decide is only how the game looks: damage is the shooter's
 report, which the host checks as any other (network_damage.c).
