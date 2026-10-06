@@ -6663,6 +6663,9 @@ enum
 	_vr_option_motion_tracker,
 	_vr_option_body,
 	_vr_option_fingers,
+	_vr_option_graphics,
+	_vr_option_refresh_rate,
+	_vr_option_resolution,
 	_vr_option_controls,
 	_vr_option_quit,
 	NUMBER_OF_VR_OPTIONS,
@@ -6697,7 +6700,8 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 	{ _vr_option_turning, _vr_option_snap_angle, _vr_option_smooth_speed, _vr_option_vignette, _vr_option_wheel,
 		_vr_option_handedness, _vr_option_mirror_controls, _vr_option_laser, _vr_option_crosshair,
 		_vr_option_motion_tracker, _vr_option_body, _vr_option_fingers },
-	{ _vr_option_controls, _vr_option_quit, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE },
+	{ _vr_option_graphics, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_controls, _vr_option_quit,
+		NONE, NONE, NONE, NONE, NONE, NONE, NONE },
 };
 
 /* the page a row is on, and its place there */
@@ -6759,6 +6763,61 @@ static char const *const vr_vignette_names[] = { "Off", "Light", "Medium", "Stro
 /* vr.body's values, and as the panel shows them */
 static char const *const vr_bodies[] = { "arms", "hands", "off" };
 static char const *const vr_body_names[] = { "Arms and hands", "Hands only", "Weapon only" };
+/* vr.graphics's (port/linux/game/vr_graphics.c), and vr.resolution_scale's
+(read as the app starts) */
+static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max" };
+static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max" };
+static real const vr_resolution_scales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f };
+
+static short ui_vr_options_graphics(
+	void)
+{
+	char const *graphics = config_string("vr.graphics");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(vr_graphics_presets); index++)
+	{
+		if (graphics && strcmp(graphics, vr_graphics_presets[index]) == 0)
+			return index;
+	}
+	return 2;
+}
+
+/* the refresh rates the headset offers, in order, and which of them
+vr.refresh_rate chooses (the highest at or below it; 0 asks for the
+highest); 0 rates where it lets none be chosen (SteamVR: SteamOS's) */
+static short ui_vr_options_refresh_rates(
+	real rates[16],
+	short *chosen,
+	real *current)
+{
+	float offered[16];
+	float now = 0.0f;
+	short count = (short)halo_vr_refresh_rates(offered, 16, &now);
+	real wanted = (real)config_real("vr.refresh_rate");
+	short index;
+
+	*current = now;
+	*chosen = 0;
+	for (index = 0; index < count; index++)
+	{
+		short place = index;
+
+		/* (in order, lowest first) */
+		while (place > 0 && rates[place - 1] > offered[index])
+		{
+			rates[place] = rates[place - 1];
+			place--;
+		}
+		rates[place] = offered[index];
+	}
+	for (index = 0; index < count; index++)
+	{
+		if (wanted <= 0.0f || rates[index] <= wanted + 0.5f)
+			*chosen = index;
+	}
+	return count;
+}
 
 static short ui_vr_options_body(
 	void)
@@ -6847,6 +6906,28 @@ static void ui_vr_options_change(
 			(short)NUMBEROF(vr_bodies)]);
 		break;
 	case _vr_option_fingers: config_write_boolean("vr.fingers", !config_boolean("vr.fingers")); break;
+	case _vr_option_graphics:
+		config_write("vr.graphics", vr_graphics_presets[(ui_vr_options_graphics() + change +
+			(short)NUMBEROF(vr_graphics_presets)) % (short)NUMBEROF(vr_graphics_presets)]);
+		break;
+	case _vr_option_refresh_rate:
+	{
+		real rates[16], current;
+		short chosen;
+		short count = ui_vr_options_refresh_rates(rates, &chosen, &current);
+
+		if (count > 0)
+		{
+			char text[16];
+
+			snprintf(text, sizeof(text), "%g", rates[(chosen + change + count) % count]);
+			config_write("vr.refresh_rate", text);
+		}
+		break;
+	}
+	case _vr_option_resolution:
+		ui_vr_options_step("vr.resolution_scale", vr_resolution_scales, NUMBEROF(vr_resolution_scales), change);
+		break;
 	case _vr_option_controls:
 		ui_vr_options_globals.controls = TRUE;
 		ui_vr_options_globals.page = _vr_controls_on_foot;
@@ -7424,6 +7505,38 @@ static void ui_vr_options_render(
 			snprintf(value, sizeof(value), "%s", config_boolean("vr.fingers") ? "Tracked" : "Off");
 			unused = ui_vr_options_body() == 2;
 			break;
+		case _vr_option_graphics:
+			label = "Graphics";
+			snprintf(value, sizeof(value), "%s", vr_graphics_names[ui_vr_options_graphics()]);
+			break;
+		case _vr_option_refresh_rate:
+		{
+			real rates[16], current;
+			short chosen;
+			short count = ui_vr_options_refresh_rates(rates, &chosen, &current);
+
+			label = "Refresh rate";
+			if (count > 0)
+				snprintf(value, sizeof(value), "%.0f Hz", rates[chosen]);
+			else if (current > 1.0f)
+				snprintf(value, sizeof(value), "%.0f Hz (system)", current);
+			else
+				snprintf(value, sizeof(value), "System's");
+			unused = count <= 1;
+			break;
+		}
+		case _vr_option_resolution:
+		{
+			real scale = vr_resolution_scales[ui_vr_options_nearest((real)config_real("vr.resolution_scale"),
+				vr_resolution_scales, NUMBEROF(vr_resolution_scales))];
+
+			label = "Resolution";
+			if (fabs(scale - halo_vr_started_resolution_scale()) > 0.01f)
+				snprintf(value, sizeof(value), "%.0f%% (restart)", scale * 100.0f);
+			else
+				snprintf(value, sizeof(value), "%.0f%%", scale * 100.0f);
+			break;
+		}
 		case _vr_option_controls:
 			label = "Controller buttons...";
 			break;
@@ -7442,6 +7555,20 @@ static void ui_vr_options_render(
 			snprintf(shown, sizeof(shown), "< %s >", value);
 			ui_join_code_draw_text(330, 512, y, shown, FALSE, 1, unused ? &dim_color : &text_color);
 		}
+	}
+	if (page == 1)
+	{
+		/* (what the graphics rows do) */
+		ui_join_code_draw_text(128, 512, 230, "Graphics: Medium and Low leave effects out (shadows,", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 248, "reflections, lens flares; grass, weather...) for a steadier", FALSE,
+			0, &dim_color);
+		ui_join_code_draw_text(128, 512, 266, "frame; Max lights models for each pixel. The refresh rate", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 284, "changes at once where the headset lets it (on the Steam", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 302, "Frame, in SteamOS); the resolution after a restart.", FALSE, 0,
+			&dim_color);
 	}
 	ui_join_code_draw_text(126, 514, VR_OPTIONS_FOOTER + 8, "%a-button Change   %b-button Done", TRUE, 0, &text_color);
 }

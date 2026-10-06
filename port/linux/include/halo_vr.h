@@ -263,6 +263,12 @@ enum
 	HALO_VR_GRAPHICS_MAX,
 };
 int halo_vr_graphics(void);
+/* the VR options: the refresh rates the headset offers (Hz, at most maximum;
+0 when it lets none be chosen, as SteamVR), and the one it runs at (0:
+unknown; vr.refresh_rate asks for one); and vr.resolution_scale as the app
+started (it takes a restart) */
+int halo_vr_refresh_rates(float *rates, int maximum, float *current);
+float halo_vr_started_resolution_scale(void);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks

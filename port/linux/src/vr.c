@@ -250,6 +250,10 @@ static struct
 	vr.mirror_controls the sticks and face buttons mirrored too */
 	int left_handed;
 	int mirror_controls;
+	/* vr.refresh_rate as last asked for (the VR options change it), and
+	vr.resolution_scale as the app started with it */
+	float refresh_rate_wanted;
+	float resolution_scale;
 } vr;
 
 /* d3d8_gl.c */
@@ -513,6 +517,17 @@ static void vr_read_live_settings(void)
 		vr.left_handed = left_handed;
 		vr.mirror_controls = config_boolean("vr.mirror_controls");
 	}
+	{
+		/* (the refresh rate changes at once where the runtime lets it) */
+		float refresh_rate = (float)config_real("vr.refresh_rate");
+
+		if (vr.active && refresh_rate != vr.refresh_rate_wanted)
+		{
+			platform_log("VR: refresh rate %.0f Hz asked for", refresh_rate);
+			host_xr_set_refresh_rate(refresh_rate);
+		}
+		vr.refresh_rate_wanted = refresh_rate;
+	}
 }
 
 void halo_vr_initialize(void)
@@ -535,6 +550,7 @@ void halo_vr_initialize(void)
 	vr.crouch_limit = (float)config_real("vr.crouch_limit");
 	vr.rise_limit = 0.25f;
 	vr.log_performance = config_boolean("vr.log_performance");
+	vr.resolution_scale = (float)config_real("vr.resolution_scale");
 	vr.aim_with_controller = strcmp(config_string("vr.aim_with"), "head") != 0;
 	vr.weapon_offset[0] = (float)config_real("vr.weapon_forward");
 	vr.weapon_offset[1] = (float)config_real("vr.weapon_right");
@@ -601,6 +617,17 @@ int halo_vr_controller_layout(void)
 int halo_vr_weapon_hand(void)
 {
 	return weapon_hand();
+}
+
+int halo_vr_refresh_rates(float *rates, int maximum, float *current)
+{
+	*current = 0.0f;
+	return vr.active ? host_xr_refresh_rates(rates, maximum, current) : 0;
+}
+
+float halo_vr_started_resolution_scale(void)
+{
+	return vr.resolution_scale;
 }
 
 int halo_vr_graphics(void)
@@ -713,6 +740,14 @@ static void performance_report(int stereo)
 		vr.report_start_us = now;
 	if (now - vr.report_start_us < 5000000)
 		return;
+	{
+		/* (the rate the headset runs at now: the VR options change it) */
+		float rates[1], current = 0.0f;
+
+		host_xr_refresh_rates(rates, 0, &current);
+		if (current > 1.0f)
+			vr.info.refresh_rate = current;
+	}
 	{
 		float frames = (float)vr.report_frames;
 		float seconds = (float)(now - vr.report_start_us) * 1e-6f;
@@ -3028,6 +3063,12 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_weapon_hand(void) { return 1; }
 int halo_vr_graphics(void) { return HALO_VR_GRAPHICS_HIGH; }
+int halo_vr_refresh_rates(float *rates, int maximum, float *current)
+{
+	(void)rates; (void)maximum; *current = 0.0f;
+	return 0;
+}
+float halo_vr_started_resolution_scale(void) { return 1.0f; }
 int halo_vr_active(void) { return 0; }
 unsigned long long halo_vr_timing_start(void) { return 0; }
 unsigned long halo_vr_frame_serial(void) { return 0; }

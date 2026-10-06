@@ -61,6 +61,8 @@ host_xr_end_frame
 host_xr_haptic
 host_xr_set_vignette
 host_xr_copy_layer_array
+host_xr_refresh_rates
+host_xr_set_refresh_rate
 host_android_path
 
 host_errno

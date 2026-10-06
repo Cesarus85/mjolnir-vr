@@ -2052,6 +2052,34 @@ void host_xr_set_vignette(float strength)
 	xr.vignette = strength < 0.0f ? 0.0f : strength > 1.0f ? 1.0f : strength;
 }
 
+/* the VR options' refresh rates: those the runtime offers (none where it
+lets none be chosen, as SteamVR, whose rate is SteamOS's), and the one it
+runs at, by XR_FB_display_refresh_rate or else by its frames' period */
+int host_xr_refresh_rates(float *rates, int maximum, float *current)
+{
+	float offered[16];
+	uint32_t count = 0, index;
+
+	*current = 0.0f;
+	if (!xr.initialized)
+		return 0;
+	if (xr.has_refresh_rate)
+		xr.get_refresh_rate(xr.session, current);
+	if (*current <= 0.0f && xr.frame_state.predictedDisplayPeriod > 0)
+		*current = 1e9f / (float)xr.frame_state.predictedDisplayPeriod;
+	if (!xr.has_refresh_rate || !XR_SUCCEEDED(xr.enumerate_refresh_rates(xr.session, 16, &count, offered)))
+		return 0;
+	for (index = 0; index < count && (int)index < maximum; index++)
+		rates[index] = offered[index];
+	return (int)index;
+}
+
+void host_xr_set_refresh_rate(float wanted)
+{
+	if (xr.initialized)
+		refresh_rate_choose(wanted);
+}
+
 void host_xr_haptic(int hand, float amplitude, float seconds)
 {
 	XrHapticActionInfo information = { XR_TYPE_HAPTIC_ACTION_INFO };
