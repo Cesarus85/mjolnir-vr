@@ -249,6 +249,9 @@ int halo_vr_wheel_held(void);
 /* the controllers' layout (HALO_XR_LAYOUT_*: 0 the Quest's, 1 the Steam
 Frame's), for what the game tells the player */
 int halo_vr_controller_layout(void);
+/* the hand that holds the weapon (HALO_XR_HAND_*: 1 the right, 0 the left,
+vr.handedness) */
+int halo_vr_weapon_hand(void);
 /* whether a seated player's view stays in first person (director.c) */
 int halo_vr_vehicle_first_person(void);
 /* VR test aid (debug.vehicle_spawn): both sticks held in for a moment asks

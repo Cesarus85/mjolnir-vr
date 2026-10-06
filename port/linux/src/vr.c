@@ -598,6 +598,11 @@ int halo_vr_controller_layout(void)
 	return vr.active ? vr.frame.controller_layout : HALO_XR_LAYOUT_TOUCH;
 }
 
+int halo_vr_weapon_hand(void)
+{
+	return weapon_hand();
+}
+
 int halo_vr_eye_size(int *width, int *height)
 {
 	const char *eye_width = getenv("HALO_VR_EYE_WIDTH");
@@ -3000,6 +3005,7 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 #else
 
 int halo_vr_controller_layout(void) { return 0; }
+int halo_vr_weapon_hand(void) { return 1; }
 int halo_vr_active(void) { return 0; }
 unsigned long long halo_vr_timing_start(void) { return 0; }
 unsigned long halo_vr_frame_serial(void) { return 0; }

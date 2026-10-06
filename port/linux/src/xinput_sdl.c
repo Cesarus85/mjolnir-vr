@@ -1046,12 +1046,15 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
 #ifdef HALO_ANDROID
-	/* VR: the heavy (left) motor in the left hand, the light one in the
-	right, as the game refreshes them every frame */
+	/* VR: the heavy (left) motor in the free hand, the light one in the
+	weapon's (left-handed, the other way round), as the game refreshes them
+	every frame */
 	if (port == 0 && halo_vr_active())
 	{
-		host_xr_haptic(HALO_XR_HAND_LEFT, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
-		host_xr_haptic(HALO_XR_HAND_RIGHT, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
+		int weapon = halo_vr_weapon_hand();
+
+		host_xr_haptic(HALO_XR_HAND_COUNT - 1 - weapon, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
+		host_xr_haptic(weapon, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
 	}
 #endif
 	count = sdl_gamepads(gamepads);
