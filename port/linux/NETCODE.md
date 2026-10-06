@@ -56,13 +56,17 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   BSP the team hasn't been in brings every player to whoever crossed it,
   as split screen does; one back into a BSP it has been in switches only
   with two thirds of the living players at it (in the trigger, or within
-  4 world units of the player in it), so one player can't drag the team
-  back through the level. A player outside the loaded BSP and falling for
-  two seconds is brought back beside a teammate. A dead player watches a
-  living teammate (`coop_spectate.c`) and comes back beside one once it is
-  safe. With everyone dead they come back where they were at the last
-  checkpoint, since only the host could revert. A level won ends the round
-  as in multiplayer, and the next round is the campaign's next level.
+  15 world units of the player in it, about 45 metres), so one player can't
+  drag the team back through the level; a player held back is told how
+  many are there and how many it needs. A player outside the loaded BSP
+  and falling for two seconds is brought back beside a teammate. A dead
+  player watches a living teammate (`coop_spectate.c`) and comes back
+  beside one once it is safe. With everyone dead they come back where they
+  were at the last checkpoint, without a revert. A mission the scripts fail
+  with players still alive reverts to the last checkpoint on the host, as a
+  skipped cutscene does (below); a client never reverts on its own. A level
+  won ends the round as in multiplayer, and the next round is the
+  campaign's next level.
 
   Cutscenes are skipped by vote: more than half the machines must press
   skip. The host then reverts as single player does, but keeps its clock
@@ -73,12 +77,13 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   The host's EXTRA ENEMIES (`coop_enemies.c`, `network.coop_enemies_mode`)
   give each squad of enemies a level places more of itself: PER PLAYER, a
   percentage of itself for each player past the first; STATIC MULTIPLIER,
-  that many times itself for any number of players. They stand in rings
-  about its starting locations where the ground is open, and never take the
-  actors a level needs for its own (the actor pool, `halo_port_capacity.h`,
-  holds 1024). Riders a dropship has no seats for are kept, and placed
-  beside its riders once they get out. Only the host runs the AI, so the
-  clients see them as the host's other actors.
+  that many times itself for any number of players. They stand around its
+  starting locations on free ground (the same floor, clear of crates and
+  other actors, with room to stand), or where none is left on rings about
+  them as before, and never take the actors a level needs for its own (the
+  actor pool, `halo_port_capacity.h`, holds 1024). Riders a dropship has no
+  seats for are kept, and placed beside its riders once they get out. Only
+  the host runs the AI, so the clients see them as the host's other actors.
 - **Host authoritative.** The host alone decides damage, deaths, spawns,
   pickups, scores and the game's objects; clients do not decide them but
   apply what the host sends.
@@ -159,7 +164,16 @@ version 13 drives up to 1056 of the host's AI units on its clients (co-op's
 extra enemies), where 12 drove 288; version 14 sends co-op's device positions
 and its units opening and closing; version 15 sends co-op's allegiances with
 its presentation, a message of another size; version 16 has a client's input
-say which structure BSP it has loaded (co-op).
+say which structure BSP it has loaded (co-op); version 17 breaks the host's
+glass and destructible scenery on every machine (and takes a client's hits on
+scenery), sends the cluster a co-op cutscene keeps active, and leaves a
+failed co-op mission's revert to the host; version 18 sends with an object
+the bitmap of its shaders it draws with when its actor variant set one (co-op:
+the Elite major's and commander's armor); version 19 sends with the game's
+settings whether co-op's players collide with each other (Server Setup's PLAYER
+COLLISIONS: each machine's players then pass through the others'); version 20
+lists a public game with a password with its invite's token sealed with the
+password's key (`p2p_lobby.c`), a listing of another layout.
 
 A client plays by its host's rules: in another's game (searching for it,
 in its lobby, or playing it) the developer console, the telnet console
@@ -181,9 +195,13 @@ only ever jumps forward to it when behind, so an honest one is never ahead
 while going faster (one that caught up, or a host that stalled, is one or
 the other, not both). One more than a tenth faster and half a second ahead
 has its players' predictions refused at once (the host's copies go as its
-own ticks have them), and after ten seconds of it is dropped, its address
-kept out of the host's games while the host runs, and every machine is
-told who, in red on its console and in its `debug.txt`
+own ticks have them), and after ten seconds of it is dropped, and every
+machine is told who, in red on its console and in its `debug.txt`. Its
+address is kept out of the host's games while the host runs only when a
+message that came over its connection's stream was that far ahead too: a
+datagram is known to be the machine's only by the address it came from,
+which another machine can send one as, so on its datagrams alone it is
+dropped, logged, and may join again
 (`distributed_note_client_clock`, `network_game_server_kick_machine`,
 `_distributed_message_notice`). The host also adds a line to
 `cheaters.txt` beside its `debug.txt`: when, the player's address (an
@@ -198,7 +216,8 @@ A joining machine tells the host its hardware id: a keyed hash (HMAC-SHA-256,
 16 bytes as hex) of what its machine is known by (Windows' SMBIOS UUID, else
 its MachineGuid; Linux's `/etc/machine-id`; Android's `ANDROID_ID`, which the
 launcher writes to `hardware_id.txt`: `p2p_hardware_id`), kept by the host
-as hex only. A player dropped for cheating, and one the host bans with the
+as hex only. A player dropped for cheating (on its stream's word, as
+above), and one the host bans with the
 console's `ban <player name>` (Tab completes the name; the host's alone), is
 added to `bans.txt` beside `debug.txt` (a line each, as in `cheaters.txt`,
 with `ip=` and `hwid=`): the host refuses a machine joining whose address or

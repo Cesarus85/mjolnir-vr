@@ -7,9 +7,15 @@ percentage): for each player past the first, each squad of the players'
 enemies that a level places (encounters.c's encounter_create) gets that
 much of its count more; at 100%, two players meet twice the squad, four
 players four times it. STATIC MULTIPLIER (network.coop_enemies_multiplier):
-each squad is that many times as large, for any number of players. The
-extra enemies stand in rings about the squad's starting locations, on
-open ground, so they do not start inside each other.
+each squad is that many times as large, for any number of players.
+
+Extra enemies are placed in widening rings around the squad's starting
+locations, on a spot on the same floor, reachable without passing through
+a wall, crate or machine, with room to stand and nobody already there. A
+starting location with no room left passes its enemy to the squad's next
+one; if none has room, the enemy goes where extra enemies went before free
+ground was looked for (rings around the starting location, whoever stands
+there), so a squad still gets every enemy the setting asks for.
 
 A squad a script loads into a dropship (vehicle_load_magic) can be larger
 than the dropship's seats. The riders left without a seat are erased, and
@@ -60,9 +66,12 @@ enum
 	COOP_ENEMIES_MAXIMUM_PERCENT = 200,
 	COOP_ENEMIES_MINIMUM_MULTIPLIER = 2,
 	COOP_ENEMIES_MAXIMUM_MULTIPLIER = 32,
-	/* the places tried for an extra enemy, a ring further out each */
-	SPREAD_ATTEMPTS = 8,
+	/* the rings tried around a starting location, the first holding
+	SPREAD_PLACES_PER_RING places and each further one that many more */
+	SPREAD_RINGS = 5,
 	SPREAD_PLACES_PER_RING = 6,
+	/* the rings coop_enemies_fallback_position tries, a place on each */
+	FALLBACK_RINGS = 8,
 	MAXIMUM_RIDING_VEHICLES = 32,
 	MAXIMUM_SEATED_RIDERS = 16,
 	MAXIMUM_KEPT_RIDERS = 512,
@@ -71,11 +80,25 @@ enum
 	RIDER_RELEASE_TICKS = 4,
 };
 
-/* the rings' spacing, and the height over the ground the way to a place is
-looked along, and the ground looked for below it */
+/* (coop_enemies.h's count of the places on all the rings) */
+typedef char coop_enemies_spread_spots_assert[
+	COOP_ENEMIES_SPREAD_SPOTS == SPREAD_PLACES_PER_RING * SPREAD_RINGS * (SPREAD_RINGS + 1) / 2 ? 1 : -1];
+
+/* distance between rings */
 #define SPREAD_SPACING 0.8f
+/* height above the floor at which the way to a spot is checked */
 #define SPREAD_STEP_HEIGHT 0.6f
-#define SPREAD_GROUND_DEPTH 2.0f
+/* how far a spot's floor may be above or below the starting location's:
+a step, not a ledge */
+#define SPREAD_FLOOR_DIFFERENCE 0.5f
+/* room a spot needs above its floor */
+#define SPREAD_HEADROOM 1.6f
+/* how close across the ground a spot may be to a biped already there
+(about two bipeds' collision radius), and how far around it to look */
+#define SPREAD_CLEARANCE 0.6f
+#define SPREAD_SEARCH_RADIUS 1.0f
+/* how far below a fallback place the ground is looked for */
+#define FALLBACK_GROUND_DEPTH 2.0f
 /* a kept rider's place beside a rider who got out, each a little apart */
 #define RIDER_SPACING 0.5f
 
@@ -160,35 +183,105 @@ static short coop_enemies_player_count(
 	return count;
 }
 
-/* whether the way from a to b is open (no structure between them) */
-static boolean coop_enemies_open(
-	real_point3d const *a,
-	real_point3d const *b)
+/* what a spot is tested against: the level, and the objects that block
+the way (crates and other scenery, machines, vehicles) */
+#define SPREAD_COLLISION_FLAGS (FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | \
+	_collision_test_objects_sight_blocking_flags | FLAG(_collision_test_front_facing_surfaces_bit) | \
+	FLAG(_collision_test_back_facing_surfaces_bit))
+
+/* whether anything is in the way from `from`, along `vector` */
+static boolean coop_enemies_blocked(
+	real_point3d const *from,
+	real_vector3d const *vector)
 {
 	struct collision_result collision;
-	real_vector3d vector;
 
-	vector.i = b->x - a->x;
-	vector.j = b->y - a->y;
-	vector.k = b->z - a->z;
-	return !collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
-		FLAG(_collision_test_back_facing_surfaces_bit), a, &vector, NONE, &collision);
+	return collision_test_vector(SPREAD_COLLISION_FLAGS, from, vector, NONE, &collision);
 }
 
-/* the ground below a point, within SPREAD_GROUND_DEPTH of it */
-static boolean coop_enemies_ground(
+/* the floor under a point, looked for from SPREAD_STEP_HEIGHT above it to
+SPREAD_FLOOR_DIFFERENCE below it */
+static boolean coop_enemies_floor(
 	real_point3d const *point,
-	real_point3d *ground)
+	real_point3d *floor)
 {
 	struct collision_result collision;
-	real_vector3d vector = { 0.0f, 0.0f, -(SPREAD_STEP_HEIGHT + SPREAD_GROUND_DEPTH) };
+	real_point3d from = *point;
+	real_vector3d down = { 0.0f, 0.0f, -(2.0f * SPREAD_STEP_HEIGHT + SPREAD_FLOOR_DIFFERENCE) };
 
-	if (!collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
-		point, &vector, NONE, &collision))
+	from.z += SPREAD_STEP_HEIGHT;
+	if (!collision_test_vector(SPREAD_COLLISION_FLAGS, &from, &down, NONE, &collision))
+		return FALSE;
+	*floor = collision.point;
+	return TRUE;
+}
+
+/* whether a biped stands within SPREAD_CLEARANCE of a spot on the floor,
+or the spot is inside a vehicle */
+static boolean coop_enemies_occupied(
+	real_point3d const *floor)
+{
+	real_point3d body = { floor->x, floor->y, floor->z + SPREAD_STEP_HEIGHT };
+	struct location location;
+	long object_indices[32];
+	short object_count;
+	short index;
+
+	scenario_location_from_point(&location, &body);
+	if (location.cluster_index == NONE)
+		return TRUE;
+	object_count = objects_in_sphere(0, _object_mask_biped | _object_mask_vehicle, &location, &body,
+		SPREAD_SEARCH_RADIUS, object_indices, NUMBEROF(object_indices));
+	for (index = 0; index < object_count; index++)
+	{
+		struct object_datum *object = object_get(object_indices[index]);
+
+		if (object->object.type == _object_type_vehicle)
+		{
+			if (point_in_sphere(&body, &object->object.bounding_sphere_center, object->object.bounding_sphere_radius))
+				return TRUE;
+		}
+		else
+		{
+			real dx = object->object.position.x - floor->x;
+			real dy = object->object.position.y - floor->y;
+
+			if (dx * dx + dy * dy < SPREAD_CLEARANCE * SPREAD_CLEARANCE)
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* Whether an enemy can stand at `spot`: reachable from `from` (beside the
+starting location) with nothing in the way, a floor within a step of
+`floor_height` (the starting location's), room above it, and nobody there.
+The floor goes in `position`. */
+static boolean coop_enemies_spot_free(
+	real_point3d const *from,
+	real_point3d const *spot,
+	real floor_height,
+	real_point3d *position)
+{
+	/* (level, at step height: down to the starting location's floor, a spot
+	whose floor is a little higher would end the look inside it) */
+	real_vector3d way = { spot->x - from->x, spot->y - from->y, 0.0f };
+	real_vector3d up = { 0.0f, 0.0f, SPREAD_HEADROOM };
+	real_point3d floor;
+	real_point3d feet;
+
+	if (coop_enemies_blocked(from, &way) || !coop_enemies_floor(spot, &floor) ||
+		fabsf(floor.z - floor_height) > SPREAD_FLOOR_DIFFERENCE)
 	{
 		return FALSE;
 	}
-	*ground = collision.point;
+	/* (headroom is checked from just above the floor, so the floor itself
+	doesn't count as in the way) */
+	feet = floor;
+	feet.z += 0.1f;
+	if (coop_enemies_blocked(&feet, &up) || coop_enemies_occupied(&floor))
+		return FALSE;
+	*position = floor;
 	return TRUE;
 }
 
@@ -263,6 +356,7 @@ static void coop_enemies_rider_place(
 	short out_count = 0;
 	short index, round;
 	real angle;
+	real_point3d spread;
 
 	*position = object->object.position;
 	*facing = (real)atan2(object->object.forward.j, object->object.forward.i);
@@ -299,7 +393,13 @@ static void coop_enemies_rider_place(
 			}
 		}
 	}
-	/* (never on the rider's own place: a ring about it, further each round) */
+	/* free ground around that spot, as the squad's own extra enemies get;
+	failing that, a ring around it, further out each round */
+	if (coop_enemies_spread_position(position, (short)(number + 1), NULL, &spread))
+	{
+		*position = spread;
+		return;
+	}
 	angle = (real)number * (_pi * 2.0f / SPREAD_PLACES_PER_RING);
 	position->x += (real)cos(angle) * RIDER_SPACING * (real)(round / SPREAD_PLACES_PER_RING + 1);
 	position->y += (real)sin(angle) * RIDER_SPACING * (real)(round / SPREAD_PLACES_PER_RING + 1);
@@ -359,6 +459,48 @@ short coop_enemies_extra_count(
 boolean coop_enemies_spread_position(
 	real_point3d const *origin,
 	short number,
+	long *taken,
+	real_point3d *position)
+{
+	real_point3d from = *origin;
+	real_point3d floor;
+	real floor_height = coop_enemies_floor(origin, &floor) ? floor.z : origin->z;
+	short ring, first_spot = 0;
+
+	from.z = floor_height + SPREAD_STEP_HEIGHT;
+	for (ring = 0; ring < SPREAD_RINGS; ring++)
+	{
+		short place_count = (short)(SPREAD_PLACES_PER_RING * (ring + 1));
+		real radius = SPREAD_SPACING * (real)(ring + 1);
+		short place;
+
+		/* (each enemy starts at a different place on the ring, so a squad
+		spreads all the way round rather than filling one side first) */
+		for (place = 0; place < place_count; place++)
+		{
+			short around = (short)((number + place) % place_count);
+			short spot_index = (short)(first_spot + around);
+			real angle = (real)around * (_pi * 2.0f / (real)place_count);
+			real_point3d spot = from;
+
+			if (taken && BIT_VECTOR_TEST_FLAG(taken, spot_index))
+				continue;
+			spot.x += (real)cos(angle) * radius;
+			spot.y += (real)sin(angle) * radius;
+			spot.z = floor_height;
+			if (coop_enemies_spot_free(&from, &spot, floor_height, position))
+				return TRUE;
+			if (taken)
+				BIT_VECTOR_SET_FLAG(taken, spot_index, TRUE);
+		}
+		first_spot = (short)(first_spot + place_count);
+	}
+	return FALSE;
+}
+
+boolean coop_enemies_fallback_position(
+	real_point3d const *origin,
+	short number,
 	real_point3d *position)
 {
 	real_point3d from = *origin;
@@ -367,18 +509,30 @@ boolean coop_enemies_spread_position(
 	short attempt;
 
 	from.z += SPREAD_STEP_HEIGHT;
-	for (attempt = 0; attempt < SPREAD_ATTEMPTS; attempt++, ring++)
+	for (attempt = 0; attempt < FALLBACK_RINGS; attempt++, ring++)
 	{
 		/* (each ring turned half a place from the last, so its places fall
 		between the last's) */
 		real angle = ((real)place + 0.5f * (real)(ring % 2)) * (_pi * 2.0f / SPREAD_PLACES_PER_RING);
 		real radius = SPREAD_SPACING * (real)(ring + 1);
 		real_point3d to = from;
+		real_vector3d way = { 0.0f, 0.0f, 0.0f };
+		real_vector3d down = { 0.0f, 0.0f, -(SPREAD_STEP_HEIGHT + FALLBACK_GROUND_DEPTH) };
+		struct collision_result collision;
 
-		to.x += (real)cos(angle) * radius;
-		to.y += (real)sin(angle) * radius;
-		if (coop_enemies_open(&from, &to) && coop_enemies_ground(&to, position))
+		way.i = (real)cos(angle) * radius;
+		way.j = (real)sin(angle) * radius;
+		to.x += way.i;
+		to.y += way.j;
+		/* (the level only: the way open, and ground below) */
+		if (!collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
+				FLAG(_collision_test_back_facing_surfaces_bit), &from, &way, NONE, &collision) &&
+			collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+				&to, &down, NONE, &collision))
+		{
+			*position = collision.point;
 			return TRUE;
+		}
 	}
 	return FALSE;
 }

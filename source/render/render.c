@@ -442,12 +442,23 @@ static void render_window(
 #ifdef HALO_ANDROID
 		if (render_vr_eye_pass)
 		{
-			/* the HUD and the menus go on the overlay (render_vr_overlay) */
+			/* the HUD and the menus go on the overlay (render_vr_overlay);
+			no antialiasing pass on the eyes' pictures */
 			rasterizer_screen_flash();
 		}
 		else
 #endif
 		{
+			/* port: the 3D view antialiased (display.anti_aliasing), before the
+			HUD and menus are drawn over it */
+			if (rasterizer_target == _render_target_primary)
+			{
+				halo_screen_anti_alias(
+					rasterizer_camera->viewport_bounds.x0,
+					rasterizer_camera->viewport_bounds.y0,
+					rasterizer_camera->viewport_bounds.x1,
+					rasterizer_camera->viewport_bounds.y1);
+			}
 			interface_draw_screen();
 			rasterizer_screen_flash();
 			halo_screen_ui_offset(TRUE);

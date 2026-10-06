@@ -31,6 +31,7 @@ OBJECTS.C
 #include "game/players.h"
 #include "items/weapons.h"
 #include "main/console.h"
+#include "interface/terminal.h"
 #include "math/periodic_functions.h"
 #include "memory/memory_pool.h"
 #include "models/model_animation_definitions.h"
@@ -523,6 +524,18 @@ void object_pvs_set_camera_point(
 	}
 
 	return;
+}
+
+void objects_port_set_activating_cluster(
+	short cluster_index)
+{
+	if (cluster_index == NONE || cluster_index >= global_structure_bsp_get()->clusters.count)
+	{
+		object_globals->pvs_activation_type = _pvs_activation_normal;
+		return;
+	}
+	object_globals->pvs_activation_type = _pvs_activation_cluster;
+	object_globals->pvs_activation.cluster_index = cluster_index;
 }
 
 void object_pvs_clear(void)
@@ -4090,7 +4103,10 @@ void objects_garbage_collection(
 					}
 
 					sprintf(tempbuffer, "garbage collection %scritical (%s)", status, warningbuf);
-					console_printf(FALSE, "%s", tempbuffer);
+					/* (port: chatter, shown as config.toml's game.console_log says:
+					many enemies keep it coming, over the whole screen) */
+					if (terminal_shows(_terminal_message_chatter))
+						console_printf(FALSE, "%s", tempbuffer);
 					error(_error_log, "%s", tempbuffer);
 					update_time = TRUE;
 				}
@@ -4129,7 +4145,9 @@ void objects_garbage_collection(
 								char tempbuffer[512];
 
 								sprintf(tempbuffer, "removing objects: %s", released_resultbuf);
-								console_printf(FALSE, "%s", tempbuffer);
+								/* (port: chatter, shown as config.toml's game.console_log says) */
+								if (terminal_shows(_terminal_message_chatter))
+									console_printf(FALSE, "%s", tempbuffer);
 								error(_error_log, "%s", tempbuffer);
 							}
 

@@ -23,16 +23,21 @@ VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 
 # each screen: its folder below PE, its screen's widget (the name the profile
 # menu opens), its header (widget, bitmap), the row spacing, and its rows:
-# (label, setting, [(shown, value)], help, platform)
+# (label, setting, [(shown, value)], help, platform[, key]): key names the
+# row's widgets where two rows set one setting (one for each platform), else
+# the setting's name does
 SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        "spacing": 26,
+        # (closer than the other screens' rows, and the help lower, for all
+        # twelve places to fit above it)
+        "spacing": 24,
+        "help_top": 364,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses)
-        "same_place": ["display.window_size"],
+        # display mode chosen uses; Android's anti-aliasing in the desktop's)
+        "same_place": ["display.window_size", "anti_aliasing_android"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
@@ -62,6 +67,21 @@ SCREENS = {
              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
              "Draw text and titles with high-res fonts; off\ndraws the game's own.", None),
+            ("ANTI-ALIASING:", "display.anti_aliasing",
+             [("OFF", "off"), ("FXAA", "fxaa"), ("SMAA", "smaa"), ("SSAA 2X", "ssaa2x"), ("MSAA 2X", "msaa2x"),
+              ("MSAA 4X", "msaa4x"), ("MSAA 8X", "msaa8x")],
+             "Smooth jagged edges, which the Xbox did not. FXAA\nand SMAA are cheap; SSAA and MSAA are sharper.",
+             "desktop"),
+            ("ANTI-ALIASING:", "display.anti_aliasing",
+             [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
+             "Smooth jagged edges, which the Xbox did not. FXAA\nis cheap; MSAA is sharper.",
+             "android", "anti_aliasing_android"),
+            ("SHADOW RESOLUTION:", "display.shadow_resolution",
+             [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
+             "The size objects' shadows are drawn at: 128 as on\nthe Xbox; larger for smoother, as soft, edges.",
+             None),
+            ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
+             "Light models for each pixel, without the facets\nof the Xbox's lighting for each vertex.", None),
         ],
     },
     "mouse_settings": {
@@ -88,6 +108,8 @@ SCREENS = {
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "The music's volume.", None),
             ("EFFECTS VOLUME:", "audio.effects_volume", VOLUMES,
              "The volume of every other sound: effects and\nspeech.", None),
+            ("REVERB:", "audio.reverb", ON_OFF,
+             "Echo sounds as the place you are in does, and\nmuffle those behind walls, as the Xbox did.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Play sound at all; from the next time the game\nstarts.", None),
         ],
@@ -225,10 +247,10 @@ def _setting_screen(folder: str, spec: dict) -> list:
     base = f"{PE}/{folder}"
     rows, extra = [], []
     place = -1
-    for index, (label, setting, choices, _, platform) in enumerate(spec["rows"]):
-        key = setting.split(".", 1)[1]
+    for index, (label, setting, choices, _, platform, *named) in enumerate(spec["rows"]):
+        key = named[0] if named else setting.split(".", 1)[1]
         row = f"{base}/op_{key}"
-        if setting not in spec.get("same_place", ()):
+        if setting not in spec.get("same_place", ()) and key not in spec.get("same_place", ()):
             place += 1
         rows.append((row, platform, place))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -255,7 +277,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     extra += _strings(f"{base}/labels", [label for label, *_ in spec["rows"]])
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     extra += _strings(f"{base}/help_strings",
-                      [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, _ in spec["rows"]])
+                      [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec["rows"]])
     return _screen(folder, spec, rows, ["port settings help"], [], extra)
 
 
@@ -504,6 +526,7 @@ WIDGET_PATCHES = {
 TITLES = {
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
+    f"{MT}/join_game/header_password": "PASSWORD",
     f"{MT}/lobby/header_lobby": "GAME LOBBY",
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
     f"{MT}/lobby/header_add_player": "ADD PLAYER",
@@ -594,9 +617,11 @@ def _value_row(base: str, key: str, label_index: int, run: str) -> list:
 
 
 def _join_game_extras() -> list:
-    """the browser's added titles and Direct Link's clipboard button"""
+    """the browser's added titles, Direct Link's clipboard button, and the
+    password screen"""
     base = f"{MT}/join_game"
-    lines = _header(f"{base}/header_server_browser", f"{base}/header_server_browser")
+    lines = _password_screen()
+    lines += _header(f"{base}/header_server_browser", f"{base}/header_server_browser")
     lines += _header(f"{base}/header_direct_link", f"{base}/header_direct_link")
     lines += _widget(f"{base}/button_clipboard", [("type", "text"), ("width", 128), ("height", 24),
                                                   ("bitmap", "bitmaps/text_button_background"),
@@ -607,14 +632,48 @@ def _join_game_extras() -> list:
     return lines
 
 
+def _password_screen() -> list:
+    """the server browser's password screen: a game with a password chosen
+    (menu_functions.c's lobby_browser_select), its password typed (shown as
+    stars), JOIN GAME joins it if it is the game's; else its help says so"""
+    base = f"{MT}/join_game/password"
+    spec = {"screen": "password_screen", "spacing": 28, "help_top": 120,
+            "header": ("header_password", f"{MT}/join_game/header_password")}
+    extra = _value_row(base, "password", 0, "port password edit")
+    extra += _button(f"{base}/button_defaults", 3, [])
+    extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
+                                           ("bitmap", "bitmaps/text_button_background"), ("text", "JOIN GAME"),
+                                           ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                                           ("text_y", 2)],
+                     ['<on event="a" run="port password join"/>', '<on event="start" run="port password join"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+    extra += _strings(f"{base}/labels", ["PASSWORD:"])
+    # (by its state: menu_functions.c's password_screen_update)
+    extra += _strings(f"{base}/help_strings", [
+        "",
+        "This game has a password. Type it, then press\\nEnter to join.",
+        "That is not the game's password. Try again.",
+        "Could not join the game.",
+    ])
+    lines = _screen(base, spec, [(f"{base}/op_password", None)], ["port password update"],
+                    ['<on event="created" run="port password init"/>'], extra)
+    # (no Defaults: the bar is JOIN GAME and CANCEL; B goes back at once,
+    # even while typing, which the screen starts with)
+    lines = [line.replace(f'<child widget="{base}/button_defaults" y="1"/>', "") for line in lines]
+    lines = [line.replace('<on event="b" back="true"/>', '<on event="b" run="port password back"/>')
+             .replace('<on event="back" back="true"/>', '<on event="back" run="port password back"/>')
+             for line in lines]
+    return lines
+
+
 def _server_settings() -> list:
     """Create Game's server settings (in the PC version's place): the game's
     name, the most players (up to the port's 128), its invite link, and
     whether the server browser lists it (PUBLIC or PRIVATE: an internet
     game's)"""
     base = f"{MT}/server_settings"
-    # (ten rows: closer together, the help lower)
-    spec = {"screen": "server_settings_screen", "spacing": 28, "help_top": 358,
+    # (eleven rows: closer together, the help lower)
+    spec = {"screen": "server_settings_screen", "spacing": 26, "help_top": 366,
             "header": ("header_server_settings", f"{base}/header_server_settings")}
     rows, extra = [], []
     extra += _value_row(base, "server_name", 0, "ss edit server name")
@@ -657,6 +716,10 @@ def _server_settings() -> list:
                       ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
                      ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
     rows.append((f"{base}/op_listing", None))
+    # PASSWORD (a public internet game's: menu_functions.c's server_settings_update),
+    # which players from the server browser must type
+    extra += _value_row(base, "password", 15, "ss edit server password")
+    rows.append((f"{base}/op_password", None))
     # co-op's FRIENDLY FIRE (between its players), in the place of the
     # gametype's rows, which co-op hides as multiplayer hides it, laid out
     # as Teamplay Options' (menu_functions.c's server_settings_update); its
@@ -680,7 +743,7 @@ def _server_settings() -> list:
                       ("header_bounds", "7 -13 19 -7"), ("footer_bounds", "7 208 19 214")],
                      ['<on event="created" run="port setting load"/>', '<on event="deleted" run="port setting save"/>',
                       '<on event="left_mouse" run="mouse spinner 1wide click"/>'])
-    rows.append((f"{base}/op_friendly_fire", None, 4))
+    rows.append((f"{base}/op_friendly_fire", None, 5))
     # ... and its EXTRA ENEMIES (port/linux/game/coop_enemies.c), below it:
     # NONE, PER PLAYER or STATIC MULTIPLIER, and below that the amount of the
     # one chosen (its own row, the other hidden: menu_functions.c's
@@ -710,13 +773,18 @@ def _server_settings() -> list:
 
     spinner_row("extra_enemies", 11, ["NONE", "PER PLAYER", "STATIC MULTIPLIER"], "network.coop_enemies_mode",
                 COOP_ENEMIES_MODES)
-    rows.append((f"{base}/op_extra_enemies", None, 5))
+    rows.append((f"{base}/op_extra_enemies", None, 6))
     spinner_row("enemies_per_player", 12, [f"{value}%" for value in COOP_ENEMIES_PERCENTAGES],
                 "network.coop_enemies", COOP_ENEMIES_PERCENTAGES)
-    rows.append((f"{base}/op_enemies_per_player", None, 6))
+    rows.append((f"{base}/op_enemies_per_player", None, 7))
     spinner_row("enemies_multiplier", 13, [f"{value}X" for value in COOP_ENEMIES_MULTIPLIERS],
                 "network.coop_enemies_multiplier", COOP_ENEMIES_MULTIPLIERS)
-    rows.append((f"{base}/op_enemies_multiplier", None, 6))
+    rows.append((f"{base}/op_enemies_multiplier", None, 7))
+    # ... and its PLAYER COLLISIONS, below them (network.coop_player_collisions,
+    # which the host sends its players as the game begins: menu_functions.c's
+    # server_start)
+    spinner_row("player_collisions", 14, ["ON", "OFF"], "network.coop_player_collisions", ["true", "false"])
+    rows.append((f"{base}/op_player_collisions", None, 8))
     # the gametype's options for this game (the gametype editor's screens,
     # editing a copy of the gametype chosen: "port setup edit")
     for index, (key, screen) in enumerate(SETUP_OPTION_SCREENS):
@@ -735,7 +803,7 @@ def _server_settings() -> list:
         extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
                                                  ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
                                                  ("text_y", 5), ("text_flags", "no_focus_test")], [])
-        rows.append((f"{base}/op_{key}", None, 4 + index))
+        rows.append((f"{base}/op_{key}", None, 5 + index))
     extra += _button(f"{base}/button_defaults", 3, [])
     extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
                                            ("bitmap", "bitmaps/text_button_background"), ("text", "START GAME"),
@@ -747,7 +815,7 @@ def _server_settings() -> list:
     extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
                                          "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
                                          "TEAMPLAY OPTIONS:", "LISTING:", "FRIENDLY FIRE:", "EXTRA ENEMIES:",
-                                         "PER PLAYER:", "MULTIPLIER:"])
+                                         "PER PLAYER:", "MULTIPLIER:", "PLAYER COLLISIONS:", "PASSWORD:"])
     extra += _strings(f"{base}/help_strings", [
         "",
         "The name the game shows in the lists of games.\\nEnter changes it.",
@@ -774,6 +842,11 @@ def _server_settings() -> list:
         # (PER PLAYER's and MULTIPLIER's)
         "For each player past the first, enemy squads get\\nthis much more of themselves (100%: as many again).",
         "Each enemy squad is this many times as large.",
+        # (PLAYER COLLISIONS', by its choice)
+        "Players bump into each other, as in the campaign.",
+        "Players walk through each other, so that no one\\nblocks a doorway. The AI's characters still block.",
+        # (PASSWORD's)
+        "Players from the Server Browser must type it to\\njoin (an invite link needs none). Enter sets it.",
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)

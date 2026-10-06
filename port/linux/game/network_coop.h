@@ -45,6 +45,9 @@ enum
 /* whether this is a network co-op game (not its lobby, whose menu scene also
 has no game engine) */
 boolean network_coop_active(void);
+/* whether the players collide with each other: FALSE in a co-op game whose
+host set Server Setup's PLAYER COLLISIONS off (bipeds.c, collisions.c) */
+boolean network_coop_player_collisions(void);
 /* whether this machine is a co-op client, whose devices only the host moves */
 boolean network_coop_devices_remote(void);
 /* devices.c: a group's devices were set straight to its value */
@@ -88,6 +91,10 @@ void network_coop_note_attach(long parent_index, char const *parent_marker_name,
 	char const *child_marker_name);
 void network_coop_note_detach(long parent_index, long child_index);
 void network_coop_note_object_effect(long effect_definition_index, long object_index, char const *marker_name);
+/* breakable_surfaces.c: a breakable surface (glass) broke, from damage at
+`epicenter`. Each machine's own shots break glass too, but with their own
+random damage, so the host's breaks are the ones everyone keeps. */
+void network_coop_note_surface_broken(short breakable_surface_index, real_point3d const *epicenter);
 void network_coop_note_scenery_animation(long object_index, long animation_graph_index, short animation_index,
 	short frame_index);
 
@@ -96,9 +103,12 @@ network_coop_vote_skip returns FALSE outside network co-op, where the
 cinematic is skipped as usual. */
 boolean network_coop_skip_offered(void);
 boolean network_coop_vote_skip(void);
-/* main.c: after a co-op host reverts to skip a cinematic; now is the game
-time before the revert */
-void network_coop_skip_reverted(long now);
+/* main.c: after a co-op host reverts to its last saved state (to skip a
+cinematic, or because the mission failed); now is the game time before the
+revert */
+void network_coop_reverted(long now);
+/* main.c: the skip vote is over once the skip has reverted */
+void network_coop_skip_done(void);
 /* the vote count to show, if a skippable cinematic is playing */
 boolean network_coop_skip_vote_status(short *votes, short *voters, boolean *voted);
 

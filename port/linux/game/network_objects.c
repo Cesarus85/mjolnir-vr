@@ -60,6 +60,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "items/weapons.h"
 #include "items/weapon_definitions.h"
 #include "items/equipment_definitions.h"
+#include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "network_coop.h"
 #include "network_distributed.h"
@@ -244,7 +245,11 @@ struct distributed_object_change
 	byte change;
 	byte flags;
 	byte owner_player_index;
-	byte pad;
+	/* which bitmap of its shaders it draws with, when not its tag's (0). An
+	AI unit's actor variant sets it after the unit is made
+	(actor_customize_unit): the Elite major's and commander's armor are 1
+	and 2. Builds before it sent 0 here. */
+	byte forced_shader_permutation_index;
 	long object_index;
 	long definition_index;
 	short owner_team_index;
@@ -1003,6 +1008,7 @@ static void distributed_change_from_object(
 	change->owner_player_index = distributed_player_to_byte(object->object.owner_player_index);
 	change->owner_team_index = object->object.owner_team_index;
 	change->variant_number = object->object.variant_number;
+	change->forced_shader_permutation_index = (byte)PIN(object->object.forced_shader_permutation_index, 0, 0xFF);
 	change->position = object->object.position;
 	change->forward = object->object.forward;
 	change->up = object->object.up;
@@ -1292,8 +1298,20 @@ static short distributed_host_object_period(
 		count = objects_host_viewers.player_unit_count;
 		origins = objects_host_viewers.player_unit_origins;
 	}
+	/* in a co-op cutscene every client looks through the host's camera, so
+	what it films is sent as often as what's next to the client's players
+	(b30's sword Elite walking out of the door) */
+	if (network_coop_active() && cinematic_in_progress())
+	{
+		real_point3d const *camera = &observer_get_camera(0)->position;
+		real dx = position->x - camera->x;
+		real dy = position->y - camera->y;
+		real dz = position->z - camera->z;
+
+		nearest = dx * dx + dy * dy + dz * dz;
+	}
 	/* nobody is alive anywhere, so nothing needs to be sent often */
-	if (!count)
+	if (!count && nearest < 0.0f)
 		return MAXIMUM_OBJECT_PERIOD_TICKS;
 	for (index = 0; index < count; index++)
 	{
@@ -2142,6 +2160,8 @@ static void distributed_client_apply_change(
 	struct object_datum *object = object_get(object_index);
 
 	csmemcpy(object->object.base_change_colors, change->change_colors, sizeof(object->object.base_change_colors));
+	if (change->forced_shader_permutation_index)
+		object->object.forced_shader_permutation_index = change->forced_shader_permutation_index;
 	/* (and the colors drawn, which object_new chose from the tag: an AI unit's
 	are its variant's, set after it was made, actors.c) */
 	{
