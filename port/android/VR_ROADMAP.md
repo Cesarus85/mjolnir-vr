@@ -35,12 +35,12 @@ named where code is taken over.
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
-| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Second part **built** (branch `feature/vr-comfort`; Quest 3 good 2026-10-06): buttons remapped, finer turning and vignette choices; the flashlight by tapping the head taken out (did not work) |
+| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Second part **done** (in `main` 2026-10-06; Quest 3 good): buttons remapped, finer turning and vignette choices; the flashlight by tapping the head taken out (did not work) |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
-| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **built** (branches `feature/release-install`, `feature/rename-ringfall`): the app's import (Quest; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`), a release signing key; test pending |
-| R | Release as **Ringfall: Mjolnir VR** (no "Halo" in the product's name): app name, id `io.github.cesarus85.ringfall`, icon and library pictures (`tools/ringfall_art.py`), Frame folder and installer, release assets, README; the repository renamed | **built** (branch `feature/rename-ringfall`); test pending |
+| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **done** (in `main` 2026-10-06): the app's import (tried on the Quest 3: all 24 maps; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`; tried on the Frame: the old folder renamed, the shortcut added by Steam), a release signing key (CI and local builds the same). Sprint by arm swing still open |
+| R | Release as **Ringfall: Mjolnir VR** (no "Halo" in the product's name): app name, id `io.github.cesarus85.ringfall`, icon and library pictures (`tools/ringfall_art.py`), Frame folder and installer, release assets, README; the repository renamed | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good) |
 
 ## Step 2, first part (done)
 
@@ -137,10 +137,9 @@ To try in the headset (Quest 3 and Steam Frame):
    in a bot game; Max on the Quest at 90 Hz; refresh rates 72/80/90/120
    on the Quest; the Frame's row.
 
-## Step 2, second part (built)
+## Step 2, second part (done)
 
-On branch `feature/vr-comfort`; tried on the Quest 3 2026-10-06 (with the
-rename): good. The flashlight by tapping the head (after HaloCE-Quest-VR)
+In `main` 2026-10-06; tried on the Quest 3 (with the rename): good. The flashlight by tapping the head (after HaloCE-Quest-VR)
 did not work in the headset and was taken out again; the button stays.
 The VR
 options (Y) have four pages: PLAY ("Weapon hand", "Mirrored controls",
