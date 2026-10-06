@@ -2925,6 +2925,65 @@ void halo_vr_capture_crosshair(void)
 	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
+/* Left-handed, in play, the controllers as the gamepad's sides: the weapon
+hand's trigger and grip are the right side's (fire, melee), the free hand's
+the left side's (the grenade, both hands); with vr.mirror_controls the
+sticks, their clicks, the bumpers and the face buttons change sides too,
+the Quest's X and Y for A and B (after HaloCE-Quest-VR, CC0). The Steam
+Frame has A, B, X and Y on the right controller only, a D-pad on the left:
+the D-pad becomes them, as their mirror image (down A, left B, right X, up
+Y), and they the D-pad. The menus keep the controllers as they are (A
+accepts and B goes back, as the screens show). */
+static void controllers_mirrored(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
+{
+	struct halo_xr_hand *left = &hands[HALO_XR_HAND_LEFT];
+	struct halo_xr_hand *right = &hands[HALO_XR_HAND_RIGHT];
+	int left_buttons = left->buttons, right_buttons = right->buttons;
+	int swapped = HALO_XR_BUTTON_TRIGGER | HALO_XR_BUTTON_SQUEEZE;
+	int frame = vr.frame.controller_layout == HALO_XR_LAYOUT_FRAME;
+	float value;
+	int axis;
+
+	value = left->trigger;
+	left->trigger = right->trigger;
+	right->trigger = value;
+	value = left->squeeze;
+	left->squeeze = right->squeeze;
+	right->squeeze = value;
+	if (vr.mirror_controls)
+	{
+		for (axis = 0; axis < 2; axis++)
+		{
+			value = left->thumbstick[axis];
+			left->thumbstick[axis] = right->thumbstick[axis];
+			right->thumbstick[axis] = value;
+		}
+		swapped |= HALO_XR_BUTTON_THUMBSTICK | HALO_XR_BUTTON_BUMPER;
+		if (!frame)
+			swapped |= HALO_XR_BUTTON_A | HALO_XR_BUTTON_B;
+	}
+	left->buttons = (left_buttons & ~swapped) | (right_buttons & swapped);
+	right->buttons = (right_buttons & ~swapped) | (left_buttons & swapped);
+	if (vr.mirror_controls && frame)
+	{
+		const int face = HALO_XR_BUTTON_A | HALO_XR_BUTTON_B;
+		const int dpad = HALO_XR_BUTTON_DPAD_UP | HALO_XR_BUTTON_DPAD_DOWN | HALO_XR_BUTTON_DPAD_LEFT |
+			HALO_XR_BUTTON_DPAD_RIGHT;
+
+		/* (the right one's X and Y come as the left's A and B: host_xr.c) */
+		left->buttons &= ~(face | dpad);
+		right->buttons &= ~face;
+		right->buttons |= ((left_buttons & HALO_XR_BUTTON_DPAD_DOWN) ? HALO_XR_BUTTON_A : 0) |
+			((left_buttons & HALO_XR_BUTTON_DPAD_LEFT) ? HALO_XR_BUTTON_B : 0);
+		left->buttons |= ((left_buttons & HALO_XR_BUTTON_DPAD_RIGHT) ? HALO_XR_BUTTON_A : 0) |
+			((left_buttons & HALO_XR_BUTTON_DPAD_UP) ? HALO_XR_BUTTON_B : 0) |
+			((right_buttons & HALO_XR_BUTTON_A) ? HALO_XR_BUTTON_DPAD_DOWN : 0) |
+			((right_buttons & HALO_XR_BUTTON_B) ? HALO_XR_BUTTON_DPAD_LEFT : 0) |
+			((left_buttons & HALO_XR_BUTTON_A) ? HALO_XR_BUTTON_DPAD_RIGHT : 0) |
+			((left_buttons & HALO_XR_BUTTON_B) ? HALO_XR_BUTTON_DPAD_UP : 0);
+	}
+}
+
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus)
 {
@@ -2932,6 +2991,8 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 		return 0;
 	memcpy(hands, vr.frame.hands, sizeof(vr.frame.hands));
 	*menus = vr.last_overlay_mode == HALO_XR_OVERLAY_SCREEN;
+	if (vr.left_handed && !*menus)
+		controllers_mirrored(hands);
 	return 1;
 }
 

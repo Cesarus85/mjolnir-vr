@@ -851,6 +851,14 @@ Holding a Warthog's wheel (vr.c), the right trigger is the throttle and the
 left one the brake (backwards, once stopped): the left stick pushed up or
 down as far, unless it is pushed further.
 
+Left-handed (vr.handedness), vr.c hands the controllers over with the sides
+swapped where the hands' jobs are (halo_vr_controllers): the left trigger
+fires and the left grip strikes, the right ones hold and throw the grenade
+and grip the foregrip; and with vr.mirror_controls the sticks, bumpers and
+face buttons too (the right stick moves, X jumps, A reloads; on the Steam
+Frame the left D-pad takes A, B, X and Y). Here "right" and "left" are the
+sides so handed over.
+
 In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 #include "guest_host.h"
