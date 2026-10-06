@@ -67,8 +67,16 @@ Left-handed (`vr.handedness = "left"`):
   laser pointer works from either hand as before.
 - Other machines see the shots leave the left hand (the network message
   is unchanged: aim and muzzle from the camera).
-- Known: the assault rifle's ammo counter reads mirrored (the whole model
-  is); the game's prompts still name the Xbox's buttons.
+- The assault rifle's ammo counter and compass read the right way round
+  on the mirrored model (2026-10-06): their geometry stays mirrored, each
+  digit's bitmap is drawn turned over in u and the digits' order across
+  the display swapped (numeric shaders drawn mirrored,
+  `rasterizer_xbox_transparent_geometry.c`). Checked flat in the emulator
+  with `debug.mirror_first_person` (the first-person weapon mirrored off
+  the headset): 60, 48, 36 ... 06 read correctly. Headset check pending.
+- Known: the small static icons under the counter (round and "x") are
+  still mirror images (a texture atlas, not numeric); the game's prompts
+  still name the Xbox's buttons.
 
 Graphics (`vr.graphics`, `port/linux/game/vr_graphics.c`), set each frame
 on the game's own switches:
@@ -172,12 +180,6 @@ Not in it (3a.7): the glove fitted to each weapon's grip (gun anchor) and
 the left hand animated through reloads.
 
 ## Open points outside the order
-
-- Left-handed: the assault rifle's ammo display reads mirrored. Mirroring
-  its node back (as HaloCE-Quest-VR does) failed here (2026-10-06): its
-  vertices are weighted to the gun's node as well, so the display smeared
-  as the weapon turned and the gun's winding went wrong; reverted. Next
-  try: flip the display's texture, not its geometry.
 
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
