@@ -1260,45 +1260,74 @@ static void vr_mirror_vector(
 	vector[2] -= 2.f * along * normal[2];
 }
 
+/* a node mirrored across the plane through on with the normal, its axes too */
+static void vr_mirror_node(
+	real_matrix4x3 *node,
+	float const on[3],
+	float const normal[3])
+{
+	real_vector3d *axes[3];
+	float vector[3];
+	short axis;
+
+	vector[0] = node->position.x;
+	vector[1] = node->position.y;
+	vector[2] = node->position.z;
+	vr_mirror_point(on, normal, vector);
+	node->position.x = vector[0];
+	node->position.y = vector[1];
+	node->position.z = vector[2];
+	axes[0] = &node->forward;
+	axes[1] = &node->left;
+	axes[2] = &node->up;
+	for (axis = 0; axis < 3; axis++)
+	{
+		vector[0] = axes[axis]->i;
+		vector[1] = axes[axis]->j;
+		vector[2] = axes[axis]->k;
+		vr_mirror_vector(normal, vector);
+		axes[axis]->i = vector[0];
+		axes[axis]->j = vector[1];
+		axes[axis]->k = vector[2];
+	}
+}
+
 /* the posed skeleton out of model space: every node mirrored, its axes too
 (a left-handed frame: rasterizer_xbox.c turns its triangles' winding over).
-The ammo counter on the assault rifle reads mirrored with it. */
+But the ammo display (the assault rifle's, its node "... display" and what
+hangs from it): mirrored back about its own centre, so it stays where the
+mirrored gun has it but reads the right way round, and keeps its winding
+(after HaloCE-Quest-VR, CC0) */
 static void vr_mirror_pose(
 	short local_player_index,
+	long graph_index,
 	real_matrix4x3 *node_matrices,
 	short node_count)
 {
+	short display;
 	float on[3], normal[3];
 	short node_index;
 
 	if (!halo_vr_first_person_mirror(local_player_index, on, normal))
 		return;
 	for (node_index = 0; node_index < node_count; node_index++)
+		vr_mirror_node(&node_matrices[node_index], on, normal);
+	display = graph_index != NONE ? animation_graph_find_node(graph_index, "display") : NONE;
+	if (display >= 0 && display < node_count)
 	{
-		real_matrix4x3 *node = &node_matrices[node_index];
-		real_vector3d *axes[3];
-		float vector[3];
-		short axis;
+		float centre[3];
 
-		vector[0] = node->position.x;
-		vector[1] = node->position.y;
-		vector[2] = node->position.z;
-		vr_mirror_point(on, normal, vector);
-		node->position.x = vector[0];
-		node->position.y = vector[1];
-		node->position.z = vector[2];
-		axes[0] = &node->forward;
-		axes[1] = &node->left;
-		axes[2] = &node->up;
-		for (axis = 0; axis < 3; axis++)
+		centre[0] = node_matrices[display].position.x;
+		centre[1] = node_matrices[display].position.y;
+		centre[2] = node_matrices[display].position.z;
+		for (node_index = 0; node_index < node_count; node_index++)
 		{
-			vector[0] = axes[axis]->i;
-			vector[1] = axes[axis]->j;
-			vector[2] = axes[axis]->k;
-			vr_mirror_vector(normal, vector);
-			axes[axis]->i = vector[0];
-			axes[axis]->j = vector[1];
-			axes[axis]->k = vector[2];
+			short ancestor = node_index;
+
+			while (ancestor != NONE && ancestor != display)
+				ancestor = animation_graph_node_parent(graph_index, ancestor);
+			if (ancestor == display)
+				vr_mirror_node(&node_matrices[node_index], centre, normal);
 		}
 	}
 }
@@ -2301,7 +2330,9 @@ static void first_person_weapon_build_node_matrices(
 				first_person_weapon->state);
 			/* (left-handed: out of model space; what the frame takes from
 			the pose after, markers, effects, is then the room's) */
-			vr_mirror_pose(local_player_index, first_person_weapon->node_matrices,
+			vr_mirror_pose(local_player_index,
+				weapon_definition->weapon.interface_definition.first_person_animations.index,
+				first_person_weapon->node_matrices,
 				(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION));
 			halo_vr_timing_end(HALO_VR_TIMING_ARMS, timing);
 		}
