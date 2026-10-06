@@ -201,6 +201,28 @@ static const struct config_setting config_settings[] =
 		"and the left one turns, X jumps and A reloads (on the Steam Frame the\n"
 		"D-pad takes A, B, X and Y as their mirror image); false keeps them as\n"
 		"right-handed. The menus keep their buttons either way." },
+	{ "vr.button_jump", _config_string, "\"a\"", "HALO_VR_BUTTON_JUMP", _environment_value, _platform_android,
+		"The button each of the game's actions is on (the VR options' BUTTONS\n"
+		"page swaps them): \"a\", \"b\", \"x\", \"y\" (A and B on the right\n"
+		"controller, X and Y the Quest's on the left; the Steam Frame has all\n"
+		"four on the right), \"move_stick\" and \"turn_stick\" (their clicks),\n"
+		"\"grip\" (the weapon hand's), named as right-handed: left-handed with\n"
+		"mirror_controls, their mirror images. Jump," },
+	{ "vr.button_light", _config_string, "\"b\"", "HALO_VR_BUTTON_LIGHT", _environment_value, _platform_android,
+		"the flashlight (held: switch grenades)," },
+	{ "vr.button_action", _config_string, "\"x\"", "HALO_VR_BUTTON_ACTION", _environment_value, _platform_android,
+		"action and reload," },
+	{ "vr.button_weapon", _config_string, "\"y\"", "HALO_VR_BUTTON_WEAPON", _environment_value, _platform_android,
+		"switch weapon," },
+	{ "vr.button_crouch", _config_string, "\"move_stick\"", "HALO_VR_BUTTON_CROUCH", _environment_value,
+		_platform_android,
+		"crouch," },
+	{ "vr.button_zoom", _config_string, "\"turn_stick\"", "HALO_VR_BUTTON_ZOOM", _environment_value,
+		_platform_android,
+		"zoom" },
+	{ "vr.button_melee", _config_string, "\"grip\"", "HALO_VR_BUTTON_MELEE", _environment_value, _platform_android,
+		"and melee. The triggers, the free hand's grip and the menu button keep\n"
+		"theirs, as do the menus." },
 	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
@@ -573,6 +595,9 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.vr_options", _config_boolean, "false", "HALO_DEBUG_VR_OPTIONS", _environment_value, _platform_android,
+		"Off the headset (the emulator), show the VR options panel on the main\n"
+		"and pause menus all the same, for checking its pages." },
 	{ "debug.mirror_first_person", _config_boolean, "false", "HALO_MIRROR_FIRST_PERSON", _environment_value,
 		_platform_android,
 		"Off the headset (flat), the first-person weapon drawn mirrored, as the\n"

@@ -17,6 +17,28 @@ yaw plus the head's.
 
 #include "halo_vr.h"
 
+/* the actions' settings and the buttons' values in them (halo_vr.h's
+HALO_VR_ACTION_* and HALO_VR_INPUT_*), by number */
+static const char *const vr_action_settings[HALO_VR_ACTION_COUNT] =
+{
+	"vr.button_jump", "vr.button_light", "vr.button_action", "vr.button_weapon", "vr.button_crouch",
+	"vr.button_zoom", "vr.button_melee",
+};
+static const char *const vr_input_values[HALO_VR_INPUT_COUNT] =
+{
+	"a", "b", "x", "y", "move_stick", "turn_stick", "grip",
+};
+
+const char *halo_vr_action_setting(int action)
+{
+	return action >= 0 && action < HALO_VR_ACTION_COUNT ? vr_action_settings[action] : "";
+}
+
+const char *halo_vr_input_value(int input)
+{
+	return input >= 0 && input < HALO_VR_INPUT_COUNT ? vr_input_values[input] : "";
+}
+
 #ifdef HALO_ANDROID
 
 #include "platform.h"
@@ -220,9 +242,9 @@ static struct
 	/* until when a melee attack aims where the head looks: its damage is
 	dealt some ticks into the attack, along the unit's aim */
 	unsigned long long melee_aim_until_us;
-	int melee_grip_down;
+	int melee_button_down;
 	float melee_strength;    /* 0..1, the last attack's swing */
-	unsigned long long melee_jab_start_us; /* the weapon hand's grip's attack: the weapon jabs */
+	unsigned long long melee_jab_start_us; /* the melee button's attack: the weapon jabs */
 	/* the laser along the barrel, for the frame it was set in */
 	unsigned long frame_number;
 	unsigned long laser_frame;
@@ -250,6 +272,9 @@ static struct
 	vr.mirror_controls the sticks and face buttons mirrored too */
 	int left_handed;
 	int mirror_controls;
+	/* the button each action is on (vr.button_*: HALO_VR_INPUT_* by
+	HALO_VR_ACTION_*) */
+	int action_inputs[HALO_VR_ACTION_COUNT];
 	/* vr.refresh_rate as last asked for (the VR options change it), and
 	vr.resolution_scale as the app started with it */
 	float refresh_rate_wanted;
@@ -307,6 +332,7 @@ static int name_pose(const float point[3], struct halo_xr_pose *pose, float *wid
 static int weapon_hand_tracked(short local_player_index);
 static void controller_axes(float forward[3], float up[3], float right[3]);
 static void hand_offset(float out[3]);
+static void controls_in_play(struct halo_xr_hand hands[HALO_XR_HAND_COUNT]);
 
 /* the hand that holds the weapon, the free one (the grenade, the
 foregrip), and the one whose stick turns the body and steers */
@@ -518,6 +544,12 @@ static void vr_read_live_settings(void)
 		vr.mirror_controls = config_boolean("vr.mirror_controls");
 	}
 	{
+		int action;
+
+		for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
+			vr.action_inputs[action] = halo_vr_action_input(action);
+	}
+	{
 		/* (the refresh rate changes at once where the runtime lets it) */
 		float refresh_rate = (float)config_real("vr.refresh_rate");
 
@@ -617,6 +649,22 @@ int halo_vr_controller_layout(void)
 int halo_vr_weapon_hand(void)
 {
 	return weapon_hand();
+}
+
+int halo_vr_action_input(int action)
+{
+	const char *value;
+	int input;
+
+	if (action < 0 || action >= HALO_VR_ACTION_COUNT)
+		return HALO_VR_INPUT_A;
+	value = config_string(vr_action_settings[action]);
+	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
+	{
+		if (!strcmp(value, vr_input_values[input]))
+			return input;
+	}
+	return action;
 }
 
 int halo_vr_refresh_rates(float *rates, int maximum, float *current)
@@ -980,18 +1028,21 @@ static void melee_update(void)
 
 	vr.hand_last_us = now;
 	{
-		/* the weapon hand's grip's melee attack (xinput_sdl.c) aims the
-		same way */
-		int grip_down = vr.frame.hands[weapon_hand()].active &&
-			(vr.frame.hands[weapon_hand()].buttons & HALO_XR_BUTTON_SQUEEZE);
+		/* the melee button's attack (xinput_sdl.c; the weapon hand's grip
+		unless vr.button_melee moves it) aims the same way */
+		struct halo_xr_hand hands[HALO_XR_HAND_COUNT];
+		int button_down;
 
-		if (grip_down && !vr.melee_grip_down)
+		memcpy(hands, vr.frame.hands, sizeof(hands));
+		controls_in_play(hands);
+		button_down = (hands[HALO_XR_HAND_RIGHT].buttons & HALO_XR_BUTTON_SQUEEZE) != 0;
+		if (button_down && !vr.melee_button_down)
 		{
 			vr.melee_aim_until_us = now + 700000;
 			vr.melee_strength = 0.75f;
 			vr.melee_jab_start_us = now;
 		}
-		vr.melee_grip_down = grip_down;
+		vr.melee_button_down = button_down;
 	}
 	quaternion_rotate(vr.frame.head.orientation, look, facing);
 	facing[1] = 0.0f;
@@ -3046,6 +3097,51 @@ static void controllers_mirrored(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
 	}
 }
 
+/* The buttons the actions are on (vr.button_*), as the gamepad's sides
+have them once mirrored: A and B the right hand's, X and Y the left's
+A and B, the move stick's click the left's, the turning stick's the
+right's, the grip the right's (the weapon hand's). Each action's button
+is read and handed on as the button the action has by default, which
+xinput_sdl.c turns into it; with the defaults nothing changes. The grips
+holding a Warthog's wheel press nothing. */
+static const int input_hands[HALO_VR_INPUT_COUNT] =
+{
+	HALO_XR_HAND_RIGHT, HALO_XR_HAND_RIGHT, HALO_XR_HAND_LEFT, HALO_XR_HAND_LEFT, HALO_XR_HAND_LEFT,
+	HALO_XR_HAND_RIGHT, HALO_XR_HAND_RIGHT,
+};
+static const int input_buttons[HALO_VR_INPUT_COUNT] =
+{
+	HALO_XR_BUTTON_A, HALO_XR_BUTTON_B, HALO_XR_BUTTON_A, HALO_XR_BUTTON_B, HALO_XR_BUTTON_THUMBSTICK,
+	HALO_XR_BUTTON_THUMBSTICK, HALO_XR_BUTTON_SQUEEZE,
+};
+
+static void controls_remapped(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
+{
+	int down[HALO_VR_INPUT_COUNT];
+	int input, action;
+
+	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
+		down[input] = (hands[input_hands[input]].buttons & input_buttons[input]) != 0;
+	if (vr.wheel_hands)
+		down[HALO_VR_INPUT_GRIP] = 0;
+	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
+		hands[input_hands[input]].buttons &= ~input_buttons[input];
+	for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
+	{
+		if (down[vr.action_inputs[action]])
+			hands[input_hands[action]].buttons |= input_buttons[action];
+	}
+}
+
+/* the controllers as the game is played with them: mirrored (left-handed)
+and the actions on their buttons */
+static void controls_in_play(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
+{
+	if (vr.left_handed)
+		controllers_mirrored(hands);
+	controls_remapped(hands);
+}
+
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus)
 {
@@ -3053,8 +3149,8 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 		return 0;
 	memcpy(hands, vr.frame.hands, sizeof(vr.frame.hands));
 	*menus = vr.last_overlay_mode == HALO_XR_OVERLAY_SCREEN;
-	if (vr.left_handed && !*menus)
-		controllers_mirrored(hands);
+	if (!*menus)
+		controls_in_play(hands);
 	return 1;
 }
 
@@ -3062,6 +3158,7 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 
 int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_weapon_hand(void) { return 1; }
+int halo_vr_action_input(int action) { return action; }
 int halo_vr_graphics(void) { return HALO_VR_GRAPHICS_HIGH; }
 int halo_vr_refresh_rates(float *rates, int maximum, float *current)
 {

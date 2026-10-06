@@ -6648,6 +6648,7 @@ double config_real(char const *name);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
+int config_default(char const *name, char *text, size_t size);
 
 enum
 {
@@ -6663,6 +6664,10 @@ enum
 	_vr_option_motion_tracker,
 	_vr_option_body,
 	_vr_option_fingers,
+	/* (the game's actions on the buttons, HALO_VR_ACTION_*'s order) */
+	_vr_option_button_first,
+	_vr_option_button_last = _vr_option_button_first + HALO_VR_ACTION_COUNT - 1,
+	_vr_option_buttons_reset,
 	_vr_option_graphics,
 	_vr_option_refresh_rate,
 	_vr_option_resolution,
@@ -6675,7 +6680,16 @@ enum
 	VR_OPTIONS_ROW_HEIGHT = 22,
 	VR_OPTIONS_FOOTER = 362,
 	VR_OPTIONS_PER_PAGE = 12,
-	NUMBER_OF_VR_OPTION_PAGES = 2,
+
+	_vr_options_page_play = 0,
+	_vr_options_page_buttons,
+	_vr_options_page_more,
+	NUMBER_OF_VR_OPTION_PAGES,
+
+	/* (the pages' tabs, beside the title, as wide as there is room) */
+	VR_OPTIONS_TABS_LEFT = 250,
+	VR_OPTIONS_TABS_RIGHT = 522,
+	VR_OPTIONS_TAB_WIDTH = (VR_OPTIONS_TABS_RIGHT - VR_OPTIONS_TABS_LEFT) / NUMBER_OF_VR_OPTION_PAGES,
 
 	_vr_controls_on_foot = 0,
 	_vr_controls_vehicles,
@@ -6694,14 +6708,19 @@ static struct
 } ui_vr_options_globals;
 
 /* the panel's pages (its tabs), their rows in order (NONE past the last) */
-static char const *const vr_option_page_names[NUMBER_OF_VR_OPTION_PAGES] = { "PLAY", "MORE" };
+static char const *const vr_option_page_names[NUMBER_OF_VR_OPTION_PAGES] = { "PLAY", "BUTTONS", "MORE" };
 static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAGE] =
 {
 	{ _vr_option_turning, _vr_option_snap_angle, _vr_option_smooth_speed, _vr_option_vignette, _vr_option_wheel,
 		_vr_option_handedness, _vr_option_mirror_controls, _vr_option_laser, _vr_option_crosshair,
 		_vr_option_motion_tracker, _vr_option_body, _vr_option_fingers },
-	{ _vr_option_graphics, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_controls, _vr_option_quit,
-		NONE, NONE, NONE, NONE, NONE, NONE, NONE },
+	{ _vr_option_button_first + HALO_VR_ACTION_JUMP, _vr_option_button_first + HALO_VR_ACTION_LIGHT,
+		_vr_option_button_first + HALO_VR_ACTION_ACTION, _vr_option_button_first + HALO_VR_ACTION_WEAPON,
+		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
+		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_buttons_reset, _vr_option_controls,
+		NONE, NONE, NONE },
+	{ _vr_option_graphics, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
+		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE },
 };
 
 /* the page a row is on, and its place there */
@@ -6752,6 +6771,113 @@ static boolean ui_vr_controls_mirrored(
 	void)
 {
 	return ui_vr_left_handed() && config_boolean("vr.mirror_controls");
+}
+
+/* Where a button the game's actions go on (HALO_VR_INPUT_*) is, as the
+hands are set: its controller (0 the left, 1 the right) and its name,
+short under its controller on the controls page, or full in the
+options' rows. On the Quest A and B are on the right, X and Y on the
+left, and mirrored the other way round; on the Steam Frame all four are
+on the right, and mirrored the left D-pad takes them (down, left, right,
+up). The sticks' clicks change sides with them; the grip is the weapon
+hand's. */
+static char const *ui_vr_input_name(
+	short input,
+	boolean full,
+	short *column)
+{
+	static char const *const buttons[] = { "A", "B", "X", "Y" };
+	static char const *const quest_mirrored[] = { "X", "Y", "A", "B" };
+	static char const *const frame_mirrored[] = { "D-pad down", "D-pad left", "D-pad right", "D-pad up" };
+	boolean frame = halo_vr_controller_layout() == 1;
+	boolean mirrored = ui_vr_controls_mirrored();
+	short side;
+	char const *name;
+
+	switch (input)
+	{
+	case HALO_VR_INPUT_MOVE_STICK:
+	case HALO_VR_INPUT_TURN_STICK:
+		side = (short)((input == HALO_VR_INPUT_TURN_STICK) != (mirrored != 0));
+		name = full ? (side ? "Right stick click" : "Left stick click") : "Stick click";
+		break;
+	case HALO_VR_INPUT_GRIP:
+		side = (short)(ui_vr_left_handed() ? 0 : 1);
+		name = full ? (side ? "Right grip" : "Left grip") : "Grip";
+		break;
+	default:
+		input = (short)PIN(input, HALO_VR_INPUT_A, HALO_VR_INPUT_Y);
+		if (frame)
+		{
+			side = (short)(mirrored ? 0 : 1);
+			name = mirrored ? frame_mirrored[input] : buttons[input];
+		}
+		else
+		{
+			side = (short)((input <= HALO_VR_INPUT_B) != (mirrored != 0));
+			name = mirrored ? quest_mirrored[input] : buttons[input];
+		}
+		break;
+	}
+	if (column)
+		*column = side;
+	return name;
+}
+
+/* the game's actions on the buttons (HALO_VR_ACTION_*'s order): as the
+options' rows name them, and in short (the Steam Frame's stick lines) */
+static char const *const vr_action_names[HALO_VR_ACTION_COUNT] =
+{
+	"Jump", "Light; held: grenades", "Action, reload", "Switch weapon", "Crouch", "Zoom", "Melee",
+};
+static char const *const vr_action_short_names[HALO_VR_ACTION_COUNT] =
+{
+	"jump", "light", "action", "weapon", "crouch", "zoom", "melee",
+};
+
+/* an action moved to the next button or the one before: the action that
+was there takes its old one (so that every action keeps a button) */
+static void ui_vr_options_button_change(
+	short action,
+	short change)
+{
+	short input = (short)halo_vr_action_input(action);
+	short wanted = (short)((input + change + HALO_VR_INPUT_COUNT) % HALO_VR_INPUT_COUNT);
+	short other;
+
+	for (other = 0; other < HALO_VR_ACTION_COUNT; other++)
+	{
+		if (other != action && halo_vr_action_input(other) == wanted)
+			config_write(halo_vr_action_setting(other), halo_vr_input_value(input));
+	}
+	config_write(halo_vr_action_setting(action), halo_vr_input_value(wanted));
+}
+
+static boolean ui_vr_options_buttons_default(
+	void)
+{
+	short action;
+
+	for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
+	{
+		if (halo_vr_action_input(action) != action)
+			return FALSE;
+	}
+	return TRUE;
+}
+
+static void ui_vr_options_buttons_reset(
+	void)
+{
+	short action;
+
+	for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
+	{
+		char text[32];
+
+		if (config_default(halo_vr_action_setting(action), text, sizeof(text)))
+			config_write(halo_vr_action_setting(action), text);
+	}
 }
 
 void platform_request_quit(void);
@@ -6838,8 +6964,9 @@ static boolean ui_vr_options_screen(
 {
 	struct widget_instance *screen = widget_globals.active_widgets[0];
 
-	/* (the Xbox's main menu, or the PC version's: vr.menus) */
-	return halo_vr_active() && screen && screen->name &&
+	/* (the Xbox's main menu, or the PC version's: vr.menus; off the
+	headset with debug.vr_options, to check the pages) */
+	return (halo_vr_active() || config_boolean("debug.vr_options")) && screen && screen->name &&
 		(main_menu_screen_is_active() || strstr(screen->name, "pause_game") != NULL ||
 			strcmp(screen->name, "main_menu") == 0);
 }
@@ -6928,6 +7055,9 @@ static void ui_vr_options_change(
 	case _vr_option_resolution:
 		ui_vr_options_step("vr.resolution_scale", vr_resolution_scales, NUMBEROF(vr_resolution_scales), change);
 		break;
+	case _vr_option_buttons_reset:
+		ui_vr_options_buttons_reset();
+		break;
 	case _vr_option_controls:
 		ui_vr_options_globals.controls = TRUE;
 		ui_vr_options_globals.page = _vr_controls_on_foot;
@@ -6939,6 +7069,11 @@ static void ui_vr_options_change(
 			platform_request_quit();
 		ui_vr_options_globals.quit_armed = TRUE;
 		break;
+	}
+	if (ui_vr_options_globals.selection >= _vr_option_button_first &&
+		ui_vr_options_globals.selection <= _vr_option_button_last)
+	{
+		ui_vr_options_button_change((short)(ui_vr_options_globals.selection - _vr_option_button_first), change);
 	}
 	ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
 }
@@ -7056,7 +7191,8 @@ static boolean ui_vr_options_take_event(
 	{
 		ui_vr_options_change(1);
 	}
-	else if (change && ui_vr_options_globals.selection != _vr_option_controls)
+	else if (change && ui_vr_options_globals.selection != _vr_option_controls &&
+		ui_vr_options_globals.selection != _vr_option_buttons_reset)
 	{
 		ui_vr_options_change(change);
 	}
@@ -7113,10 +7249,11 @@ static boolean ui_vr_options_take_pointer(
 	{
 		short page = ui_vr_options_page_of(ui_vr_options_globals.selection, NULL);
 
-		if (pointer->left_clicks && y >= 68 && y < 88 && x >= 330 && x < 514)
+		if (pointer->left_clicks && y >= 68 && y < 88 && x >= VR_OPTIONS_TABS_LEFT && x < VR_OPTIONS_TABS_RIGHT)
 		{
 			/* (a tab: its page) */
-			short tab = (short)PIN((x - 330) / 92, 0, NUMBER_OF_VR_OPTION_PAGES - 1);
+			short tab = (short)PIN((x - VR_OPTIONS_TABS_LEFT) / VR_OPTIONS_TAB_WIDTH, 0,
+				NUMBER_OF_VR_OPTION_PAGES - 1);
 
 			if (tab != page)
 			{
@@ -7196,6 +7333,77 @@ static void ui_vr_controls_add(
 	}
 }
 
+/* the action on a button (vr.button_*; the swaps keep one on each) */
+static short ui_vr_input_action(
+	short input)
+{
+	short action;
+
+	for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
+	{
+		if (halo_vr_action_input(action) == input)
+			return action;
+	}
+	return input;
+}
+
+/* in a vehicle: the action button gets in and out, the light's is the
+flashlight */
+static void ui_vr_controls_add_vehicle_actions(
+	struct ui_vr_controls_column columns[2])
+{
+	short column;
+	char const *name = ui_vr_input_name((short)halo_vr_action_input(HALO_VR_ACTION_ACTION), FALSE, &column);
+
+	ui_vr_controls_add(&columns[column], name, "Get in, get out");
+	name = ui_vr_input_name((short)halo_vr_action_input(HALO_VR_ACTION_LIGHT), FALSE, &column);
+	ui_vr_controls_add(&columns[column], name, "Flashlight");
+}
+
+/* an action's line under the controller its button is on (vr.button_*), as
+the Quest's page words it or, shorter, the Steam Frame's (whose page has
+more lines) */
+static void ui_vr_controls_add_action(
+	struct ui_vr_controls_column columns[2],
+	short action,
+	boolean frame)
+{
+	/* (one action is held: its name lives on with the column) */
+	static char held[24];
+	short column;
+	char const *name = ui_vr_input_name((short)halo_vr_action_input(action), FALSE, &column);
+
+	switch (action)
+	{
+	case HALO_VR_ACTION_LIGHT:
+		if (frame)
+		{
+			ui_vr_controls_add(&columns[column], name, "Light; held: grenades");
+		}
+		else
+		{
+			snprintf(held, sizeof(held), "%s held", strcmp(name, "Stick click") == 0 ? "Click" : name);
+			ui_vr_controls_add(&columns[column], name, "Flashlight");
+			ui_vr_controls_add(&columns[column], held, "Switch grenades");
+		}
+		break;
+	case HALO_VR_ACTION_MELEE:
+		if (frame)
+		{
+			ui_vr_controls_add(&columns[column], name, "Melee (or punch)");
+		}
+		else
+		{
+			ui_vr_controls_add(&columns[column], name, "Melee (or punch");
+			ui_vr_controls_add(&columns[column], "", "forward)");
+		}
+		break;
+	default:
+		ui_vr_controls_add(&columns[column], name, vr_action_names[action]);
+		break;
+	}
+}
+
 static void ui_vr_controls_column_render(
 	short x,
 	short y,
@@ -7264,26 +7472,27 @@ static void ui_vr_controls_render(
 	{
 		/* the Steam Frame's controllers: A, B, X, Y and a menu button on the
 		right one, a D-pad and a View button on the left one; mirrored, the
-		D-pad does what A, B, X and Y do (down, left, right, up) */
-		char const *jump = mirrored ? "D-pad down" : "A";
-		char const *light = mirrored ? "D-pad left" : "B";
-		char const *act = mirrored ? "D-pad right" : "X";
-		char const *weapon = mirrored ? "D-pad up" : "Y";
-		short buttons = mirrored ? 0 : 1;
+		D-pad does what A, B, X and Y do (down, left, right, up). The sticks'
+		clicks on the sticks' lines, to keep to the page's lines */
+		static char move_line[32], turn_line[32];
 
 		switch (ui_vr_options_globals.page)
 		{
 		case _vr_controls_on_foot:
-			ui_vr_controls_add(&columns[move], "Stick", "Move; click: crouch");
-			ui_vr_controls_add(&columns[turn], "Stick", "Turn; click: zoom");
+			snprintf(move_line, sizeof(move_line), "Move; click: %s",
+				vr_action_short_names[ui_vr_input_action(HALO_VR_INPUT_MOVE_STICK)]);
+			snprintf(turn_line, sizeof(turn_line), "Turn; click: %s",
+				vr_action_short_names[ui_vr_input_action(HALO_VR_INPUT_TURN_STICK)]);
+			ui_vr_controls_add(&columns[move], "Stick", move_line);
+			ui_vr_controls_add(&columns[turn], "Stick", turn_line);
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold, throw");
-			ui_vr_controls_add(&columns[gun], "Grip", "Melee (or punch)");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), TRUE);
 			ui_vr_controls_add(&columns[free_column], "Grip", "Weapon in both hands");
-			ui_vr_controls_add(&columns[buttons], jump, "Jump");
-			ui_vr_controls_add(&columns[buttons], light, "Light; held: grenades");
-			ui_vr_controls_add(&columns[buttons], act, "Action, reload");
-			ui_vr_controls_add(&columns[buttons], weapon, "Switch weapon");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), TRUE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), TRUE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), TRUE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_Y), TRUE);
 			ui_vr_controls_add(&columns[mirrored ? 0 : 1], "Bumper", "Flashlight");
 			ui_vr_controls_add(&columns[mirrored ? 1 : 0], "Bumper", "Switch grenades");
 			ui_vr_controls_add(&columns[0], "View", "Scores");
@@ -7302,8 +7511,7 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Second weapon");
 			ui_vr_controls_add(&columns[free_column], "", "(Banshee, tank)");
-			ui_vr_controls_add(&columns[buttons], act, "Get in, get out");
-			ui_vr_controls_add(&columns[buttons], light, "Flashlight");
+			ui_vr_controls_add_vehicle_actions(columns);
 			break;
 		default:
 			ui_vr_controls_add(&columns[0], "Stick", "Choose");
@@ -7322,27 +7530,22 @@ static void ui_vr_controls_render(
 		/* the Quest's: A and B on the right controller, X, Y and the menu
 		button on the left; mirrored, X and Y do what A and B do, and the
 		other way round */
-		short jumps = mirrored ? 0 : 1;
-		short acts = (short)(1 - jumps);
-
 		switch (ui_vr_options_globals.page)
 		{
 		case _vr_controls_on_foot:
 			ui_vr_controls_add(&columns[move], "Stick", "Move");
-			ui_vr_controls_add(&columns[move], "Stick click", "Crouch");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_MOVE_STICK), FALSE);
 			ui_vr_controls_add(&columns[turn], "Stick", "Turn");
-			ui_vr_controls_add(&columns[turn], "Stick click", "Zoom");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_TURN_STICK), FALSE);
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
-			ui_vr_controls_add(&columns[gun], "Grip", "Melee (or punch");
-			ui_vr_controls_add(&columns[gun], "", "forward)");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), FALSE);
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold it,");
 			ui_vr_controls_add(&columns[free_column], "", "let go as you throw");
 			ui_vr_controls_add(&columns[free_column], "Grip", "Weapon in both hands");
-			ui_vr_controls_add(&columns[jumps], jumps ? "A" : "X", "Jump");
-			ui_vr_controls_add(&columns[jumps], jumps ? "B" : "Y", "Flashlight");
-			ui_vr_controls_add(&columns[jumps], jumps ? "B held" : "Y held", "Switch grenades");
-			ui_vr_controls_add(&columns[acts], acts ? "A" : "X", "Action, reload");
-			ui_vr_controls_add(&columns[acts], acts ? "B" : "Y", "Switch weapon");
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), FALSE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), FALSE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), FALSE);
+			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_Y), FALSE);
 			ui_vr_controls_add(&columns[0], "Menu", "Pause");
 			ui_vr_controls_note(320, wrist_note);
 			ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
@@ -7355,8 +7558,7 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Second weapon");
 			ui_vr_controls_add(&columns[free_column], "", "(Banshee, tank)");
-			ui_vr_controls_add(&columns[acts], acts ? "A" : "X", "Get in, get out");
-			ui_vr_controls_add(&columns[jumps], jumps ? "B" : "Y", "Flashlight");
+			ui_vr_controls_add_vehicle_actions(columns);
 			break;
 		default:
 			ui_vr_controls_add(&columns[0], "Stick", "Choose");
@@ -7373,6 +7575,9 @@ static void ui_vr_controls_render(
 	ui_vr_controls_column_render(right, y, &columns[1]);
 	switch (ui_vr_options_globals.page)
 	{
+	case _vr_controls_on_foot:
+		/* (its notes are with its lines, above) */
+		break;
 	case _vr_controls_vehicles:
 		ui_vr_controls_note(300, "Warthog: grip the wheel with one hand or both and turn it.");
 		ui_vr_controls_note(320, left_handed ? "Holding it, the left trigger accelerates, the right one brakes" :
@@ -7429,15 +7634,15 @@ static void ui_vr_options_render(
 	ui_join_code_draw_quad(110, 62, 530, 396, 0xFF050A18);
 	ui_join_code_draw_quad(110, 62, 530, 64, 0xFF3A6EA5);
 	ui_join_code_draw_quad(110, 394, 530, 396, 0xFF3A6EA5);
-	ui_join_code_draw_text(126, 330, 72, "VR OPTIONS", FALSE, 0, &title_color);
+	ui_join_code_draw_text(126, VR_OPTIONS_TABS_LEFT, 72, "VR OPTIONS", FALSE, 0, &title_color);
 	/* (the pages' tabs, beside the title) */
 	for (tab = 0; tab < NUMBER_OF_VR_OPTION_PAGES; tab++)
 	{
-		short x0 = (short)(330 + tab * 92);
+		short x0 = (short)(VR_OPTIONS_TABS_LEFT + tab * VR_OPTIONS_TAB_WIDTH);
 
 		if (tab == page)
-			ui_join_code_draw_quad(x0, 68, (short)(x0 + 88), 88, 0x803A6EA5);
-		ui_join_code_draw_text(x0, (short)(x0 + 88), 72, vr_option_page_names[tab], FALSE, 2,
+			ui_join_code_draw_quad(x0, 68, (short)(x0 + VR_OPTIONS_TAB_WIDTH - 4), 88, 0x803A6EA5);
+		ui_join_code_draw_text(x0, (short)(x0 + VR_OPTIONS_TAB_WIDTH - 4), 72, vr_option_page_names[tab], FALSE, 2,
 			tab == page ? &text_color : &dim_color);
 	}
 	for (row = 0; row < ui_vr_options_page_rows(page); row++)
@@ -7537,8 +7742,22 @@ static void ui_vr_options_render(
 				snprintf(value, sizeof(value), "%.0f%%", scale * 100.0f);
 			break;
 		}
+		case _vr_option_buttons_reset:
+			label = "Reset buttons to defaults";
+			unused = ui_vr_options_buttons_default();
+			break;
 		case _vr_option_controls:
 			label = "Controller buttons...";
+			break;
+		default:
+			if (option >= _vr_option_button_first && option <= _vr_option_button_last)
+			{
+				short action = (short)(option - _vr_option_button_first);
+
+				label = vr_action_names[action];
+				snprintf(value, sizeof(value), "%s", ui_vr_input_name((short)halo_vr_action_input(action), TRUE,
+					NULL));
+			}
 			break;
 		case _vr_option_quit:
 			label = ui_vr_options_globals.quit_armed && ui_vr_options_globals.selection == _vr_option_quit ?
@@ -7556,7 +7775,16 @@ static void ui_vr_options_render(
 			ui_join_code_draw_text(330, 512, y, shown, FALSE, 1, unused ? &dim_color : &text_color);
 		}
 	}
-	if (page == 1)
+	if (page == _vr_options_page_buttons)
+	{
+		/* (what the buttons' rows do) */
+		ui_join_code_draw_text(128, 512, 302, "An action moved to a button swaps with the one there;", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 320, "left-handed and mirrored, the buttons are mirrored too.", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 338, "The menus keep their buttons.", FALSE, 0, &dim_color);
+	}
+	if (page == _vr_options_page_more)
 	{
 		/* (what the graphics rows do) */
 		ui_join_code_draw_text(128, 512, 230, "Graphics: Medium and Low leave effects out (shadows,", FALSE, 0,

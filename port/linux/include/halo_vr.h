@@ -252,6 +252,39 @@ int halo_vr_controller_layout(void);
 /* the hand that holds the weapon (HALO_XR_HAND_*: 1 the right, 0 the left,
 vr.handedness) */
 int halo_vr_weapon_hand(void);
+/* The game's actions on the controllers' buttons (vr.button_*; the VR
+options' BUTTONS page): each action on one of seven buttons, named as
+right-handed (A and B on the right controller, X and Y, the Quest's, on
+the left; the move stick's click, the turning stick's, the weapon hand's
+grip); left-handed with vr.mirror_controls, their mirror images. The
+actions are numbered by the button each has by default. The triggers, the
+free hand's grip, the menu button and the Steam Frame's bumpers, D-pad and
+View button keep theirs; the menus keep the buttons as they are. */
+enum
+{
+	HALO_VR_INPUT_A = 0,
+	HALO_VR_INPUT_B,
+	HALO_VR_INPUT_X,
+	HALO_VR_INPUT_Y,
+	HALO_VR_INPUT_MOVE_STICK,
+	HALO_VR_INPUT_TURN_STICK,
+	HALO_VR_INPUT_GRIP,
+	HALO_VR_INPUT_COUNT,
+
+	HALO_VR_ACTION_JUMP = HALO_VR_INPUT_A,
+	HALO_VR_ACTION_LIGHT = HALO_VR_INPUT_B,   /* a tap the flashlight; held, switch grenades */
+	HALO_VR_ACTION_ACTION = HALO_VR_INPUT_X,  /* action, reload */
+	HALO_VR_ACTION_WEAPON = HALO_VR_INPUT_Y,  /* switch weapon */
+	HALO_VR_ACTION_CROUCH = HALO_VR_INPUT_MOVE_STICK,
+	HALO_VR_ACTION_ZOOM = HALO_VR_INPUT_TURN_STICK,
+	HALO_VR_ACTION_MELEE = HALO_VR_INPUT_GRIP,
+	HALO_VR_ACTION_COUNT = HALO_VR_INPUT_COUNT,
+};
+/* an action's setting ("vr.button_jump"), a button's value in it ("a"),
+and the button an action is on, as set */
+const char *halo_vr_action_setting(int action);
+const char *halo_vr_input_value(int input);
+int halo_vr_action_input(int action);
 /* the graphics preset (vr.graphics; HALO_VR_GRAPHICS_HIGH outside VR): which
 effects are drawn (port/linux/game/vr_graphics.c), and with "max" the
 models lit for each pixel and larger shadows (d3d8_gl.c) */
