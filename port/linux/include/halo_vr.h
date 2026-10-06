@@ -275,6 +275,10 @@ enum
 };
 unsigned long long halo_vr_timing_start(void);
 void halo_vr_timing_end(int part, unsigned long long start);
+/* the headset's frames, counted (0 before the first): what is drawn the same
+for every eye, as the first-person pose posed from the controller, is built
+once a frame */
+unsigned long halo_vr_frame_serial(void);
 void halo_vr_present(unsigned int back_buffer_texture);
 /* the eye image size: the back buffer's size in pixels in VR */
 int halo_vr_eye_size(int *width, int *height);

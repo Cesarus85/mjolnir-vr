@@ -576,6 +576,11 @@ unsigned long long halo_vr_timing_start(void)
 	return vr.active && vr.log_performance ? now_us() : 0;
 }
 
+unsigned long halo_vr_frame_serial(void)
+{
+	return vr.active ? vr.frame_number : 0;
+}
+
 void halo_vr_timing_end(int part, unsigned long long start)
 {
 	if (!start || part < 0 || part >= HALO_VR_TIMING_COUNT)
@@ -2605,6 +2610,7 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_active(void) { return 0; }
 unsigned long long halo_vr_timing_start(void) { return 0; }
+unsigned long halo_vr_frame_serial(void) { return 0; }
 void halo_vr_timing_end(int part, unsigned long long start) { (void)part; (void)start; }
 int halo_vr_stereo_frame(void) { return 0; }
 int halo_vr_stereo_player(short local_player_index, int cinematic) { (void)local_player_index; (void)cinematic; return 0; }

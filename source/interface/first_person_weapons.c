@@ -470,6 +470,23 @@ long first_person_weapon_get_local_index(
 int config_boolean(char const *name);
 void model_vr_log_skin(long model_index);
 
+/* VR: the headset's frame each local player's pose was last built for
+from the controller (halo_vr_frame_serial; 0 when not), and its weapon */
+static unsigned long first_person_weapon_vr_pose_serial[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static long first_person_weapon_vr_pose_weapon[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+/* the pose was built for this frame already, from the controller, which
+the eyes do not move (from the eye's own camera, each eye builds its own) */
+static boolean first_person_weapon_vr_pose_kept(
+	short local_player_index)
+{
+	unsigned long serial= halo_vr_frame_serial();
+
+	return serial!=0 &&
+		first_person_weapon_vr_pose_serial[local_player_index]==serial &&
+		first_person_weapon_vr_pose_weapon[local_player_index]==first_person_weapon_get(local_player_index)->weapon_index;
+}
+
 /* VR: the grenade the player holds (the left trigger, units.c) hangs from
 the body, which the first-person view leaves out, and with it the grenade:
 drawn instead in the left hand, as it is this frame, with the hands (which
@@ -743,8 +760,17 @@ void first_person_weapon_render_update(
 #ifdef HALO_ANDROID
 				unsigned long long timing= halo_vr_timing_start();
 
-				first_person_weapon_build_node_matrices(render.local_player_index);
-				halo_vr_timing_end(HALO_VR_TIMING_FIRST_PERSON, timing);
+				/* VR: posed from the controller, the pose is the same for
+				every eye (and the scope's view): built once a frame */
+				if (first_person_weapon_vr_pose_kept(render.local_player_index))
+				{
+					halo_vr_timing_end(HALO_VR_TIMING_FIRST_PERSON_KEPT, timing);
+				}
+				else
+				{
+					first_person_weapon_build_node_matrices(render.local_player_index);
+					halo_vr_timing_end(HALO_VR_TIMING_FIRST_PERSON, timing);
+				}
 #else
 				first_person_weapon_build_node_matrices(render.local_player_index);
 #endif
@@ -2144,6 +2170,8 @@ static void first_person_weapon_build_node_matrices(
 			(short)animation_graph->nodes.count,
 			camera);
 #ifdef HALO_ANDROID
+		first_person_weapon_vr_pose_serial[local_player_index]= camera!=&render.camera ? halo_vr_frame_serial() : 0;
+		first_person_weapon_vr_pose_weapon[local_player_index]= first_person_weapon->weapon_index;
 		if (camera!=&render.camera)
 		{
 			unsigned long long timing= halo_vr_timing_start();
