@@ -151,7 +151,11 @@ uint32_t host_sdl_gl_create_context(uint32_t window)
 {
 	SDL_Window *object = handle_get(window, _handle_window);
 
-	return object ? handle_new(_handle_context, SDL_GL_CreateContext(object)) : 0;
+	uint32_t context = object ? handle_new(_handle_context, SDL_GL_CreateContext(object)) : 0;
+
+	/* (the driver opens its trace markers with the context) */
+	host_gl_quiet_trace_markers();
+	return context;
 }
 
 int host_sdl_gl_make_current(uint32_t window, uint32_t context)

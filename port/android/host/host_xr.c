@@ -1260,6 +1260,10 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 			xr.get_refresh_rate(xr.session, &info->refresh_rate);
 	}
 
+	/* (the runtime's GL binding brings contexts of its own, with their own
+	trace markers: host_gl.c) */
+	host_gl_quiet_trace_markers();
+
 	if (xr.has_metrics)
 	{
 		PFN_xrEnumeratePerformanceMetricsCounterPathsMETA enumerate = NULL;

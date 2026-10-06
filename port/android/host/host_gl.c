@@ -11,8 +11,52 @@ already have host types by then. Only strings need copying back.
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
+#include <dirent.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+/* Valve's Mesa (the Steam Frame's Lepton) writes a marker to the kernel's
+trace_marker around every flush and context switch, a couple of hundred a
+frame, whether or not anything traces. The descriptors it holds open on that
+file are pointed at /dev/null instead (not closed: a reused descriptor would
+take the markers elsewhere). After astromaddie/HaloCE-VR (CC0). Returns how
+many were. */
+int host_gl_quiet_trace_markers(void)
+{
+	DIR *directory = opendir("/proc/self/fd");
+	struct dirent *entry;
+	int quieted = 0, null_fd;
+
+	if (!directory)
+		return 0;
+	null_fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+	while (null_fd >= 0 && (entry = readdir(directory)) != NULL)
+	{
+		char link[64], target[256];
+		ssize_t length;
+		int fd = atoi(entry->d_name);
+
+		if (entry->d_name[0] < '0' || entry->d_name[0] > '9' || fd == null_fd)
+			continue;
+		snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
+		length = readlink(link, target, sizeof(target) - 1);
+		if (length <= 0)
+			continue;
+		target[length] = 0;
+		if (strstr(target, "tracing/trace_marker") && dup3(null_fd, fd, O_CLOEXEC) == fd)
+			quieted++;
+	}
+	if (null_fd >= 0)
+		close(null_fd);
+	closedir(directory);
+	if (quieted)
+		host_logf(HOST_LOG_INFO, "trace markers: %d descriptors to /dev/null", quieted);
+	return quieted;
+}
 
 void *host_gl_resolve(const char *name)
 {
@@ -88,14 +132,13 @@ half-drawn targets out of tile memory, for every lens flare. */
 static GLuint counter_snapshots[COUNTER_SNAPSHOTS];
 static uint32_t counter_snapshot_sizes[COUNTER_SNAPSHOTS];
 
+/* (the copy bindings are left unbound after: the renderer binds them itself
+for each copy. Asking GL what they were would wait for Mesa's GL thread, on
+the Frame, to run everything queued) */
 void host_gl_counters_snapshot(uint32_t buffer, uint32_t size, uint32_t slot)
 {
-	GLint read_binding = 0, write_binding = 0;
-
 	if (slot >= COUNTER_SNAPSHOTS || !buffer || !size)
 		return;
-	glGetIntegerv(GL_COPY_READ_BUFFER_BINDING, &read_binding);
-	glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &write_binding);
 	if (!counter_snapshots[slot])
 		glGenBuffers(1, &counter_snapshots[slot]);
 	glBindBuffer(GL_COPY_WRITE_BUFFER, counter_snapshots[slot]);
@@ -108,19 +151,17 @@ void host_gl_counters_snapshot(uint32_t buffer, uint32_t size, uint32_t slot)
 	glMemoryBarrier(GL_ATOMIC_COUNTER_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 	glBindBuffer(GL_COPY_READ_BUFFER, buffer);
 	glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, size);
-	glBindBuffer(GL_COPY_READ_BUFFER, (GLuint)read_binding);
-	glBindBuffer(GL_COPY_WRITE_BUFFER, (GLuint)write_binding);
+	glBindBuffer(GL_COPY_READ_BUFFER, 0);
+	glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
 }
 
 /* copies a snapshot out; its frame must be finished (host_gl_wait_frame) */
 int host_gl_counters_read(uint32_t slot, void *out, uint32_t size)
 {
-	GLint write_binding = 0;
 	const void *mapping;
 
 	if (slot >= COUNTER_SNAPSHOTS || !counter_snapshots[slot] || size > counter_snapshot_sizes[slot])
 		return 0;
-	glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &write_binding);
 	glBindBuffer(GL_COPY_WRITE_BUFFER, counter_snapshots[slot]);
 	mapping = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, size, GL_MAP_READ_BIT);
 	if (mapping)
@@ -128,7 +169,7 @@ int host_gl_counters_read(uint32_t slot, void *out, uint32_t size)
 		memcpy(out, mapping, size);
 		glUnmapBuffer(GL_COPY_WRITE_BUFFER);
 	}
-	glBindBuffer(GL_COPY_WRITE_BUFFER, (GLuint)write_binding);
+	glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
 	return mapping != NULL;
 }
 

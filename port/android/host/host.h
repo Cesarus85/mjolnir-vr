@@ -92,6 +92,7 @@ void *host_resolve_import(const char *name);
 /* ---------- SDL / GL (host_sdl.c, host_gl.c) */
 
 void *host_gl_resolve(const char *name);
+int host_gl_quiet_trace_markers(void);
 
 /* ---------- VR (host_xr.c) */
 
