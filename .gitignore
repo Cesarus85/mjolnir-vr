@@ -30,3 +30,8 @@ original/
 
 # CI build outputs (tools/ci_build.py)
 dist/
+
+# The app signing key's local settings and keys (port/android/app/build.gradle; never commit)
+port/android/signing.properties
+*.jks
+*.keystore

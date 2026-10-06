@@ -150,6 +150,7 @@ typedef char transparent_geometry_group_cortana_hack_offset_assert[
 /* ---------- prototypes */
 static void rasterizer_sort_external(
 	void);
+void platform_log(char const *format, ...);
 
 /* ---------- globals */
 
@@ -162,6 +163,9 @@ static long transparent_geometry_group_count = 0;
 static long transparent_geometry_group_count2 = 0;
 static short *transparent_geometry_group_sorted_indices = NULL;
 static short transparent_geometry_next_group_sorted_index = 0;
+/* port: the most groups a window has had, logged as it passes the Xbox's
+384 and every 128 beyond (rasterizer.h) */
+static long transparent_geometry_group_count_logged = 384;
 
 
 /* ---------- public code */
@@ -200,6 +204,12 @@ boolean rasterizer_transparent_geometry_initialize(
 void rasterizer_transparent_geometry_begin(
 	void)
 {
+	if (transparent_geometry_group_count>transparent_geometry_group_count_logged)
+	{
+		platform_log("rasterizer: %ld transparent geometry groups in a window (the Xbox had room for 384, the port %d)",
+			transparent_geometry_group_count, RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS);
+		transparent_geometry_group_count_logged = (transparent_geometry_group_count/128 + 1)*128;
+	}
 	transparent_geometry_group_count = 0;
 	transparent_geometry_next_group_sorted_index = 0;
 	memset(transparent_geometry_group_pending_flags, 0,

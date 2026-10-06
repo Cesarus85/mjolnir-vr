@@ -1,7 +1,7 @@
 #!/bin/bash
-# Halo VR on the Steam Frame: Lepton runs the APK in a container of its own,
+# Ringfall: Mjolnir VR on the Steam Frame: Lepton runs the APK in a container of its own,
 # and installs it anew whenever the APK is newer than the installed one
-# (port/android/STEAM_FRAME.md). The game's data: ~/Documents/HaloCE.
+# (port/android/STEAM_FRAME.md). The game's data: ~/Documents/RingfallMjolnirVR.
 # (a container of its own, not the shortcut's id: with that, SteamVR's
 # client in the container waited on xrCreateInstance)
 export SteamAppId="${HALO_LEPTON_APP_ID:-4290000001}"
@@ -14,10 +14,11 @@ export STEAM_COMPAT_SHADER_PATH="$HOME/.local/share/Steam/steamapps/shadercache/
 mkdir -p "$STEAM_COMPAT_DATA_PATH/internal" "$STEAM_COMPAT_SHADER_PATH"
 unset STEAM_FOSSILIZE_DUMP_PATH LD_PRELOAD
 LEPTON="$HOME/.local/share/Steam/steamapps/common/Lepton/lepton"
-APK="$HOME/Documents/HaloCE/HaloVR.apk"
-LOG="$HOME/Documents/HaloCE/launcher.log"
+DATA="$HOME/Documents/RingfallMjolnirVR"
+APK="$DATA/RingfallMjolnirVR.apk"
+LOG="$DATA/launcher.log"
 # (written by the game when the player quits it: no start again)
-QUIT="$HOME/Documents/HaloCE/quit_requested.txt"
+QUIT="$DATA/quit_requested.txt"
 rm -f "$QUIT"
 CONTEXT="steamlaunch-$SteamAppId"
 
@@ -49,7 +50,7 @@ setsid bash -c '
 
 # the game's log while it runs (Lepton's logcat of its container), for
 # looking into problems: logcat.txt, anew each start
-LOGCAT="$HOME/Documents/HaloCE/logcat.txt"
+LOGCAT="$DATA/logcat.txt"
 : > "$LOGCAT"
 setsid bash -c '
     while kill -0 '"$script"' 2>/dev/null; do

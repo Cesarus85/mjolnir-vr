@@ -27,7 +27,7 @@ import java.nio.channels.FileChannel;
  * Starts the game once its data is in place.
  *
  * The game reads the Xbox game data (the folder holding maps/) from the
- * app's external files directory, /sdcard/Android/data/com.halo.decomp/files.
+ * app's external files directory, /sdcard/Android/data/<application id>/files.
  * If it is missing, this screen lets the player pick an Xbox disc image of
  * the game (.xiso or .iso, any version) with the system file picker, and
  * copies its maps folder there (XisoExtractor), as the desktop games do; or
@@ -35,7 +35,7 @@ import java.nio.channels.FileChannel;
  */
 public class LauncherActivity extends Activity {
     private static final int PICK_IMAGE = 1;
-    private static final String SHARED_DATA_ROOT = "/home/steamos/Documents/HaloCE";
+    private static final String SHARED_DATA_ROOT = "/home/steamos/Documents/RingfallMjolnirVR";
 
     private File dataRoot;
     private TextView status;
@@ -49,10 +49,15 @@ public class LauncherActivity extends Activity {
         dataRoot = getExternalFilesDir(null);
         // the Steam Frame: Lepton empties the app's own folders whenever it
         // starts again; the game's data lives in the SteamOS user's
-        // Documents instead, when it is there (port/android/STEAM_FRAME.md;
-        // the same choice as host_main.c's)
-        if (new File(SHARED_DATA_ROOT, "maps/ui.map").isFile() && new File(SHARED_DATA_ROOT).canWrite())
-            dataRoot = new File(SHARED_DATA_ROOT);
+        // Documents instead, whenever they can be written, so that a disc
+        // image imported here stays too (port/android/STEAM_FRAME.md; the
+        // same choice as host_main.c's)
+        File shared = new File(SHARED_DATA_ROOT);
+        if (shared.getParentFile().canWrite() || shared.canWrite()) {
+            shared.mkdirs();
+            if (shared.canWrite())
+                dataRoot = shared;
+        }
         // created by the app, so that files pushed into it with adb stay
         // readable (a directory adb creates there belongs to the shell user)
         if (dataRoot != null)
@@ -142,15 +147,15 @@ public class LauncherActivity extends Activity {
         layout.setBackgroundColor(Color.rgb(12, 16, 20));
 
         TextView title = new TextView(this);
-        title.setText("Halo needs its game data");
+        title.setText("Ringfall: Mjolnir VR needs game data");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
         title.setGravity(Gravity.CENTER);
         layout.addView(title);
 
         TextView message = new TextView(this);
-        message.setText("Choose an Xbox disc image of Halo: Combat Evolved (an .iso or .xiso file, any "
-            + "version) on this device. Its maps folder is copied into the app's storage (about 1.8 GB), "
+        message.setText("Choose your own disc image of Halo: Combat Evolved for the original Xbox (an .iso or "
+            + ".xiso file, any version) on this device. Its maps folder is copied into the app's storage (about 1.8 GB), "
             + "and you can delete the image afterwards.\n\n"
             + "You can also copy a maps folder from a computer:\n"
             + "adb push <folder with maps>/. " + (dataRoot != null ? dataRoot.getAbsolutePath() : "") + "/");

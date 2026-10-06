@@ -1,5 +1,7 @@
 # Android
 
+The app of Ringfall: Mjolnir VR (application id `io.github.cesarus85.ringfall`;
+its Java classes keep the decompilation's package, `com.halo.decomp`).
 `ninja android` builds the game for 64-bit ARM Android (arm64-v8a).
 `ninja android_apk` makes an app from it:
 `port/android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -42,7 +44,7 @@ ninja) and these items:
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image. The app keeps the data in `/sdcard/Android/data/com.halo.decomp/files`.
+image. The app keeps the data in `/sdcard/Android/data/io.github.cesarus85.ringfall/files`.
 
 To install the data with the app:
 
@@ -57,16 +59,16 @@ To install the data with the app:
 To install the data from a computer:
 
 1. Start the app one time. The app makes its folders.
-2. Enter `adb push <folder>/. /sdcard/Android/data/com.halo.decomp/files/`.
+2. Enter `adb push <folder>/. /sdcard/Android/data/io.github.cesarus85.ringfall/files/`.
 
-| Item | Location in `/sdcard/Android/data/com.halo.decomp/files` |
+| Item | Location in `/sdcard/Android/data/io.github.cesarus85.ringfall/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
-`adb pull /sdcard/Android/data/com.halo.decomp/files/save`.
+`adb pull /sdcard/Android/data/io.github.cesarus85.ringfall/files/save`.
 
 ## Controls
 
@@ -100,9 +102,9 @@ not accept touch input.
 The settings are in `config.toml` in the data folder of the app. To change
 them:
 
-1. Enter `adb pull /sdcard/Android/data/com.halo.decomp/files/config.toml`.
+1. Enter `adb pull /sdcard/Android/data/io.github.cesarus85.ringfall/files/config.toml`.
 2. Change the file.
-3. Enter `adb push config.toml /sdcard/Android/data/com.halo.decomp/files/`.
+3. Enter `adb push config.toml /sdcard/Android/data/io.github.cesarus85.ringfall/files/`.
 
 At the first start, the game writes the file with the default values. To
 get the default values again, delete the file.
@@ -148,14 +150,22 @@ select "Yes":
 
 1. The app downloads the new version.
 2. The package installer of Android opens. At the first update, Android asks
-   you to let Halo install apps. Allow it.
+   you to let the game install apps. Allow it.
 3. Select "Update". Android replaces the app.
 4. Select "Open" to start the new version.
 
 To install over the previous version, each build must have the same
 signature. GitHub Actions signs each build with the key in the
 `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets of the
-repository. If you installed a build that has a different signature, remove
+repository. A computer that builds for its own devices signs with the same
+key when `port/android/signing.properties` (not in the repository) names it:
+
+    storeFile=/path/to/ringfall-release.jks
+    password=<the keystore's password>
+    keyAlias=ringfall
+
+Keep the keystore and its password safe: a lost key means every player must
+remove the app before the next version. If you installed a build that has a different signature, remove
 that build before you install a new build. Removing the app deletes its data
 folder: first make a copy of `maps/` and `save/`.
 
@@ -182,7 +192,7 @@ instead.
 
 Controls in play (in the menus the buttons are the Xbox's by position):
 
-| Controller | Halo |
+| Controller | Game |
 | --- | --- |
 | right trigger / left trigger | fire / throw grenade |
 | right grip / left grip | melee / switch weapon |
@@ -230,7 +240,7 @@ through a shader that decodes to linear, and the stored bytes are the
 game's. Camera shake is off in VR.
 
 A file named `xr_test` in the data folder
-(`adb shell touch /sdcard/Android/data/com.halo.decomp/files/xr_test`)
+(`adb shell touch /sdcard/Android/data/io.github.cesarus85.ringfall/files/xr_test`)
 starts a self-test instead of the game, which needs no game data: each eye
 in its own colour (red while the right trigger is held), a checkerboard
 screen in the room (its top-left square red), and the controllers' buttons

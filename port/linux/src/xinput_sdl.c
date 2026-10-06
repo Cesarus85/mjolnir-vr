@@ -859,6 +859,11 @@ face buttons too (the right stick moves, X jumps, A reloads; on the Steam
 Frame the left D-pad takes A, B, X and Y). Here "right" and "left" are the
 sides so handed over.
 
+The VR options' BUTTONS page (vr.button_*) moves jump, the flashlight,
+action, switch weapon, crouch, zoom and melee between A, B, X, Y, the
+stick clicks and the weapon hand's grip: vr.c hands each action's button
+over as the one above, so "A" here is the jump wherever it is.
+
 In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 #include "guest_host.h"
@@ -937,9 +942,8 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	}
 	merge_button(pad, XINPUT_GAMEPAD_A, (right->buttons & HALO_XR_BUTTON_A) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_X, (left->buttons & HALO_XR_BUTTON_A) != 0);
-	/* (the grips holding a Warthog's wheel are not a blow) */
-	merge_button(pad, XINPUT_GAMEPAD_B,
-		((right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 && !halo_vr_wheel_held()) || halo_vr_melee());
+	/* (the grips holding a Warthog's wheel are not a blow: vr.c) */
+	merge_button(pad, XINPUT_GAMEPAD_B, (right->buttons & HALO_XR_BUTTON_SQUEEZE) != 0 || halo_vr_melee());
 	merge_button(pad, XINPUT_GAMEPAD_Y, (left->buttons & HALO_XR_BUTTON_B) != 0);
 	/* (the Steam Frame's bumpers: the left switches grenades, the right is
 	the flashlight) */

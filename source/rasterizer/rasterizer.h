@@ -31,7 +31,14 @@ enum
 	RASTERIZER_MAXIMUM_TRIANGLES_PER_TRIANGLE_BUFFER = 24576,
 	RASTERIZER_MAXIMUM_DEBUG_PRIMITIVES = 131072,
 	RASTERIZER_MAXIMUM_DEBUG_VERTICES = 393216,
-	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS = 384,
+	/* port: the Xbox's 384 groups a window (each a model's transparent part,
+	a particle system, a contrail, a light volume, a window's or water's
+	surface) are spent in games of 30 and more players, and whatever is
+	submitted after the last is dropped, the structure's glass and water
+	and the particles first (render_window submits the objects before
+	them). Their indices are shorts, the pending flags a bit vector of
+	this size: 2048 groups take 320 KB. */
+	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS = 2048,
 	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS2 = 32,
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES = 32768,
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS = 1024,

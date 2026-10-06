@@ -63,7 +63,7 @@ void host_fatal(const char *format, ...)
 	vsnprintf(message, sizeof(message), format, arguments);
 	va_end(arguments);
 	__android_log_write(ANDROID_LOG_FATAL, "halo", message);
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Halo", message, NULL);
+	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Ringfall: Mjolnir VR", message, NULL);
 	_exit(1);
 }
 
@@ -91,7 +91,7 @@ int host_errno(void)
 static char data_root[512];
 static char save_root[512];
 /* where a device that empties the app's folders keeps the game's data */
-#define SHARED_DATA_ROOT "/home/steamos/Documents/HaloCE"
+#define SHARED_DATA_ROOT "/home/steamos/Documents/RingfallMjolnirVR"
 
 void host_android_path(int which, char *buffer, uint32_t size)
 {
@@ -273,9 +273,9 @@ static void *game_main(void *unused)
 		host_fatal("Android storage is unavailable: %s", SDL_GetError());
 	/* the Steam Frame: Lepton empties the app's own folders whenever it
 	starts again; the game's data lives in the SteamOS user's Documents
-	instead, when it is there (port/android/STEAM_FRAME.md; the same choice
-	as LauncherActivity's) */
-	if (directory_has_maps(SHARED_DATA_ROOT) && access(SHARED_DATA_ROOT, W_OK) == 0)
+	instead, whenever they can be written (port/android/STEAM_FRAME.md; the
+	same choice as LauncherActivity's, which makes the folder) */
+	if (access(SHARED_DATA_ROOT, W_OK) == 0)
 		external = SHARED_DATA_ROOT;
 	snprintf(data_root, sizeof(data_root), "%s", external);
 	snprintf(save_root, sizeof(save_root), "%s/save", external);
@@ -292,7 +292,7 @@ static void *game_main(void *unused)
 	}
 	if (!directory_has_maps(data_root))
 	{
-		host_fatal("The Halo game data was not found.\n\nCopy the PAL game data (build 01.01.14.2342), "
+		host_fatal("The game data was not found.\n\nCopy the PAL game data (build 01.01.14.2342), "
 			"the folder that contains maps, into\n%s\nor import it from the launcher screen.", data_root);
 	}
 
@@ -400,7 +400,7 @@ int main(int argc, char *argv[])
 {
 	(void)argc;
 	(void)argv;
-	host_logf(HOST_LOG_INFO, "Halo for Android starting");
+	host_logf(HOST_LOG_INFO, "Ringfall: Mjolnir VR starting");
 	host_install_signal_handlers();
 	if (host_native_thread_create(game_main, NULL, MAIN_STACK_SIZE) != 0)
 		host_fatal("cannot start the game thread");

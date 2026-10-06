@@ -201,6 +201,28 @@ static const struct config_setting config_settings[] =
 		"and the left one turns, X jumps and A reloads (on the Steam Frame the\n"
 		"D-pad takes A, B, X and Y as their mirror image); false keeps them as\n"
 		"right-handed. The menus keep their buttons either way." },
+	{ "vr.button_jump", _config_string, "\"a\"", "HALO_VR_BUTTON_JUMP", _environment_value, _platform_android,
+		"The button each of the game's actions is on (the VR options' BUTTONS\n"
+		"page swaps them): \"a\", \"b\", \"x\", \"y\" (A and B on the right\n"
+		"controller, X and Y the Quest's on the left; the Steam Frame has all\n"
+		"four on the right), \"move_stick\" and \"turn_stick\" (their clicks),\n"
+		"\"grip\" (the weapon hand's), named as right-handed: left-handed with\n"
+		"mirror_controls, their mirror images. Jump," },
+	{ "vr.button_light", _config_string, "\"b\"", "HALO_VR_BUTTON_LIGHT", _environment_value, _platform_android,
+		"the flashlight (held: switch grenades)," },
+	{ "vr.button_action", _config_string, "\"x\"", "HALO_VR_BUTTON_ACTION", _environment_value, _platform_android,
+		"action and reload," },
+	{ "vr.button_weapon", _config_string, "\"y\"", "HALO_VR_BUTTON_WEAPON", _environment_value, _platform_android,
+		"switch weapon," },
+	{ "vr.button_crouch", _config_string, "\"move_stick\"", "HALO_VR_BUTTON_CROUCH", _environment_value,
+		_platform_android,
+		"crouch," },
+	{ "vr.button_zoom", _config_string, "\"turn_stick\"", "HALO_VR_BUTTON_ZOOM", _environment_value,
+		_platform_android,
+		"zoom" },
+	{ "vr.button_melee", _config_string, "\"grip\"", "HALO_VR_BUTTON_MELEE", _environment_value, _platform_android,
+		"and melee. The triggers, the free hand's grip and the menu button keep\n"
+		"theirs, as do the menus." },
 	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
@@ -304,6 +326,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.comfort_vignette", _config_real, "0.7", "HALO_VR_COMFORT_VIGNETTE", _environment_value, _platform_android,
 		"How far the view darkens from its edges while a vehicle turns you\n"
 		"(0 never, 1 to a small window)." },
+	{ "vr.foot_vignette", _config_string, "\"off\"", "HALO_VR_FOOT_VIGNETTE", _environment_value, _platform_android,
+		"On foot, the view darkens from its edges too: \"turning\" while the stick\n"
+		"turns you smoothly (smooth_turn), \"moving\" while a stick turns or moves\n"
+		"you, as far as it is pushed; \"off\" never." },
+	{ "vr.foot_vignette_strength", _config_real, "0.7", "HALO_VR_FOOT_VIGNETTE_STRENGTH", _environment_value,
+		_platform_android,
+		"How far it darkens then (as comfort_vignette)." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"
@@ -324,9 +353,11 @@ static const struct config_setting config_settings[] =
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,
-		"How far a flick of the right stick turns." },
+		"How far a flick of the right stick turns, in degrees (the VR options step\n"
+		"through 10 to 45 by 5, 60, 75 and 90)." },
 	{ "vr.smooth_turn_speed", _config_real, "120.0", "HALO_VR_SMOOTH_TURN_SPEED", _environment_value, _platform_android,
-		"Degrees per second the right stick turns at, fully pushed, with smooth_turn." },
+		"Degrees per second the right stick turns at, fully pushed, with smooth_turn\n"
+		"(the VR options step through 30 to 150 by 15, then to 300 by 30)." },
 	{ "vr.cinematics_in_3d", _config_boolean, "false", "HALO_VR_CINEMATICS_3D", _environment_value, _platform_android,
 		"Show cinematics around you, from the cinematic camera; false shows them\n"
 		"on the screen in front of you (easier on the stomach)." },
@@ -573,6 +604,9 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.vr_options", _config_boolean, "false", "HALO_DEBUG_VR_OPTIONS", _environment_value, _platform_android,
+		"Off the headset (the emulator), show the VR options panel on the main\n"
+		"and pause menus all the same, for checking its pages." },
 	{ "debug.mirror_first_person", _config_boolean, "false", "HALO_MIRROR_FIRST_PERSON", _environment_value,
 		_platform_android,
 		"Off the headset (flat), the first-person weapon drawn mirrored, as the\n"

@@ -4,6 +4,43 @@ The same APK as for the Quest runs on the Steam Frame, in Lepton (SteamOS's
 Android, a Waydroid fork: Android 11, arm64), with SteamVR's OpenXR runtime.
 What differs is found at run time, not by a build of its own.
 
+## Installing it (players)
+
+On the Frame, in Desktop Mode (Steam menu > Power > Switch to Desktop):
+1. Put your own disc image of Halo: Combat Evolved for the original Xbox (`.iso` or
+   `.xiso`, any version) in Downloads (or Documents, the Desktop, a memory
+   card).
+2. Download `Install-Ringfall-Mjolnir-VR.desktop` from the latest release and open it
+   (double-click; confirm running it).
+3. Answer the dialogs: the installer finds the disc image (or asks for it),
+   copies the game data out of it, adds "Ringfall: Mjolnir VR" to the Steam library
+   and switches back to Gaming Mode. Start it from the library there.
+
+Opening the same file again updates the game (settings, saves and game data
+stay).
+
+The desktop file (`steam_frame_installer.desktop`) downloads the latest
+release's `ringfall-mjolnir-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
+the release job of `.github/workflows/build.yml`) and runs its
+`install.sh` (`steam_frame_install.sh`), with zenity dialogs:
+- `~/Documents/RingfallMjolnirVR`: the launcher (`ringfall-mjolnir-vr.sh`)
+  and the release APK (`RingfallMjolnirVR.apk`); the folder of the builds
+  before the name, `~/Documents/HaloCE`, renamed to it, and their "Halo VR"
+  shortcut replaced;
+- the maps folder out of the disc image (`steam_frame_xiso.py`, the app's
+  `XisoExtractor.java` in Python), unless `maps/ui.map` is there;
+- the Steam shortcut, unless it is there: added by Steam itself
+  (`steam://addnonsteamgame`, as SteamOS's "Add to Steam" does) from
+  `Ringfall Mjolnir VR.desktop` beside the game, then the library pictures
+  under the id Steam gave it. Steam is not closed: on the Frame, Desktop
+  Mode runs inside Gaming Mode's session, and closing Steam ends it (and the
+  installer with it). An old "Halo VR" shortcut is left for the player to
+  remove (Steam would write it back);
+- what it did in `install.log` beside the game.
+
+`HALO_VR_UNATTENDED=1` (and `HALO_VR_IMAGE=<image>`) runs it without
+dialogs, for testing over adb; it leaves Steam and its shortcuts alone.
+
 ## The device
 
 - Steam Settings > System > Enable Developer Mode; then start "Lepton
@@ -15,7 +52,7 @@ What differs is found at run time, not by a build of its own.
   connected as well.
 - Install with `adb install -r --no-streaming`. It prints "Lepton post
   installation failed due to APP_PATH being unset", but installs. Start the
-  game with `am start -n com.halo.decomp/.LauncherActivity`.
+  game with `am start -n io.github.cesarus85.ringfall/com.halo.decomp.LauncherActivity`.
 - Lepton empties `/sdcard/Android/data` whenever it starts again: the game's
   data must live elsewhere (stage 2). `/sdcard/Documents` and
   `/sdcard/Download` are the SteamOS user's folders and are kept.
@@ -33,7 +70,7 @@ What differs is found at run time, not by a build of its own.
 | # | Stage | State |
 | --- | --- | --- |
 | 1 | Base: the fixes above on the current main | done |
-| 2 | The game's data where Lepton keeps it | done: `/home/steamos/Documents/HaloCE` |
+| 2 | The game's data where Lepton keeps it | done: `/home/steamos/Documents/RingfallMjolnirVR` |
 | 3 | Menus, HUD and text visible (quad layers) | done: their alpha from their colour |
 | 4 | The freeze at the cryo bay's calibration | not seen again (2026-10-04) |
 | 5 | The Frame's controllers | done: their own profile, the Xbox's layout |
@@ -43,10 +80,10 @@ What differs is found at run time, not by a build of its own.
 
 ## Starting it on the Frame
 
-A button in the Steam library ("Halo VR", a non-Steam game) runs
-`~/Documents/HaloCE/halo-vr.sh` (`port/android/steam_frame_launch.sh`),
+A button in the Steam library ("Ringfall: Mjolnir VR", a non-Steam game)
+runs `~/Documents/RingfallMjolnirVR/ringfall-mjolnir-vr.sh` (`port/android/steam_frame_launch.sh`),
 which starts the game as Steam starts an Android title of its own:
-`lepton waitforexitandrun -- ~/Documents/HaloCE/HaloVR.apk`, in a container
+`lepton waitforexitandrun -- ~/Documents/RingfallMjolnirVR/RingfallMjolnirVR.apk`, in a container
 of its own (`steamlaunch-4290000001`) that Lepton installs the APK into
 anew whenever the file is newer. Updating the game is replacing that APK.
 
@@ -61,7 +98,7 @@ What the script does that Steam would for an Android title:
   quit (it writes `quit_requested.txt`).
 
 Steam's "Exit game" does not reach the game (its process is the container's,
-not Steam's): quit it with the VR options' "Quit Halo" (Y in the main or
+not Steam's): quit it with the VR options' "Quit the game" (Y in the main or
 pause menu, twice). A container ended within 30 s of its start makes
 Lepton drop the app's install, so the next start installs it again.
 
@@ -75,13 +112,15 @@ beside Lepton's `<frame-ip>:5555`.
 
 Lepton uninstalls the app and empties its folders whenever it starts again.
 The game's data lives in the SteamOS user's Documents instead: when
-`/home/steamos/Documents/HaloCE` holds `maps/ui.map` and is writable, the
-launcher and the game take it as their data folder (config.toml, saves and
-debug.txt go there too). Once:
+`/home/steamos/Documents` can be written, the launcher makes
+`/home/steamos/Documents/RingfallMjolnirVR` and the launcher and the game take it as
+their data folder (config.toml, saves and debug.txt go there too), so a
+disc image imported in the app stays as well. The installer above fills it;
+by hand, once:
 
-    adb -s <frame-ip>:5555 shell mkdir -p /home/steamos/Documents/HaloCE/maps
-    adb -s <frame-ip>:5555 push assets/maps/. /home/steamos/Documents/HaloCE/maps/
-    adb -s <frame-ip>:5555 shell chmod -R 777 /home/steamos/Documents/HaloCE
+    adb -s <frame-ip>:5555 shell mkdir -p /home/steamos/Documents/RingfallMjolnirVR/maps
+    adb -s <frame-ip>:5555 push assets/maps/. /home/steamos/Documents/RingfallMjolnirVR/maps/
+    adb -s <frame-ip>:5555 shell chmod -R 777 /home/steamos/Documents/RingfallMjolnirVR
 
 After a Lepton restart only the APK is installed again. (Use the path under
 /home, not /sdcard/Documents: Android 11's scoped storage stands between the
