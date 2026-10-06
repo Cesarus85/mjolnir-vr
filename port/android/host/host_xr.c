@@ -585,22 +585,51 @@ struct binding
 	const char *path;
 };
 
-static void suggest(const char *profile, const struct binding *bindings, int count)
-{
-	XrActionSuggestedBinding suggested[32];
-	XrInteractionProfileSuggestedBinding information = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
-	int index;
+/* a profile's bindings: those it has to have, and those it may (a path the
+runtime does not know refuses the whole suggestion, which leaves the
+profile with none: then the first alone, as before). Nonzero if taken. */
+#define MAXIMUM_SUGGESTED_BINDINGS 64
 
-	for (index = 0; index < count && index < 32; index++)
+static int suggest_bindings(const char *profile, const struct binding *bindings, int count,
+	const struct binding *optional, int optional_count)
+{
+	XrActionSuggestedBinding suggested[MAXIMUM_SUGGESTED_BINDINGS];
+	XrInteractionProfileSuggestedBinding information = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+	XrResult result;
+	int index, total = 0;
+
+	if (count + optional_count > MAXIMUM_SUGGESTED_BINDINGS)
 	{
-		suggested[index].action = *bindings[index].action;
-		suggested[index].binding = path_from_string(bindings[index].path);
+		host_logf(HOST_LOG_ERROR, "xr: %d bindings for %s, room for %d: the rest left out", count + optional_count,
+			profile, MAXIMUM_SUGGESTED_BINDINGS);
+	}
+	for (index = 0; index < count + optional_count && total < MAXIMUM_SUGGESTED_BINDINGS; index++)
+	{
+		const struct binding *binding = index < count ? &bindings[index] : &optional[index - count];
+
+		suggested[total].action = *binding->action;
+		suggested[total].binding = path_from_string(binding->path);
+		total++;
 	}
 	information.interactionProfile = path_from_string(profile);
 	information.suggestedBindings = suggested;
-	information.countSuggestedBindings = (uint32_t)index;
-	if (!XR_SUCCEEDED(xrSuggestInteractionProfileBindings(xr.instance, &information)))
-		host_logf(HOST_LOG_WARN, "xr: no bindings for %s", profile);
+	information.countSuggestedBindings = (uint32_t)total;
+	result = xrSuggestInteractionProfileBindings(xr.instance, &information);
+	if (XR_SUCCEEDED(result))
+		return 1;
+	if (optional_count > 0)
+	{
+		host_logf(HOST_LOG_WARN, "xr: %s refused with its optional bindings (%d); suggested without them", profile,
+			(int)result);
+		return suggest_bindings(profile, bindings, count, NULL, 0);
+	}
+	host_logf(HOST_LOG_WARN, "xr: no bindings for %s (%d)", profile, (int)result);
+	return 0;
+}
+
+static void suggest(const char *profile, const struct binding *bindings, int count)
+{
+	suggest_bindings(profile, bindings, count, NULL, 0);
 }
 
 static int actions_initialize(void)
