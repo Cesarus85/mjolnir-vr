@@ -30,8 +30,8 @@ named where code is taken over.
 
 | # | Step | State |
 | --- | --- | --- |
-| 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies; then measured in the headset | built (branch `frame/performance-2`) |
-| 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | tried on the Quest 3 (good, 2026-10-06); Steam Frame to try; branch `feature/vr-arms` |
+| 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies; then measured in the headset | tried on the Frame (2026-10-06): markers quieted (5 descriptors), no problems seen; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game); branch `frame/performance-2` |
+| 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | tried on the Quest 3 and the Steam Frame (good, 2026-10-06; on the Frame 0.02 ms a frame, the pose built once a frame); branch `feature/vr-arms` |
 | 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
@@ -105,8 +105,10 @@ the left hand animated through reloads.
 
 Quest 3, 2026-10-06: menus, laser, VR options, head turning, arms and
 hands, fingers, body modes, scope, vehicles, a bot game (bots spread and
-leave their bases) and a large online game: all good. What follows is left
-for the Steam Frame and for the two headsets together.
+leave their bases) and a large online game: all good.
+Steam Frame, 2026-10-06: buttons, picture (no doubled image), arms, hands,
+fingers, wheel: all good; SteamVR reprojected 18% of the frames, unseen.
+What follows is left for the two headsets together.
 
 Upstream merge (`merge/upstream-2026-10-06`):
 - Menus, a bot game, head turning (no doubled image), co-op briefly.
