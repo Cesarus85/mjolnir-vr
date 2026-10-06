@@ -58,6 +58,14 @@ const char *halo_vr_input_value(int input)
 /* the facing the game changes itself by more than this (a respawn, a
 teleport, a vehicle's seat) turns the body with it */
 #define FACING_JUMP (10.0f * PI / 180.0f)
+/* vr.foot_vignette: none on foot, while the stick turns smoothly, and
+while a stick turns smoothly or moves */
+enum
+{
+	FOOT_VIGNETTE_OFF = 0,
+	FOOT_VIGNETTE_TURNING,
+	FOOT_VIGNETTE_MOVING,
+};
 
 static struct
 {
@@ -155,9 +163,13 @@ static struct
 	float vehicle_steer_smoothing; /* seconds */
 	float steer[2];             /* the steering as smoothed: aside, up (-1..1) */
 	unsigned long long steer_last_us;
-	/* the comfort vignette: how strong at most, now, and the heading it
-	last saw */
+	/* the comfort vignette: how strong at most in a vehicle, on foot
+	(vr.foot_vignette: FOOT_VIGNETTE_*) and how strong there, now, and the
+	heading it last saw */
 	float comfort_vignette;
+	int foot_vignette;
+	float foot_vignette_strength;
+	int seated;                 /* in a vehicle's seat, whatever the view */
 	float vignette;
 	float vignette_last_yaw;
 	int vignette_yaw_valid;
@@ -535,6 +547,13 @@ static void vr_read_live_settings(void)
 	vr.laser = config_boolean("vr.laser");
 	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
+	{
+		const char *foot = config_string("vr.foot_vignette");
+
+		vr.foot_vignette = !strcmp(foot, "moving") ? FOOT_VIGNETTE_MOVING :
+			!strcmp(foot, "turning") ? FOOT_VIGNETTE_TURNING : FOOT_VIGNETTE_OFF;
+	}
+	vr.foot_vignette_strength = (float)config_real("vr.foot_vignette_strength");
 	vr.flashlight_gesture = config_boolean("vr.flashlight_gesture");
 	vr.fingers = config_boolean("vr.fingers");
 	vr.arm_ik = config_boolean("vr.arm_ik");
@@ -1588,13 +1607,45 @@ int halo_vr_wheel_held(void)
 }
 
 /* The comfort vignette: while a vehicle turns the player (from 15 degrees a
-second, fully at 60), the eye images darken from their edges; it comes in
-quickly and goes slowly. */
+second, fully at 60), the eye images darken from their edges; on foot
+(vr.foot_vignette), while the turning stick turns smoothly and, with
+"moving", the move stick moves, as far as they are pushed (fully at three
+quarters). It comes in quickly and goes slowly. */
+static float foot_vignette_target(void)
+{
+	const struct halo_xr_hand *turn = &vr.frame.hands[turn_hand()];
+	const struct halo_xr_hand *move = &vr.frame.hands[turn_hand() == HALO_XR_HAND_RIGHT ? HALO_XR_HAND_LEFT :
+		HALO_XR_HAND_RIGHT];
+	float push = 0.0f;
+
+	if (vr.foot_vignette == FOOT_VIGNETTE_OFF || vr.foot_vignette_strength <= 0.0f || vr.seated ||
+		!vr.frame.focused || vr.last_overlay_mode == HALO_XR_OVERLAY_SCREEN)
+	{
+		return 0.0f;
+	}
+	if (vr.smooth_turn && turn->active)
+		push = fabsf(turn->thumbstick[0]);
+	if (vr.foot_vignette == FOOT_VIGNETTE_MOVING && move->active)
+	{
+		float moving = sqrtf(move->thumbstick[0] * move->thumbstick[0] + move->thumbstick[1] * move->thumbstick[1]);
+
+		if (moving > push)
+			push = moving;
+	}
+	/* (beyond the sticks' dead zone, 0.15) */
+	push = (push - 0.15f) / 0.6f;
+	if (push < 0.0f)
+		push = 0.0f;
+	if (push > 1.0f)
+		push = 1.0f;
+	return push * (vr.foot_vignette_strength > 1.0f ? 1.0f : vr.foot_vignette_strength);
+}
+
 static void vignette_update(void)
 {
 	unsigned long long now = now_us();
 	float seconds = vr.vignette_last_us ? (float)(now - vr.vignette_last_us) * 1e-6f : 0.0f;
-	float target = 0.0f, rate;
+	float target = foot_vignette_target(), rate;
 
 	vr.vignette_last_us = now;
 	if (seconds > 0.1f)
@@ -1606,13 +1657,15 @@ static void vignette_update(void)
 		if (vr.vignette_yaw_valid && seconds > 0.0f)
 		{
 			float turning = fabsf(wrap_angle(yaw - vr.vignette_last_yaw)) / seconds;
+			float vehicle = (turning - 15.0f * PI / 180.0f) / (45.0f * PI / 180.0f);
 
-			target = (turning - 15.0f * PI / 180.0f) / (45.0f * PI / 180.0f);
-			if (target < 0.0f)
-				target = 0.0f;
-			if (target > 1.0f)
-				target = 1.0f;
-			target *= vr.comfort_vignette;
+			if (vehicle < 0.0f)
+				vehicle = 0.0f;
+			if (vehicle > 1.0f)
+				vehicle = 1.0f;
+			vehicle *= vr.comfort_vignette;
+			if (vehicle > target)
+				target = vehicle;
 		}
 		vr.vignette_last_yaw = yaw;
 		vr.vignette_yaw_valid = 1;
@@ -1633,6 +1686,7 @@ void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehic
 {
 	if (!vr.active || local_player_index != 0)
 		return;
+	vr.seated = seat != HALO_VR_SEAT_NONE;
 	if (!vr.vehicle_first_person)
 		seat = HALO_VR_SEAT_NONE;
 	vr.seat_yaw = vehicle_yaw;

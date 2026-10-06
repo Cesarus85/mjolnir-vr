@@ -6656,6 +6656,8 @@ enum
 	_vr_option_snap_angle,
 	_vr_option_smooth_speed,
 	_vr_option_vignette,
+	_vr_option_foot_vignette,
+	_vr_option_foot_vignette_strength,
 	_vr_option_wheel,
 	_vr_option_handedness,
 	_vr_option_mirror_controls,
@@ -6683,13 +6685,14 @@ enum
 	VR_OPTIONS_PER_PAGE = 12,
 
 	_vr_options_page_play = 0,
+	_vr_options_page_comfort,
 	_vr_options_page_buttons,
 	_vr_options_page_more,
 	NUMBER_OF_VR_OPTION_PAGES,
 
 	/* (the pages' tabs, beside the title, as wide as there is room) */
-	VR_OPTIONS_TABS_LEFT = 250,
-	VR_OPTIONS_TABS_RIGHT = 522,
+	VR_OPTIONS_TABS_LEFT = 216,
+	VR_OPTIONS_TABS_RIGHT = 528,
 	VR_OPTIONS_TAB_WIDTH = (VR_OPTIONS_TABS_RIGHT - VR_OPTIONS_TABS_LEFT) / NUMBER_OF_VR_OPTION_PAGES,
 
 	_vr_controls_on_foot = 0,
@@ -6709,12 +6712,15 @@ static struct
 } ui_vr_options_globals;
 
 /* the panel's pages (its tabs), their rows in order (NONE past the last) */
-static char const *const vr_option_page_names[NUMBER_OF_VR_OPTION_PAGES] = { "PLAY", "BUTTONS", "MORE" };
+static char const *const vr_option_page_names[NUMBER_OF_VR_OPTION_PAGES] = { "PLAY", "COMFORT", "BUTTONS", "MORE" };
 static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAGE] =
 {
-	{ _vr_option_turning, _vr_option_snap_angle, _vr_option_smooth_speed, _vr_option_vignette, _vr_option_wheel,
-		_vr_option_handedness, _vr_option_mirror_controls, _vr_option_laser, _vr_option_crosshair,
-		_vr_option_motion_tracker, _vr_option_body, _vr_option_fingers },
+	{ _vr_option_handedness, _vr_option_mirror_controls, _vr_option_laser, _vr_option_crosshair,
+		_vr_option_motion_tracker, _vr_option_body, _vr_option_fingers, _vr_option_wheel,
+		NONE, NONE, NONE, NONE },
+	{ _vr_option_turning, _vr_option_snap_angle, _vr_option_smooth_speed, _vr_option_vignette,
+		_vr_option_foot_vignette, _vr_option_foot_vignette_strength,
+		NONE, NONE, NONE, NONE, NONE, NONE },
 	{ _vr_option_button_first + HALO_VR_ACTION_JUMP, _vr_option_button_first + HALO_VR_ACTION_LIGHT,
 		_vr_option_button_first + HALO_VR_ACTION_ACTION, _vr_option_button_first + HALO_VR_ACTION_WEAPON,
 		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
@@ -6883,10 +6889,42 @@ static void ui_vr_options_buttons_reset(
 
 void platform_request_quit(void);
 
-static real const vr_snap_angles[] = { 30.0f, 45.0f, 60.0f, 90.0f };
-static real const vr_smooth_speeds[] = { 60.0f, 90.0f, 120.0f, 150.0f, 180.0f };
-static real const vr_vignettes[] = { 0.0f, 0.35f, 0.7f, 1.0f };
-static char const *const vr_vignette_names[] = { "Off", "Light", "Medium", "Strong" };
+/* (in finer steps than they had: the old values among them) */
+static real const vr_snap_angles[] = { 10.0f, 15.0f, 20.0f, 25.0f, 30.0f, 35.0f, 40.0f, 45.0f, 60.0f, 75.0f, 90.0f };
+static real const vr_smooth_speeds[] = { 30.0f, 45.0f, 60.0f, 75.0f, 90.0f, 105.0f, 120.0f, 135.0f, 150.0f, 180.0f,
+	210.0f, 240.0f, 270.0f, 300.0f };
+static real const vr_vignettes[] = { 0.0f, 0.15f, 0.25f, 0.35f, 0.5f, 0.6f, 0.7f, 0.85f, 1.0f };
+/* the on-foot vignette's strengths (vr.foot_vignette_strength: the
+vignettes' without Off), and vr.foot_vignette's values */
+static real const vr_foot_vignette_strengths[] = { 0.15f, 0.25f, 0.35f, 0.5f, 0.6f, 0.7f, 0.85f, 1.0f };
+static char const *const vr_foot_vignettes[] = { "off", "turning", "moving" };
+static char const *const vr_foot_vignette_names[] = { "Off", "Smooth turns", "Moving, turning" };
+
+static short ui_vr_options_foot_vignette(
+	void)
+{
+	char const *mode = config_string("vr.foot_vignette");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(vr_foot_vignettes); index++)
+	{
+		if (mode && strcmp(mode, vr_foot_vignettes[index]) == 0)
+			return index;
+	}
+	return 0;
+}
+
+/* a vignette's strength as the rows show it: Off, or how far it darkens */
+static void ui_vr_options_vignette_text(
+	char *text,
+	size_t size,
+	real strength)
+{
+	if (strength <= 0.0f)
+		snprintf(text, size, "Off");
+	else
+		snprintf(text, size, "%.0f%%", strength * 100.0f);
+}
 /* vr.body's values, and as the panel shows them */
 static char const *const vr_bodies[] = { "arms", "hands", "off" };
 static char const *const vr_body_names[] = { "Arms and hands", "Hands only", "Weapon only" };
@@ -7018,6 +7056,14 @@ static void ui_vr_options_change(
 		break;
 	case _vr_option_vignette:
 		ui_vr_options_step("vr.comfort_vignette", vr_vignettes, NUMBEROF(vr_vignettes), change);
+		break;
+	case _vr_option_foot_vignette:
+		config_write("vr.foot_vignette", vr_foot_vignettes[(ui_vr_options_foot_vignette() + change +
+			(short)NUMBEROF(vr_foot_vignettes)) % (short)NUMBEROF(vr_foot_vignettes)]);
+		break;
+	case _vr_option_foot_vignette_strength:
+		ui_vr_options_step("vr.foot_vignette_strength", vr_foot_vignette_strengths,
+			NUMBEROF(vr_foot_vignette_strengths), change);
 		break;
 	case _vr_option_wheel: config_write_boolean("vr.vehicle_wheel", !config_boolean("vr.vehicle_wheel")); break;
 	case _vr_option_handedness: config_write("vr.handedness", ui_vr_left_handed() ? "right" : "left"); break;
@@ -7680,9 +7726,22 @@ static void ui_vr_options_render(
 			unused = !smooth;
 			break;
 		case _vr_option_vignette:
-			label = "Vehicle comfort vignette";
-			snprintf(value, sizeof(value), "%s", vr_vignette_names[ui_vr_options_nearest(
+			label = "Vehicle vignette";
+			ui_vr_options_vignette_text(value, sizeof(value), vr_vignettes[ui_vr_options_nearest(
 				(real)config_real("vr.comfort_vignette"), vr_vignettes, NUMBEROF(vr_vignettes))]);
+			break;
+		case _vr_option_foot_vignette:
+			label = "On-foot vignette";
+			snprintf(value, sizeof(value), "%s", vr_foot_vignette_names[ui_vr_options_foot_vignette()]);
+			/* (smooth turns alone, with snap turning: nothing to darken) */
+			unused = ui_vr_options_foot_vignette() == 1 && !smooth;
+			break;
+		case _vr_option_foot_vignette_strength:
+			label = "On-foot vignette strength";
+			ui_vr_options_vignette_text(value, sizeof(value), vr_foot_vignette_strengths[ui_vr_options_nearest(
+				(real)config_real("vr.foot_vignette_strength"), vr_foot_vignette_strengths,
+				NUMBEROF(vr_foot_vignette_strengths))]);
+			unused = ui_vr_options_foot_vignette() == 0;
 			break;
 		case _vr_option_wheel:
 			label = "Warthog steering wheel";
@@ -7786,6 +7845,16 @@ static void ui_vr_options_render(
 			snprintf(shown, sizeof(shown), "< %s >", value);
 			ui_join_code_draw_text(330, 512, y, shown, FALSE, 1, unused ? &dim_color : &text_color);
 		}
+	}
+	if (page == _vr_options_page_comfort)
+	{
+		/* (what the vignettes do) */
+		ui_join_code_draw_text(128, 512, 248, "The vignette darkens the view from its edges while the", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 266, "game moves you: in a vehicle as it turns you; on foot, if", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 284, "on, as the sticks turn you smoothly (and move you).", FALSE, 0,
+			&dim_color);
 	}
 	if (page == _vr_options_page_buttons)
 	{

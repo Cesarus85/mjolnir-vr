@@ -333,6 +333,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.comfort_vignette", _config_real, "0.7", "HALO_VR_COMFORT_VIGNETTE", _environment_value, _platform_android,
 		"How far the view darkens from its edges while a vehicle turns you\n"
 		"(0 never, 1 to a small window)." },
+	{ "vr.foot_vignette", _config_string, "\"off\"", "HALO_VR_FOOT_VIGNETTE", _environment_value, _platform_android,
+		"On foot, the view darkens from its edges too: \"turning\" while the stick\n"
+		"turns you smoothly (smooth_turn), \"moving\" while a stick turns or moves\n"
+		"you, as far as it is pushed; \"off\" never." },
+	{ "vr.foot_vignette_strength", _config_real, "0.7", "HALO_VR_FOOT_VIGNETTE_STRENGTH", _environment_value,
+		_platform_android,
+		"How far it darkens then (as comfort_vignette)." },
 	{ "vr.motion_tracker_on_wrist", _config_boolean, "true", "HALO_VR_MOTION_TRACKER_WRIST", _environment_value,
 		_platform_android,
 		"Show the motion tracker on the back of the left wrist, like a watch (turn\n"
@@ -353,9 +360,11 @@ static const struct config_setting config_settings[] =
 	{ "vr.smooth_turn", _config_boolean, "false", "HALO_VR_SMOOTH_TURN", _environment_value, _platform_android,
 		"The right stick turns smoothly; false turns in steps (snap_turn_degrees)." },
 	{ "vr.snap_turn_degrees", _config_real, "30.0", "HALO_VR_SNAP_TURN", _environment_value, _platform_android,
-		"How far a flick of the right stick turns." },
+		"How far a flick of the right stick turns, in degrees (the VR options step\n"
+		"through 10 to 45 by 5, 60, 75 and 90)." },
 	{ "vr.smooth_turn_speed", _config_real, "120.0", "HALO_VR_SMOOTH_TURN_SPEED", _environment_value, _platform_android,
-		"Degrees per second the right stick turns at, fully pushed, with smooth_turn." },
+		"Degrees per second the right stick turns at, fully pushed, with smooth_turn\n"
+		"(the VR options step through 30 to 150 by 15, then to 300 by 30)." },
 	{ "vr.cinematics_in_3d", _config_boolean, "false", "HALO_VR_CINEMATICS_3D", _environment_value, _platform_android,
 		"Show cinematics around you, from the cinematic camera; false shows them\n"
 		"on the screen in front of you (easier on the stomach)." },
