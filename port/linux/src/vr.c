@@ -77,6 +77,9 @@ static struct
 	unsigned long long phase_us[2][HALO_VR_PHASE_COUNT + 1];
 	int phase_frames[2];
 	int phase_late[2];
+	/* (parts of the drawing, halo_vr_timing_end: their time and count) */
+	unsigned long long timing_us[HALO_VR_TIMING_COUNT];
+	int timing_count[HALO_VR_TIMING_COUNT];
 
 	/* the view's turning, gathered for halo_vr_look_delta */
 	float look_yaw;
@@ -568,6 +571,19 @@ void halo_vr_phase(int phase, int ticks)
 		vr.frame_ticks = ticks;
 }
 
+unsigned long long halo_vr_timing_start(void)
+{
+	return vr.active && vr.log_performance ? now_us() : 0;
+}
+
+void halo_vr_timing_end(int part, unsigned long long start)
+{
+	if (!start || part < 0 || part >= HALO_VR_TIMING_COUNT)
+		return;
+	vr.timing_us[part] += now_us() - start;
+	vr.timing_count[part]++;
+}
+
 /* the frame's parts, from the marks halo_vr_phase left (a part not marked
 this frame: none) */
 static void performance_phases(unsigned long long now)
@@ -633,6 +649,15 @@ static void performance_report(int stereo)
 		memset(vr.phase_us, 0, sizeof(vr.phase_us));
 		memset(vr.phase_frames, 0, sizeof(vr.phase_frames));
 		memset(vr.phase_late, 0, sizeof(vr.phase_late));
+		/* (the first-person pose: built how often a frame and in how long,
+		the arms' part of it, and how often taken as built) */
+		platform_log("VR:   first person: %.2f ms a frame in %.2f builds (arms %.3f ms), %.2f kept",
+			vr.timing_us[HALO_VR_TIMING_FIRST_PERSON] * 1e-3f / frames,
+			vr.timing_count[HALO_VR_TIMING_FIRST_PERSON] / frames,
+			vr.timing_us[HALO_VR_TIMING_ARMS] * 1e-3f / frames,
+			vr.timing_count[HALO_VR_TIMING_FIRST_PERSON_KEPT] / frames);
+		memset(vr.timing_us, 0, sizeof(vr.timing_us));
+		memset(vr.timing_count, 0, sizeof(vr.timing_count));
 	}
 	vr.report_start_us = now;
 	vr.report_frames = vr.report_stereo_frames = 0;
@@ -2579,6 +2604,8 @@ int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menu
 
 int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_active(void) { return 0; }
+unsigned long long halo_vr_timing_start(void) { return 0; }
+void halo_vr_timing_end(int part, unsigned long long start) { (void)part; (void)start; }
 int halo_vr_stereo_frame(void) { return 0; }
 int halo_vr_stereo_player(short local_player_index, int cinematic) { (void)local_player_index; (void)cinematic; return 0; }
 void halo_vr_eye_camera(int eye, const float game_position[3], float position[3], float forward[3], float up[3],

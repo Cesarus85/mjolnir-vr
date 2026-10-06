@@ -258,6 +258,187 @@ static struct profile_section render_model_section = { "render_model", NONE, TRU
 
 /* ---------- private code */
 
+#ifdef HALO_ANDROID
+/* ---------- VR: the first-person hands' skin
+
+The VR arms bend the first-person hands model's arms far from where its
+animations have them; a triangle whose corners hang from bones that move
+apart (an arm's, the skeleton's root's) stretches across. Read from the
+part's own buffers, as drawn. */
+
+void platform_log(char const *format, ...);
+char *tag_get_name(long tag_index);
+boolean rasterizer_model_buffer_data(struct vertex_buffer const *vertices, struct triangle_buffer const *triangles,
+	void const **vertex_data, void const **index_data);
+
+/* the part's vertices and indices, if they are of the kinds read here */
+static boolean model_vr_part_buffers(
+	struct model_geometry_part const *part,
+	struct model_vertex_compressed const **vertices,
+	word const **indices)
+{
+	if (!rasterizer_model_buffer_data(&part->vertex_buffer, &part->triangle_buffer,
+		(void const **)vertices, (void const **)indices))
+	{
+		return FALSE;
+	}
+	return *vertices && *indices && part->vertex_buffer.count > 0 && part->vertex_buffer.count <= 65535 &&
+		part->triangle_buffer.count > 0 && part->triangle_buffer.count <= 65535 &&
+		part->vertex_buffer.type == _rasterizer_vertex_type_model_compressed &&
+		(part->triangle_buffer.type == _triangle_buffer_type_precompiled_strip ||
+			part->triangle_buffer.type == _triangle_buffer_type_triangles);
+}
+
+/* a triangle's corners (from the strip, or the list) and the nodes they
+hang from (bits, a node more than a trace of weight); FALSE if malformed */
+static boolean model_vr_triangle(
+	struct model_geometry_part const *part,
+	struct model_vertex_compressed const *vertices,
+	word const *indices,
+	long triangle_index,
+	short node_count,
+	word corners[3],
+	unsigned long long *nodes)
+{
+	short corner;
+
+	*nodes = 0;
+	for (corner = 0; corner < 3; corner++)
+	{
+		long at = part->triangle_buffer.type == _triangle_buffer_type_triangles ?
+			triangle_index * 3 + corner : triangle_index + corner;
+		struct model_vertex_compressed const *vertex;
+		real weight;
+		short influence;
+
+		corners[corner] = indices[at];
+		if (corners[corner] >= part->vertex_buffer.count)
+			return FALSE;
+		vertex = &vertices[corners[corner]];
+		/* (the weight is a signed short's fraction, as rasterizer_debug_model_vertices reads it) */
+		weight = (real)vertex->node_weight / 32767.0f;
+		if (weight < 0.0f || weight > 1.0f)
+			return FALSE;
+		for (influence = 0; influence < 2; influence++)
+		{
+			short node = (short)(vertex->nodes[influence] / 3);
+			real amount = influence ? 1.0f - weight : weight;
+
+			if (amount <= 0.001f)
+				continue;
+			if (vertex->nodes[influence] % 3 || node >= node_count || node >= 64)
+				return FALSE;
+			*nodes |= 1ULL << node;
+		}
+	}
+	return TRUE;
+}
+
+/* once a model: how many triangles hang from each node, and how many of
+those from its root too (debug's logcat; first_person_weapons.c, for the
+hands) */
+void model_vr_log_skin(
+	long model_index)
+{
+	static long logged[8] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
+	struct model *model;
+	long triangles[64];
+	long with_root[64];
+	long total = 0;
+	short slot;
+	short node_index;
+	short region_index;
+	short geometry_seen[MAXIMUM_REGIONS_PER_MODEL];
+	short geometry_seen_count = 0;
+	boolean readable = TRUE;
+
+	for (slot = 0; slot < NUMBEROF(logged); slot++)
+	{
+		if (logged[slot] == model_index)
+			return;
+		if (logged[slot] == NONE)
+			break;
+	}
+	if (slot == NUMBEROF(logged) || model_index == NONE)
+		return;
+	logged[slot] = model_index;
+	model = model_definition_get(model_index);
+	if (model->nodes.count <= 0 || model->nodes.count > 64)
+		return;
+	csmemset(triangles, 0, sizeof(triangles));
+	csmemset(with_root, 0, sizeof(with_root));
+	/* (each region's first permutation, in the finest detail, as drawn) */
+	for (region_index = 0; region_index < model->regions.count && region_index < MAXIMUM_REGIONS_PER_MODEL;
+		region_index++)
+	{
+		struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
+		struct model_region_permutation *permutation;
+		short geometry_index;
+		short seen;
+		struct model_geometry *geometry;
+		short part_index;
+
+		if (region->permutations.count <= 0)
+			continue;
+		permutation = TAG_BLOCK_GET_ELEMENT(&region->permutations, 0, struct model_region_permutation);
+		geometry_index = permutation->geometry_indices[NUMBER_OF_DETAIL_LEVELS_PER_MODEL - 1];
+		for (seen = 0; seen < geometry_seen_count && geometry_seen[seen] != geometry_index; seen++);
+		if (geometry_index == NONE || seen < geometry_seen_count)
+			continue;
+		geometry_seen[geometry_seen_count++] = geometry_index;
+		geometry = TAG_BLOCK_GET_ELEMENT(&model->geometries, geometry_index, struct model_geometry);
+		for (part_index = 0; part_index < geometry->parts.count; part_index++)
+		{
+			struct model_geometry_part *part = TAG_BLOCK_GET_ELEMENT(&geometry->parts, part_index,
+				struct model_geometry_part);
+			struct model_vertex_compressed const *vertices;
+			word const *indices;
+			long triangle_index;
+
+			if (!model_vr_part_buffers(part, &vertices, &indices))
+			{
+				readable = FALSE;
+				continue;
+			}
+			for (triangle_index = 0; triangle_index < part->triangle_buffer.count; triangle_index++)
+			{
+				word corners[3];
+				unsigned long long nodes;
+
+				if (!model_vr_triangle(part, vertices, indices, triangle_index, model->nodes.count, corners, &nodes))
+				{
+					readable = FALSE;
+					break;
+				}
+				if (corners[0] == corners[1] || corners[1] == corners[2] || corners[0] == corners[2])
+					continue;
+				total++;
+				for (node_index = 0; node_index < model->nodes.count; node_index++)
+				{
+					if (!(nodes & (1ULL << node_index)))
+						continue;
+					triangles[node_index]++;
+					if (nodes & 1)
+						with_root[node_index]++;
+				}
+			}
+		}
+	}
+	platform_log("VR skin of %s: %ld triangles%s; %ld hang from its root '%s'", tag_get_name(model_index), total,
+		readable ? "" : " (some parts unreadable)", triangles[0],
+		TAG_BLOCK_GET_ELEMENT(&model->nodes, 0, struct model_node)->name);
+	for (node_index = 1; node_index < model->nodes.count; node_index++)
+	{
+		if (triangles[node_index])
+		{
+			platform_log("VR skin:   node %d '%s': %ld triangles, %ld with the root", node_index,
+				TAG_BLOCK_GET_ELEMENT(&model->nodes, node_index, struct model_node)->name, triangles[node_index],
+				with_root[node_index]);
+		}
+	}
+}
+#endif
+
 static void render_model_parts(
 	struct model const *model,
 	char const *region_permutation_indices,

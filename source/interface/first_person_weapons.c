@@ -467,6 +467,9 @@ long first_person_weapon_get_local_index(
 }
 
 #ifdef HALO_ANDROID
+int config_boolean(char const *name);
+void model_vr_log_skin(long model_index);
+
 /* VR: the grenade the player holds (the left trigger, units.c) hangs from
 the body, which the first-person view leaves out, and with it the grenade:
 drawn instead in the left hand, as it is this frame, with the hands (which
@@ -636,6 +639,18 @@ void first_person_weapon_draw(
 							weapon_definition->weapon.interface_definition.first_person_animations.index,
 							first_person_weapon->node_matrices,
 							first_person_weapon->hands_node_remapping_table);
+#ifdef HALO_ANDROID
+						/* (vr.log_performance: once, how its skin hangs from its
+						bones, for the VR arms) */
+						{
+							static int log_skin= -1;
+
+							if (log_skin<0)
+								log_skin= config_boolean("vr.log_performance")!=0;
+							if (log_skin)
+								model_vr_log_skin(first_person_interface->hands.index);
+						}
+#endif
 						render_model(
 							first_person_interface->hands.index,
 							0.0f,
@@ -725,7 +740,14 @@ void first_person_weapon_render_update(
 			first_person_weapon_set_visibility(render.local_player_index, visible);
 			if (first_person_weapon->visible)
 			{
+#ifdef HALO_ANDROID
+				unsigned long long timing= halo_vr_timing_start();
+
 				first_person_weapon_build_node_matrices(render.local_player_index);
+				halo_vr_timing_end(HALO_VR_TIMING_FIRST_PERSON, timing);
+#else
+				first_person_weapon_build_node_matrices(render.local_player_index);
+#endif
 			}
 		}
 	}
@@ -2124,6 +2146,8 @@ static void first_person_weapon_build_node_matrices(
 #ifdef HALO_ANDROID
 		if (camera!=&render.camera)
 		{
+			unsigned long long timing= halo_vr_timing_start();
+
 			first_person_weapon_vr_arms(
 				local_player_index,
 				weapon_definition->weapon.interface_definition.first_person_animations.index,
@@ -2131,6 +2155,7 @@ static void first_person_weapon_build_node_matrices(
 				(short)animation_graph->nodes.count,
 				camera,
 				first_person_weapon->state);
+			halo_vr_timing_end(HALO_VR_TIMING_ARMS, timing);
 		}
 #endif
 	}

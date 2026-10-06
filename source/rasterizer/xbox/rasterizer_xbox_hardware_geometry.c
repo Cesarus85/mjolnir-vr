@@ -73,6 +73,30 @@ symbols in this file:
 
 /* ---------- public code */
 
+#ifdef HALO_ANDROID
+/* VR (models.c, after HaloCE-Quest-VR, CC0): a model's buffers as the
+renderer has them, for reading (the native ports keep them in memory) */
+boolean rasterizer_model_buffer_data(
+	struct vertex_buffer const *vertices,
+	struct triangle_buffer const *triangles,
+	void const **vertex_data,
+	void const **index_data)
+{
+	byte *vertex_bytes = NULL;
+	byte *index_bytes = NULL;
+
+	if (!vertices->hardware_format || !triangles->hardware_format)
+		return FALSE;
+	IDirect3DVertexBuffer8_Lock((D3DVertexBuffer *)vertices->hardware_format, 0, 0, &vertex_bytes, D3DLOCK_READONLY);
+	IDirect3DIndexBuffer8_Lock((D3DIndexBuffer *)triangles->hardware_format, 0, 0, &index_bytes, D3DLOCK_READONLY);
+	IDirect3DVertexBuffer8_Unlock((D3DVertexBuffer *)vertices->hardware_format);
+	IDirect3DIndexBuffer8_Unlock((D3DIndexBuffer *)triangles->hardware_format);
+	*vertex_data = vertex_bytes;
+	*index_data = index_bytes;
+	return vertex_bytes != NULL && index_bytes != NULL;
+}
+#endif
+
 void __stdcall code_00158450(
 	void *resource,
 	void *data)

@@ -262,6 +262,19 @@ enum
 	HALO_VR_PHASE_COUNT
 };
 void halo_vr_phase(int phase, int ticks);
+/* vr.log_performance: time taken by a part of the drawing, for the report
+(first_person_weapons.c): its start (0 when not logged), and its end. The
+first-person pose (its animation and the arms), the arms alone, and the
+pose taken as built already this frame (counted) */
+enum
+{
+	HALO_VR_TIMING_FIRST_PERSON,
+	HALO_VR_TIMING_ARMS,
+	HALO_VR_TIMING_FIRST_PERSON_KEPT,
+	HALO_VR_TIMING_COUNT
+};
+unsigned long long halo_vr_timing_start(void);
+void halo_vr_timing_end(int part, unsigned long long start);
 void halo_vr_present(unsigned int back_buffer_texture);
 /* the eye image size: the back buffer's size in pixels in VR */
 int halo_vr_eye_size(int *width, int *height);
