@@ -1,6 +1,6 @@
 # VR roadmap
 
-What the VR port (Quest 3, Steam Frame) has, and what comes next, in the
+What Ringfall: Mjolnir VR (Quest 3, Steam Frame) has, and what comes next, in the
 agreed order. Updated with every step: a step is **done** once the user has
 tried it in the headset and it is merged into `main`; **built** means in a
 branch, not yet tried in the headset.
@@ -16,7 +16,7 @@ named where code is taken over.
 
 | Area | What |
 | --- | --- |
-| Headsets | Quest 3; Steam Frame (Lepton): its controllers' layout, a Steam library tile that installs, starts, updates and quits the game, data kept in `~/Documents/HaloCE` |
+| Headsets | Quest 3; Steam Frame (Lepton): its controllers' layout, a Steam library tile that installs, starts, updates and quits the game, data kept in `~/Documents/RingfallMjolnirVR` |
 | Rendering | Both eyes in one pass (multiview) on the Quest; one by one on SteamVR, where multiview's eyes did not fuse; lens flares at their depth in stereo; HUD, menus, scope, crosshair and names as layers of their own |
 | Aiming | The weapon in the hand, its shots from the muzzle, laser and crosshair options |
 | Body | Physical crouch (`vr.crouch_limit`) beside the crouch button, leaning (`vr.lean_limit`), melee by swinging, grenades thrown with the left hand, two-handed weapons |
@@ -39,7 +39,8 @@ named where code is taken over.
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
-| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **built** (branch `feature/release-install`): the app's import (Quest; on the Frame now kept in `~/Documents/HaloCE`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`), a release signing key; test pending |
+| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **built** (branches `feature/release-install`, `feature/rename-ringfall`): the app's import (Quest; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`), a release signing key; test pending |
+| R | Release as **Ringfall: Mjolnir VR** (no "Halo" in the product's name): app name, id `io.github.cesarus85.ringfall`, icon and library pictures (`tools/ringfall_art.py`), Frame folder and installer, release assets, README; the repository renamed | **built** (branch `feature/rename-ringfall`); test pending |
 
 ## Step 2, first part (done)
 

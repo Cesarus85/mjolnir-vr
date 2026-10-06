@@ -20,14 +20,14 @@ def buildNumber = buildNumberText.isInteger() ? buildNumberText.toInteger() : 0
 // debug key of the computer that builds
 def signingKey = System.getenv("HALO_ANDROID_KEYSTORE")
 def signingPassword = System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
-def signingAlias = System.getenv("HALO_ANDROID_KEY_ALIAS") ?: "halo"
+def signingAlias = System.getenv("HALO_ANDROID_KEY_ALIAS") ?: "ringfall"
 def signingProperties = new File(rootDir, "signing.properties")
 if (!signingKey && signingProperties.isFile()) {
     def properties = new Properties()
     signingProperties.withInputStream { properties.load(it) }
     signingKey = properties.getProperty("storeFile")
     signingPassword = properties.getProperty("password")
-    signingAlias = properties.getProperty("keyAlias", "halo")
+    signingAlias = properties.getProperty("keyAlias", "ringfall")
 }
 
 android {
@@ -35,7 +35,8 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.halo.decomp"
+        // (the app's own id; the Java classes keep the decompilation's package)
+        applicationId "io.github.cesarus85.ringfall"
         minSdk 28
         targetSdk 35
         versionCode Math.max(1, buildNumber)

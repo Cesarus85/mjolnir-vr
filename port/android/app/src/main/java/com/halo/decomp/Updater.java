@@ -49,7 +49,8 @@ import java.util.zip.ZipInputStream;
 final class Updater {
     /* the VR port's own releases: the original's, made without VR, must
        never replace it (they share the package name) */
-    private static final String REPOSITORY = "Cesarus85/halo-ce-vr";
+    private static final String APP_NAME = "Ringfall: Mjolnir VR";
+    private static final String REPOSITORY = "Cesarus85/ringfall-mjolnir-vr";
     private static final String USER_AGENT = "halo-ce-universal-updater";
     private static final int TIMEOUT_MILLISECONDS = 20000;
 
@@ -202,8 +203,8 @@ final class Updater {
         if (activity.isFinishing())
             return;
         new AlertDialog.Builder(activity)
-            .setTitle("Halo: new version")
-            .setMessage("A new version of Halo was detected (build " + latest + "; this is build "
+            .setTitle(APP_NAME + ": new version")
+            .setMessage("A new version of " + APP_NAME + " was detected (build " + latest + "; this is build "
                 + BuildConfig.HALO_BUILD_NUMBER + ").\n\nDo you want to update? The game will close and start "
                 + "the new version.")
             .setCancelable(false)
@@ -215,7 +216,7 @@ final class Updater {
 
     private static void confirmNever(Activity activity) {
         new AlertDialog.Builder(activity)
-            .setTitle("Halo: new version")
+            .setTitle(APP_NAME + ": new version")
             .setMessage("Stop asking about new versions?\n\nTo ask again, set auto = true in the [update] section "
                 + "of config.toml.")
             .setCancelable(false)
@@ -232,7 +233,7 @@ final class Updater {
     /* ---------- updating */
 
     private static void update(Activity activity, int latest) {
-        String asset = "halo-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
+        String asset = "ringfall-mjolnir-vr-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
         File directory = new File(activity.getCacheDir(), UpdateProvider.DIRECTORY);
         LinearLayout layout = new LinearLayout(activity);
         TextView status = new TextView(activity);
@@ -247,7 +248,7 @@ final class Updater {
         layout.addView(status);
         layout.addView(bar);
         AlertDialog progress = new AlertDialog.Builder(activity)
-            .setTitle("Halo: new version")
+            .setTitle(APP_NAME + ": new version")
             .setView(layout)
             .setCancelable(false)
             .show();
@@ -275,7 +276,7 @@ final class Updater {
                 activity.runOnUiThread(() -> {
                     progress.dismiss();
                     new AlertDialog.Builder(activity)
-                        .setTitle("Halo: new version")
+                        .setTitle(APP_NAME + ": new version")
                         .setMessage("The update failed:\n\n" + e.getMessage())
                         .setPositiveButton("OK", null)
                         .show();

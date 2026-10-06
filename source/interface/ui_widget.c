@@ -7832,7 +7832,7 @@ static void ui_vr_options_render(
 			break;
 		case _vr_option_quit:
 			label = ui_vr_options_globals.quit_armed && ui_vr_options_globals.selection == _vr_option_quit ?
-				"Quit Halo? Once more to quit" : "Quit Halo";
+				"Quit the game? Once more to quit" : "Quit the game";
 			break;
 		}
 		if (option == ui_vr_options_globals.selection)

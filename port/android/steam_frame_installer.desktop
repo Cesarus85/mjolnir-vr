@@ -1,13 +1,14 @@
 [Desktop Entry]
-# Halo VR's installer for the Steam Frame (port/android/STEAM_FRAME.md): a
-# release asset, "Install-Halo-VR.desktop", opened in Desktop Mode. It
-# downloads the latest release's bundle (tools/steam_frame_bundle.py, which
-# fills in the repository) and runs its installer, steam_frame_install.sh.
+# Ringfall: Mjolnir VR's installer for the Steam Frame
+# (port/android/STEAM_FRAME.md): a release asset,
+# "Install-Ringfall-Mjolnir-VR.desktop", opened in Desktop Mode. It downloads
+# the latest release's bundle (tools/steam_frame_bundle.py, which fills in
+# the repository) and runs its installer, steam_frame_install.sh.
 # (no "$", "\" or "%" in Exec: the desktop entry format would need them
 # escaped)
 Type=Application
-Name=Install Halo VR
-Comment=Installs Halo VR for the Steam Frame, or updates it
+Name=Install Ringfall: Mjolnir VR
+Comment=Installs Ringfall: Mjolnir VR for the Steam Frame, or updates it
 Icon=steam
 Terminal=false
-Exec=bash -c "if curl -fL --retry 3 -o /tmp/halo-vr-steam-frame.zip https://github.com/@REPOSITORY@/releases/latest/download/halo-vr-steam-frame.zip && rm -rf /tmp/halo-vr-install && python3 -m zipfile -e /tmp/halo-vr-steam-frame.zip /tmp/halo-vr-install; then exec bash /tmp/halo-vr-install/install.sh; else zenity --error --width=460 --title='Halo VR' --text='Halo VR could not be downloaded. Is the Steam Frame online?'; fi"
+Exec=bash -c "if curl -fL --retry 3 -o /tmp/ringfall-mjolnir-vr-steam-frame.zip https://github.com/@REPOSITORY@/releases/latest/download/ringfall-mjolnir-vr-steam-frame.zip && rm -rf /tmp/ringfall-mjolnir-vr-install && python3 -m zipfile -e /tmp/ringfall-mjolnir-vr-steam-frame.zip /tmp/ringfall-mjolnir-vr-install; then exec bash /tmp/ringfall-mjolnir-vr-install/install.sh; else zenity --error --width=460 --title='Ringfall: Mjolnir VR' --text='Ringfall: Mjolnir VR could not be downloaded. Is the Steam Frame online?'; fi"

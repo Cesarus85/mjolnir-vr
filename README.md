@@ -1,140 +1,94 @@
-# Halo: Combat Evolved for Linux, Windows and Android
+<p align="center">
+  <img src="port/android/steam_frame_grid/library.png" width="640" alt="Ringfall: Mjolnir VR">
+</p>
 
-[![Join our Discord](https://invidget.switchblade.xyz/9gqcHyr5km)](https://discord.gg/9gqcHyr5km)
+# Ringfall: Mjolnir VR
 
-This project is a port of the Halo: Combat Evolved decompilation to Linux,
-Windows and Android. The decompilation is of the Xbox build 2342
-(`cachebeta.exe`, SHA-256
-`4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`).
+Ringfall: Mjolnir VR plays **Halo: Combat Evolved** for the original Xbox in
+virtual reality, on the **Meta Quest 3 / 3S** and the **Steam Frame**. You
+play your own copy: the game data comes from your own disc image of the
+game, and this project includes none of it.
 
-<img width="1289" height="995" alt="The game on Linux" src="https://github.com/user-attachments/assets/0d3ad50f-f8b8-46cf-aef8-e3661da2a7d7" />
+> **Unofficial fan project.** Ringfall: Mjolnir VR is not affiliated with,
+> endorsed or sponsored by Microsoft, Xbox Game Studios, Bungie or Halo
+> Studios. Halo is a trademark of Microsoft Corporation; it is named here
+> only to say which game the project works with. No game data, art or
+> music of the game is distributed.
 
-The port starts from the decompilation of [bnunu/halo-1](https://github.com/bnunu/halo-1).
-That project is a fork of [punpckhdq/halo](https://github.com/punpckhdq/halo).
+## What it does
 
-## Download
+- **Stereo 6DoF VR** at the headset's refresh rate (72 to 120 Hz), the HUD,
+  menus, scope and crosshair as layers of their own.
+- **Your hands and arms**: the weapon in the hand, its shots from the
+  muzzle, arms by inverse kinematics, fingers from the controllers;
+  two-handed weapons, melee by swinging, grenades thrown with the hand,
+  physical crouch and lean.
+- **Vehicles**: the Warthog's wheel turned with your hands, turrets with
+  handles, first-person seats.
+- **Comfort**: snap or smooth turning in fine steps, comfort vignettes,
+  left-handed mode with mirrored controls, buttons remapped freely, the
+  flashlight by tapping your head, graphics presets, refresh rate and
+  resolution in the VR options.
+- **Multiplayer**: the PC version's menus and server browser, join codes,
+  password lobbies, co-op campaign, bots that make room for people, up to
+  128 players; cross-play with the desktop and phone builds of
+  [OpenCE](https://github.com/OpenCommunityEdition/OpenCE).
 
-GitHub Actions builds the game for each commit. These links download the
-builds of the latest release:
+## Install
 
-| Platform | Release | Debug |
-| --- | --- | --- |
-| Linux | [halo-linux-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-debug.zip) |
-| Windows | [halo-windows-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-debug.zip) |
-| Android | [halo-android-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-debug.zip) |
+You need your own Xbox disc image of Halo: Combat Evolved (`.iso` or
+`.xiso`, any version).
 
-Use the release build to play. The debug build stops at the first failed
-assertion and writes it to the log. Use the debug build to find and report
-problems.
+### Meta Quest 3 / 3S
 
-The game updates itself. At start-up it looks for a newer release, and asks
-if you want to install it. Refer to "Updates" in
-[port/linux/README.md](port/linux/README.md#updates).
+1. Download `ringfall-mjolnir-vr-android-release.zip` from the
+   [latest release](../../releases/latest) and unpack it.
+2. Install the APK with [SideQuest](https://sidequestvr.com/) or
+   `adb install`.
+3. Copy your disc image to the Quest's `Download` folder (USB cable, then
+   the Quest's storage on your computer).
+4. Start **Ringfall: Mjolnir VR** (Library > Unknown Sources), select
+   **Choose disc image** and pick it. The game copies its maps out of the
+   image (about 1.8 GB) and starts. You can delete the image afterwards.
 
-Each build of the `main` branch that passes on all three platforms is a new
-release. The [Releases](https://github.com/OpenCommunityEdition/OpenCE/releases)
-page keeps the last five releases. If the latest build has a problem, get
-an older build from that page.
+The game looks for new releases when it starts and offers to update itself.
 
-## Game data
+### Steam Frame
 
-The port does not include the game data. Download an Xbox disc image
-(`.xiso` or `.iso`) of Halo: Combat Evolved. All versions of the game
-operate. The maps of the European (PAL) version were made for a slower
-console. The port changes them to play as the North American (NTSC) maps do,
-so players of the two versions can play together.
+1. In Desktop Mode, put your disc image in `Downloads`.
+2. Download `Install-Ringfall-Mjolnir-VR.desktop` from the
+   [latest release](../../releases/latest) and open it.
+3. Answer the dialogs: the installer finds the disc image, copies the game
+   data out of it, adds **Ringfall: Mjolnir VR** to your Steam library and
+   switches back to Gaming Mode.
 
-1. Start the game.
-2. At the first start, the game asks for the disc image. Select it.
-3. The game extracts the `maps/` folder. Then the game starts.
+Open the same file again to update. Details:
+[port/android/STEAM_FRAME.md](port/android/STEAM_FRAME.md).
 
-On Linux and Windows, the game puts `maps/` next to the executable. On
-Android, copy the disc image to the phone first. The app puts `maps/` in its
-data folder. Refer to [port/android/README.md](port/android/README.md).
+## Documentation
 
-## Platforms
-
-Each platform has its own instructions:
-
-| Platform | Instructions |
+| Topic | Where |
 | --- | --- |
-| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](port/linux/README.md) |
-| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](port/windows/README.md) |
-| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](port/android/README.md) |
+| The Android/VR app: build, controls, settings | [port/android/README.md](port/android/README.md) |
+| The Steam Frame | [port/android/STEAM_FRAME.md](port/android/STEAM_FRAME.md) |
+| What is done and what comes next | [port/android/VR_ROADMAP.md](port/android/VR_ROADMAP.md) |
+| The port it is built on (desktop builds, netcode, build options) | [docs/OPENCE_README.md](docs/OPENCE_README.md) |
 
-The Linux README also gives the controls, the settings and the multiplayer
-functions. These are almost the same on all platforms.
+To build it: `python3 configure.py --release`, then `ninja android_apk`
+(Android SDK and NDK needed; see the Android README).
 
-## Multiplayer
+## Credits
 
-The game can play system link games on a local network and on the internet:
+- [OpenCE](https://github.com/OpenCommunityEdition/OpenCE), the port of the
+  decompilation to Linux, Windows and Android that this project follows.
+- The decompilation: [bnunu/halo-1](https://github.com/bnunu/halo-1), a fork
+  of [punpckhdq/halo](https://github.com/punpckhdq/halo).
+- Ideas for the arms, hands and left-handed mode from
+  [HaloCE-Quest-VR](https://github.com/moistman42069/HaloCE-Quest-VR) and
+  [astromaddie/HaloCE-VR](https://github.com/astromaddie/HaloCE-VR) (CC0).
+- The disc image readers follow [extract-xiso](https://github.com/XboxDev/extract-xiso)
+  (its license: [port/third_party/extract-xiso](port/third_party/extract-xiso/LICENSE.TXT)).
+- Fonts: Overpass (SIL Open Font License).
 
-- A system link game can have up to 128 players on up to 128 machines.
-- Linux, Windows and Android machines can play in the same game.
-- An invite link lets a machine join a game on the internet. No server of
-  this project is necessary.
-- The netcode is new. Each machine moves its own player at once,
-  and the host makes the decisions for the game. Refer to
-  [port/linux/NETCODE.md](port/linux/NETCODE.md).
-
-## Build the game
-
-You do not need the Xbox SDK. The port supplies the SDK declarations that
-the game uses. Refer to [port/include/xdk](port/include/xdk/README.md).
-
-To build the game:
-
-1. Install Python and [ninja](https://ninja-build.org/).
-2. Install the tools for your platform. Refer to the README for the
-   platform.
-3. In the root folder of the repository, enter `python configure.py`.
-4. Enter `ninja` with the target for the platform:
-
-| Target | Result |
-| --- | --- |
-| `ninja linux` | `build/linux/halo` |
-| `ninja windows` (on Windows) | `build/windows/halo.exe` and `SDL3.dll` |
-| `ninja android_apk` | `port/android/app/build/outputs/apk/debug/app-debug.apk` |
-
-If you enter `ninja` without a target, ninja builds the game for the
-computer that you use.
-
-`tools/ci_build.py` makes the same builds as GitHub Actions. For example,
-enter `python tools/ci_build.py linux release`.
-
-### Build options
-
-Give these options to `configure.py`:
-
-| Option | Result |
-| --- | --- |
-| (none) | A debug build. A failed assertion stops the game. |
-| `--release` | A release build. The game does not examine assertions, as in the retail game. |
-| `--portable` | The Linux and Windows builds operate on all x86-64 processors. Use this option for builds that you give to other persons. |
-| `--lto=thin`, `--lto=off` | Less link-time optimization. The link is faster. |
-| `--pgo=off` | No profile-guided optimization. |
-| `--pgo=train` | Records a new optimization profile. Refer to "Optimization profiles". |
-
-Without `--portable`, the Linux and Windows builds use all the instructions
-of the processor that builds them (`-march=native`). Such a build does not
-always start on a different computer.
-
-### Optimization profiles
-
-The builds use profiles of the game to optimize the code:
-
-- `pgo/halo_linux.profdata` for Linux and Android.
-- `pgo/halo_windows.profdata` for Windows.
-
-The profiles need clang 22 or later. With an older clang, the builds do not
-use the profiles.
-
-To record a new profile:
-
-1. Delete the profile.
-2. Enter `python configure.py --pgo=train`.
-3. Enter `ninja linux` or `ninja windows`.
-
-The build then plays the main menu and the first minute of each campaign
-level. This procedure continues for approximately 15 minutes. The game
-data must be in `assets/`.
+The project's own code is released under [CC0](LICENSE.md), as the
+decompilation it builds on.
