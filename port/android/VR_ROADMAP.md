@@ -25,6 +25,8 @@ named where code is taken over.
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
 | Multiplayer | Up to date with OpenCE (network version 20): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
+| Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
+| Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
 | Arms and hands | Both arms by IK from shoulders that follow the torso, the elbow led by the hand's roll; fingers from trigger, grip and touch; `vr.body` arms / hands / off, `vr.fingers` (2026-10-06) |
 
 ## Next, in order
@@ -33,13 +35,13 @@ named where code is taken over.
 | --- | --- | --- |
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
-| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | partly **built** (branch `feature/vr-lefthanded-graphics`): left-handed mode, graphics presets, refresh rate and resolution in the VR options; Steam Frame good (2026-10-06), Quest 3 test pending |
+| 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Left: buttons remapped, flashlight by tapping the head, finer turning and vignette choices |
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
 | 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | |
 
-## Step 2, first part (built, branch `feature/vr-lefthanded-graphics`)
+## Step 2, first part (done)
 
 Left-handed mode and graphics presets, after HaloCE-Quest-VR (CC0): its
 mirrored first-person model, its graphics switches.
@@ -78,6 +80,13 @@ Left-handed (`vr.handedness = "left"`):
 - Kept as they are (accepted 2026-10-06): the small static icons under the
   counter (round and "x") stay mirror images (a texture atlas, not
   numeric). The game's prompts still name the Xbox's buttons.
+- Settings kept: on Android `config.toml` is written beside itself and
+  renamed over (`port_config.c`), so one pushed by adb (the shell's, which
+  the app could not open for writing) no longer loses the VR options'
+  changes at a restart.
+- Headset tests 2026-10-06: Quest 3 and Steam Frame good (left hand,
+  controls mirrored and not, counter, presets, refresh rates, resolution,
+  settings kept over a restart).
 
 Graphics (`vr.graphics`, `port/linux/game/vr_graphics.c`), set each frame
 on the game's own switches:
