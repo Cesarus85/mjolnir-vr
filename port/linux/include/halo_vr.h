@@ -125,7 +125,14 @@ int halo_vr_two_hand(short local_player_index, const float foregrip[3], const fl
 /* - the fingers of a hand (0 the left, 1 the right), from the controller's trigger,
   grip and touch: the thumb, index, middle finger and the last two, each
   curled 0 (straight) to 1; 0 when the hand is not tracked or vr.fingers
-  is off; */
+  is off, else HALO_VR_FINGERS_CURLED, and HALO_VR_FINGERS_TOUCH too when
+  the controller tells where the fingers rest (else a finger off the
+  trigger reads as one on it, unpressed); */
+enum
+{
+	HALO_VR_FINGERS_CURLED = 1,
+	HALO_VR_FINGERS_TOUCH = 2,
+};
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4]);
 /* - whether the free hand's arm bends at the elbow to reach it from the
   shoulder (vr.arm_ik); else it keeps the shape it has on the foregrip,

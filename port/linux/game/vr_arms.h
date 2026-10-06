@@ -56,6 +56,21 @@ animated) shared by the forearm and the upper arm */
 void vr_distribute_arm_twist(real_matrix4x3 *matrices, short const bones[NUMBER_OF_VR_ARM_BONES],
 	real_matrix4x3 const *old_fore, real_matrix4x3 const *old_hand, struct vr_limb_history *history);
 
+/* a hand's fingers' joints (low, middle, tip; NONE where not found), by
+their names on that side ("l ", "r "): the thumb, index, middle, ring and
+little finger */
+void vr_finger_nodes(struct vr_skeleton const *skeleton, short hand, char const *side, short joints[5][3]);
+/* the fingers curled (halo_vr_finger_curls: the thumb, index, middle, the
+last two) in the palm's frame: forward along the fingers, up the knuckles
+towards the index, palm out of the palm */
+void vr_pose_fingers(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices, short hand,
+	short const joints[5][3], float const curls[4], real_vector3d const *palm, real_vector3d const *forward,
+	real_vector3d const *up);
+/* a finger's middle and tip turned this much (0..1) into line with its low
+joint */
+void vr_straighten_finger(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices, short const joints[3],
+	real amount);
+
 #endif
 
 #endif

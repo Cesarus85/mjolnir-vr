@@ -523,4 +523,230 @@ void vr_distribute_arm_twist(
 	}
 }
 
+/* ---------- the fingers
+
+Each finger's joints are found by name: "finger" and its number (0 the
+thumb to 4 the little finger), or "thumb", "index", "middle", "ring",
+"pinky", on the hand's side ("l ", "r "). They are posed by absolute
+directions in the controller's palm frame, each segment's subtree turned,
+its length kept (after HaloCE-Quest-VR, CC0, nearly verbatim; its touch of
+the world, a few rays a finger, is left out: it costs the Steam Frame's
+processor too much). */
+
+/* the finger (0 the thumb .. 4 the little finger) a node's name says it is
+a joint of, on that side; NONE when not a finger's */
+static short vr_finger_of(
+	char const *name,
+	char const *side)
+{
+	static char const *const names[] = { "thumb", "index", "middle", "ring", "pinky" };
+	char const *finger;
+	short index;
+
+	if (!name || !strstr(name, side))
+		return NONE;
+	finger = strstr(name, "finger");
+	if (finger && finger[6] >= '0' && finger[6] <= '4')
+		return (short)(finger[6] - '0');
+	for (index = 0; index < 5; index++)
+	{
+		if (strstr(name, names[index]))
+			return index;
+	}
+	return NONE;
+}
+
+void vr_finger_nodes(
+	struct vr_skeleton const *skeleton,
+	short hand,
+	char const *side,
+	short joints[5][3])
+{
+	short node_index, finger, depth;
+
+	for (finger = 0; finger < 5; finger++)
+	{
+		for (depth = 0; depth < 3; depth++)
+			joints[finger][depth] = NONE;
+	}
+	for (node_index = 0; node_index < skeleton->node_count; node_index++)
+	{
+		short at;
+
+		finger = vr_finger_of(animation_graph_node_name(skeleton->graph_index, node_index), side);
+		if (finger == NONE || !vr_skeleton_under(skeleton, node_index, hand))
+			continue;
+		/* its depth: how many of the same finger's joints above it */
+		depth = 0;
+		for (at = skeleton->parents[node_index]; at != NONE; at = skeleton->parents[at])
+		{
+			if (vr_finger_of(animation_graph_node_name(skeleton->graph_index, at), side) == finger)
+				depth++;
+		}
+		if (depth < 3)
+			joints[finger][depth] = node_index;
+	}
+}
+
+/* a node and all under it turned about the node */
+static void vr_turn_subtree(
+	struct vr_skeleton const *skeleton,
+	real_matrix4x3 *matrices,
+	short root,
+	real rotation[3][3])
+{
+	real_point3d pivot = matrices[root].position;
+	unsigned long long under = skeleton->under[root];
+	short node_index;
+
+	for (node_index = 0; node_index < skeleton->node_count; node_index++)
+	{
+		if (under & (1ULL << node_index))
+			vr_carry(&matrices[node_index], &pivot, &pivot, rotation);
+	}
+}
+
+/* a finger's joints (low, middle, tip) curled 0 (straight, a little bent
+at rest) to 1 (a fist), in the palm's frame: forward along the fingers,
+up the knuckles towards the index, palm out of the palm */
+static boolean vr_pose_finger(
+	struct vr_skeleton const *skeleton,
+	real_matrix4x3 *matrices,
+	short hand,
+	short const joints[3],
+	int finger,
+	real curl,
+	real_vector3d const *palm,
+	real_vector3d const *forward,
+	real_vector3d const *up)
+{
+	static real const rest[3] = { 0.12f, 0.15f, 0.10f };
+	static real const bend[3] = { 1.25f, 1.6f, 1.1f };
+	real_vector3d base, axis, direction, wanted;
+	real angle = 0.0f, dot, rotation[3][3];
+	int depth;
+
+	if (joints[0] == NONE || joints[1] == NONE || joints[2] == NONE)
+		return FALSE;
+	vr_point_minus(&matrices[joints[0]].position, &matrices[hand].position, &base);
+	dot = dot_product3d(&base, palm);
+	base.i -= dot * palm->i;
+	base.j -= dot * palm->j;
+	base.k -= dot * palm->k;
+	if (finger == 0)
+	{
+		/* the thumb: up the handle, or across the palm */
+		base.i = (up->i * 0.9f + forward->i * 0.3f) * (1.0f - curl) +
+			(forward->i * 0.75f + palm->i * 0.55f + up->i * 0.1f) * curl;
+		base.j = (up->j * 0.9f + forward->j * 0.3f) * (1.0f - curl) +
+			(forward->j * 0.75f + palm->j * 0.55f + up->j * 0.1f) * curl;
+		base.k = (up->k * 0.9f + forward->k * 0.3f) * (1.0f - curl) +
+			(forward->k * 0.75f + palm->k * 0.55f + up->k * 0.1f) * curl;
+	}
+	if (!vr_unit_vector(&base))
+		return FALSE;
+	cross_product3d(&base, palm, &axis);
+	if (!vr_unit_vector(&axis))
+		return FALSE;
+	for (depth = 0; depth < 3; depth++)
+	{
+		short joint = joints[depth];
+
+		if (depth < 2)
+		{
+			vr_point_minus(&matrices[joints[depth + 1]].position, &matrices[joint].position, &direction);
+		}
+		else
+		{
+			/* the tip: its own axis that the middle joint's bone runs along */
+			real_vector3d previous;
+			real_vector3d *axes[3];
+			real_vector3d *last[3];
+			real best = 0.8f, sign = 1.0f;
+			int a, found = -1;
+
+			axes[0] = &matrices[joints[1]].forward;
+			axes[1] = &matrices[joints[1]].left;
+			axes[2] = &matrices[joints[1]].up;
+			last[0] = &matrices[joint].forward;
+			last[1] = &matrices[joint].left;
+			last[2] = &matrices[joint].up;
+			vr_point_minus(&matrices[joint].position, &matrices[joints[1]].position, &previous);
+			if (!vr_unit_vector(&previous))
+				return FALSE;
+			for (a = 0; a < 3; a++)
+			{
+				real_vector3d unit = *axes[a];
+
+				if (!vr_unit_vector(&unit))
+					continue;
+				dot = dot_product3d(&unit, &previous);
+				if (fabs(dot) > best)
+				{
+					best = (real)fabs(dot);
+					found = a;
+					sign = dot < 0.0f ? -1.0f : 1.0f;
+				}
+			}
+			if (found < 0)
+				return TRUE;
+			direction.i = last[found]->i * sign;
+			direction.j = last[found]->j * sign;
+			direction.k = last[found]->k * sign;
+		}
+		if (!vr_unit_vector(&direction))
+			return FALSE;
+		angle += finger == 0 ? (depth == 0 ? 0.0f : (depth == 1 ? 0.35f : 0.3f) * curl) :
+			rest[depth] + bend[depth] * curl;
+		vr_axis_rotation(&axis, angle, rotation);
+		vr_rotate_vector(rotation, &base, &wanted);
+		vr_rotation_between(&direction, &wanted, rotation);
+		vr_turn_subtree(skeleton, matrices, joint, rotation);
+	}
+	return TRUE;
+}
+
+void vr_pose_fingers(
+	struct vr_skeleton const *skeleton,
+	real_matrix4x3 *matrices,
+	short hand,
+	short const joints[5][3],
+	float const curls[4],
+	real_vector3d const *palm,
+	real_vector3d const *forward,
+	real_vector3d const *up)
+{
+	int finger;
+
+	for (finger = 0; finger < 5; finger++)
+		vr_pose_finger(skeleton, matrices, hand, joints[finger], finger, curls[finger < 3 ? finger : 3], palm, forward, up);
+}
+
+/* the finger's middle and tip turned this much (0..1) towards the line of
+its low joint: a finger lifted off the trigger (the weapon hand's index,
+whose low joint, and the rest of the hand, keep the weapon's grip) */
+void vr_straighten_finger(
+	struct vr_skeleton const *skeleton,
+	real_matrix4x3 *matrices,
+	short const joints[3],
+	real amount)
+{
+	real_vector3d low, middle, axis;
+	real rotation[3][3];
+	real angle;
+
+	if (amount <= 0.0f || joints[0] == NONE || joints[1] == NONE || joints[2] == NONE)
+		return;
+	vr_point_minus(&matrices[joints[1]].position, &matrices[joints[0]].position, &low);
+	vr_point_minus(&matrices[joints[2]].position, &matrices[joints[1]].position, &middle);
+	if (!vr_unit_vector(&low) || !vr_unit_vector(&middle))
+		return;
+	cross_product3d(&middle, &low, &axis);
+	if (!vr_unit_vector(&axis))
+		return;
+	angle = (real)acos(PIN(dot_product3d(&middle, &low), -1.0f, 1.0f)) * PIN(amount, 0.0f, 1.0f);
+	vr_axis_rotation(&axis, angle, rotation);
+	vr_turn_subtree(skeleton, matrices, joints[1], rotation);
+}
+
 #endif

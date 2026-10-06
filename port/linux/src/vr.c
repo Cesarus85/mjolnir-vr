@@ -1068,7 +1068,7 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 	if (!state->active || !(state->flags & HALO_XR_POSE_VALID))
 		return 0;
 	memcpy(curls, vr.finger_curl[hand], sizeof(vr.finger_curl[hand]));
-	return 1;
+	return HALO_VR_FINGERS_CURLED | ((state->buttons & HALO_XR_BUTTON_TOUCH_KNOWN) ? HALO_VR_FINGERS_TOUCH : 0);
 }
 
 int halo_vr_melee(void)

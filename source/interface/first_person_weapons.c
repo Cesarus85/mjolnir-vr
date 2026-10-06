@@ -1236,6 +1236,10 @@ struct vr_arm_nodes
 	short left_middle;
 	short left_pinky;
 	long barrel_logged_graph_index;
+	/* the fingers' joints (vr_finger_nodes) of the skeleton they were
+	found in: each hand's thumb, index, middle, ring, little finger */
+	long fingers_graph_index;
+	short fingers[2][5][3];
 	/* the whole pose in the weapon camera's frame, outside a melee attack */
 	boolean idle_pose_valid;
 	short idle_pose_count;
@@ -1243,7 +1247,7 @@ struct vr_arm_nodes
 };
 
 static struct vr_arm_nodes vr_arm_nodes = { NONE, { NONE, NONE }, { NONE, NONE }, { NONE, NONE }, NONE, NONE, NONE, NONE,
-	NONE };
+	NONE, NONE };
 /* the skeleton this frame, and each arm's last (its elbow's swing and its
 forearm's twist run on from them) */
 static struct vr_skeleton vr_arm_skeleton;
@@ -1485,6 +1489,58 @@ static void vr_laser_follows_barrel(
 	halo_vr_set_laser(local_player_index, laser_start, laser_direction);
 }
 
+/* The fingers (vr.fingers): the free left hand's from its controller's
+trigger, grip and touch (vr_pose_fingers); of the hand on the weapon, only
+the index finger, lifted a little off the trigger when the controller
+says it is (the rest keeps the weapon's grip). */
+static void first_person_weapon_vr_fingers(
+	short local_player_index,
+	real_matrix4x3 *node_matrices,
+	boolean left_free,
+	float const hand_forward[3],
+	float const hand_up[3])
+{
+	float curls[4];
+	int fingers;
+
+	if (vr_arm_nodes.fingers_graph_index != vr_arm_skeleton.graph_index)
+	{
+		vr_arm_nodes.fingers_graph_index = vr_arm_skeleton.graph_index;
+		vr_finger_nodes(&vr_arm_skeleton, vr_arm_nodes.wrist[0], "l ", vr_arm_nodes.fingers[0]);
+		vr_finger_nodes(&vr_arm_skeleton, vr_arm_nodes.wrist[1], "r ", vr_arm_nodes.fingers[1]);
+	}
+	if (left_free && vr_arm_nodes.wrist[0] != NONE &&
+		halo_vr_finger_curls(local_player_index, 0, curls))
+	{
+		/* the palm's frame: along the fingers, up the knuckles, and out of
+		the left palm (inwards, to the right) */
+		real_vector3d forward, up, palm;
+		real along;
+
+		forward.i = hand_forward[0];
+		forward.j = hand_forward[1];
+		forward.k = hand_forward[2];
+		up.i = hand_up[0];
+		up.j = hand_up[1];
+		up.k = hand_up[2];
+		along = dot_product3d(&forward, &up);
+		vr_vector_scale_add(&up, &forward, -along);
+		if (normalize3d(&forward) > 1e-4f && normalize3d(&up) > 1e-4f)
+		{
+			cross_product3d(&forward, &up, &palm);
+			vr_pose_fingers(&vr_arm_skeleton, node_matrices, vr_arm_nodes.wrist[0], vr_arm_nodes.fingers[0], curls,
+				&palm, &forward, &up);
+		}
+	}
+	fingers = halo_vr_finger_curls(local_player_index, 1, curls);
+	if (vr_arm_nodes.wrist[1] != NONE && (fingers & HALO_VR_FINGERS_TOUCH))
+	{
+		/* (resting on the trigger the index curls 0.22 or more) */
+		vr_straighten_finger(&vr_arm_skeleton, node_matrices, vr_arm_nodes.fingers[1][1],
+			0.6f * PIN(1.f - curls[1] / 0.22f, 0.f, 1.f));
+	}
+}
+
 static void first_person_weapon_vr_arms(
 	short local_player_index,
 	long graph_index,
@@ -1515,6 +1571,7 @@ static void first_person_weapon_vr_arms(
 	boolean gripping;
 	boolean left_free;
 	boolean rigid = !halo_vr_free_arm_bends();
+	float hand_position[3], hand_forward[3], hand_up[3];
 
 	if (vr_arm_nodes.graph_index != graph_index)
 	{
@@ -1637,8 +1694,6 @@ static void first_person_weapon_vr_arms(
 	}
 	if (!gripping && vr_arm_nodes.wrist[0] != NONE)
 	{
-		float hand_position[3], hand_forward[3], hand_up[3];
-
 		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
 		{
 			vr_left_hand_free(&vr_arm_skeleton, node_matrices, rigid, hand_position, hand_forward, hand_up);
@@ -1685,6 +1740,7 @@ static void first_person_weapon_vr_arms(
 		vr_distribute_arm_twist(node_matrices, bones, &animated_forearm[side], &animated_wrist[side],
 			&vr_arm_history[side]);
 	}
+	first_person_weapon_vr_fingers(local_player_index, node_matrices, left_free, hand_forward, hand_up);
 }
 
 #endif
