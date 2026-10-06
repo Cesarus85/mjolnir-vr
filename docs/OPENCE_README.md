@@ -1,3 +1,8 @@
+> This is the README of [OpenCE](https://github.com/OpenCommunityEdition/OpenCE),
+> the port Ringfall: Mjolnir VR is built on, kept for its build and
+> development notes. Its download links are OpenCE's. For the VR mod, see
+> the [main README](../README.md).
+
 # Halo: Combat Evolved for Linux, Windows and Android
 
 [![Join our Discord](https://invidget.switchblade.xyz/9gqcHyr5km)](https://discord.gg/9gqcHyr5km)
@@ -38,8 +43,8 @@ an older build from that page.
 
 ## Game data
 
-The port does not include the game data. Download an Xbox disc image
-(`.xiso` or `.iso`) of Halo: Combat Evolved. All versions of the game
+The port does not include the game data. It needs an Xbox disc image
+(`.xiso` or `.iso`) made from your own copy of Halo: Combat Evolved. All versions of the game
 operate. The maps of the European (PAL) version were made for a slower
 console. The port changes them to play as the North American (NTSC) maps do,
 so players of the two versions can play together.
