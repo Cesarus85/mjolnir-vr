@@ -1707,7 +1707,12 @@ static void first_person_weapon_vr_arms(
 	{
 		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
 		{
-			vr_left_hand_free(&vr_arm_skeleton, node_matrices, rigid, hand_position, hand_forward, hand_up);
+			/* (rigid: the hand and its arm carried to the controller now;
+			bent, the arm is solved to it first, below, and the hand turned
+			after, as HaloCE-Quest-VR does: turned first, the solve's swing
+			turned it on and the arm's skin stretched) */
+			if (rigid)
+				vr_left_hand_free(&vr_arm_skeleton, node_matrices, rigid, hand_position, hand_forward, hand_up);
 			left_free = TRUE;
 		}
 	}
@@ -1748,10 +1753,26 @@ static void first_person_weapon_vr_arms(
 			vr_point_upper_arm(node_matrices, vr_arm_nodes.upper[side], vr_arm_nodes.fore[side], &shoulder);
 			continue;
 		}
-		/* the hand stays where it is (at the controller, or on the
-		weapon): the arm bends to it */
-		vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder, &node_matrices[bones[_vr_arm_hand]].position,
-			&pole, TRUE, &vr_arm_history[side]);
+		if (!side && left_free)
+		{
+			/* the free left arm bent to the controller's grip (the wrist
+			7 cm behind it), the hand turned to the controller after */
+			real_point3d target;
+
+			target.x = hand_position[0] - hand_forward[0] * 0.07f / VR_METRES_PER_WORLD_UNIT;
+			target.y = hand_position[1] - hand_forward[1] * 0.07f / VR_METRES_PER_WORLD_UNIT;
+			target.z = hand_position[2] - hand_forward[2] * 0.07f / VR_METRES_PER_WORLD_UNIT;
+			vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder, &target, &pole, FALSE,
+				&vr_arm_history[side]);
+			vr_left_hand_free(&vr_arm_skeleton, node_matrices, FALSE, hand_position, hand_forward, hand_up);
+		}
+		else
+		{
+			/* the hand stays where it is (on the weapon): the arm bends to
+			it */
+			vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder,
+				&node_matrices[bones[_vr_arm_hand]].position, &pole, TRUE, &vr_arm_history[side]);
+		}
 		vr_align_elbow(node_matrices, bones, &animated_upper[side], &animated_forearm[side], &animated_wrist[side]);
 		vr_distribute_arm_twist(node_matrices, bones, &animated_forearm[side], &animated_wrist[side],
 			&vr_arm_history[side]);
