@@ -85,6 +85,25 @@ the left hand animated through reloads.
   of 30 and more players.
 - The VR on-screen keyboard shows a password in the clear while it is
   typed.
-- Headset tests of the latest merge (`merge/upstream-2026-10-06`): menus,
-  bots, co-op, a password game between Frame and Quest, a bot making room
-  for a joining person.
+
+## Headset tests pending (build `feature/vr-arms`, which holds all three)
+
+Upstream merge (`merge/upstream-2026-10-06`):
+- Menus, a bot game, head turning (no doubled image), co-op briefly.
+- A password game hosted on the Frame, joined from the Quest.
+- A bot making room for a person joining a full lobby.
+
+Performance (`frame/performance-2`, and the merge's upstream speed-ups),
+with `vr.log_performance = true`:
+- Frame: the log says `trace markers: N descriptors to /dev/null`; frame
+  time ("working") against before (about 12.5 ms in a bot game on Blood
+  Gulch); SteamVR's reprojected share (vrcompositor.txt) against before
+  (2 to 17 %); no doubled image.
+- Lens flares still appear and hide as before (their visibility counters'
+  copies changed).
+- The pose cache (3a.1): `first person: ... builds` about one a frame;
+  scope, crosshair, laser and the weapon in the hand as before.
+- Quest: 90 Hz held as before in a bot game and in a large online game;
+  nothing slower than the last build.
+
+Arms and hands (3a): the list in the section above.
