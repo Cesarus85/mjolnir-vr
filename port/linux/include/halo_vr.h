@@ -162,6 +162,9 @@ enum
 int halo_vr_body_mode(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
+/* a hand has just tapped the head (vr.flashlight_gesture): the flashlight's
+button, for a moment (xinput_sdl.c) */
+int halo_vr_flashlight_tap(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */

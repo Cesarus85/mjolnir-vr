@@ -840,7 +840,9 @@ In play, laid out for VR shooters rather than by position:
 
 	right trigger  fire                 left trigger   grenade: held in the hand, thrown as it lets go (vr.c)
 	right grip     melee (B)            left grip      hold the weapon with both hands (vr.c)
-	(a hand thrust forward, vr.melee_swing_speed, is a melee attack too)
+	(a hand thrust forward, vr.melee_swing_speed, is a melee attack too;
+	a hand tapped on the side or top of the head, vr.flashlight_gesture,
+	the flashlight)
 	A              jump                 X              action, reload (X), as the game's prompts say
 	B              flashlight (white); held, switch grenade (black)
 	                                    Y              switch weapon (Y)
@@ -871,6 +873,7 @@ In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus);
 int halo_vr_wheel_held(void);
+int halo_vr_flashlight_tap(void);
 
 /* a click that stands for the pad's A (ui_widget.c: the screen where
 controllers join by pressing it), held a moment */
@@ -948,7 +951,9 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	/* (the Steam Frame's bumpers: the left switches grenades, the right is
 	the flashlight) */
 	merge_button(pad, XINPUT_GAMEPAD_BLACK, (left->buttons & HALO_XR_BUTTON_BUMPER) != 0);
-	merge_button(pad, XINPUT_GAMEPAD_WHITE, (right->buttons & HALO_XR_BUTTON_BUMPER) != 0);
+	/* (and a tap of the head, vr.flashlight_gesture: vr.c) */
+	merge_button(pad, XINPUT_GAMEPAD_WHITE,
+		(right->buttons & HALO_XR_BUTTON_BUMPER) != 0 || halo_vr_flashlight_tap());
 	{
 		/* B: a tap is the flashlight, holding it switches grenades; the
 		game sees a short press of either */

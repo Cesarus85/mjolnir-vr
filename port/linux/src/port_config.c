@@ -251,6 +251,13 @@ static const struct config_setting config_settings[] =
 	{ "vr.arm_ik", _config_boolean, "true", "HALO_VR_ARM_IK", _environment_value, _platform_android,
 		"The free hand's arm bends at the elbow to reach it from the shoulder;\n"
 		"false keeps the arm's shape as on the weapon, pointed at the shoulder." },
+	{ "vr.flashlight_gesture", _config_boolean, "true", "HALO_VR_FLASHLIGHT_GESTURE", _environment_value,
+		_platform_android,
+		"Tapping the side or the top of your head with either hand (to it and\n"
+		"away again) turns the flashlight on or off; the flashlight's button\n"
+		"still does. Not while aiming through a scope, holding the weapon with\n"
+		"both hands, holding or throwing a grenade, just after a melee, or with\n"
+		"both hands at the head." },
 	{ "vr.melee_swing_speed", _config_real, "2.0", "HALO_VR_MELEE_SWING", _environment_value, _platform_android,
 		"Thrusting a hand forward faster than this, in metres per second, is a\n"
 		"melee attack (the weapon hand's grip is too); 0 turns it off." },
