@@ -63,6 +63,12 @@ enum
 	HALO_XR_BUTTON_DPAD_DOWN = 1 << 10,
 	HALO_XR_BUTTON_DPAD_LEFT = 1 << 11,
 	HALO_XR_BUTTON_DPAD_RIGHT = 1 << 12,
+	/* the fingers' touch (the hands drawn: vr.c): the thumb on the stick, a
+	button or the rest; the index finger on the trigger; and whether the
+	controller tells the thumb's at all */
+	HALO_XR_BUTTON_THUMB_TOUCH = 1 << 13,
+	HALO_XR_BUTTON_INDEX_TOUCH = 1 << 14,
+	HALO_XR_BUTTON_TOUCH_KNOWN = 1 << 15,
 };
 
 /* the controllers' layout, for what the game tells the player */

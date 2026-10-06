@@ -120,6 +120,11 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
 int halo_vr_body_frame(short local_player_index, float head[3], float forward[3]);
 int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
+/* - the fingers of a hand (0 the left, 1 the right), from the controller's trigger,
+  grip and touch: the thumb, index, middle finger and the last two, each
+  curled 0 (straight) to 1; 0 when the hand is not tracked or vr.fingers
+  is off; */
+int halo_vr_finger_curls(short local_player_index, int hand, float curls[4]);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;

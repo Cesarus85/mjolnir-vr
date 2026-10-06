@@ -105,6 +105,10 @@ static struct
 	XrAction button_b; /* B on the right controller, Y on the left */
 	XrAction menu;
 	XrAction thumbrest;
+	/* the fingers' touch, for the hands drawn (where the runtime has it):
+	the thumb on the stick, a button or the rest, the index on the trigger */
+	XrAction thumb_touch;
+	XrAction index_touch;
 	/* the Steam Frame's controllers' own (XR_VALVE_frame_controller_interaction) */
 	int has_frame_controller;
 	int frame_layout;
@@ -656,6 +660,8 @@ static int actions_initialize(void)
 	xr.button_b = action_create("button_upper", "B / Y", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.menu = action_create("menu", "Menu", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.thumbrest = action_create("thumbrest", "Thumb rest", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.thumb_touch = action_create("thumb_touch", "Thumb resting", XR_ACTION_TYPE_BOOLEAN_INPUT);
+	xr.index_touch = action_create("index_touch", "Finger on the trigger", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.button_x = action_create("button_x", "X", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.button_y = action_create("button_y", "Y", XR_ACTION_TYPE_BOOLEAN_INPUT);
 	xr.view = action_create("view", "View", XR_ACTION_TYPE_BOOLEAN_INPUT);
@@ -761,13 +767,62 @@ static int actions_initialize(void)
 			{ &xr.haptic, "/user/hand/right/output/haptic" },
 		};
 
+		/* the fingers' touch, as each profile has it (after HaloCE-Quest-VR,
+		CC0; the Frame's from Valve's "Steam Frame Input" page): optional, a
+		profile refusing them keeps its buttons */
+		static const struct binding touch_fingers[] =
+		{
+			{ &xr.thumb_touch, "/user/hand/left/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/thumbrest/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/thumbrest/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/x/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/y/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/a/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/b/touch" },
+			{ &xr.index_touch, "/user/hand/left/input/trigger/touch" },
+			{ &xr.index_touch, "/user/hand/right/input/trigger/touch" },
+		};
+		static const struct binding index_fingers[] =
+		{
+			{ &xr.thumb_touch, "/user/hand/left/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/trackpad/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/trackpad/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/a/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/b/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/a/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/b/touch" },
+			{ &xr.index_touch, "/user/hand/left/input/trigger/touch" },
+			{ &xr.index_touch, "/user/hand/right/input/trigger/touch" },
+		};
+		static const struct binding frame_fingers[] =
+		{
+			{ &xr.thumb_touch, "/user/hand/left/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/thumbstick/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/a/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/b/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/x/touch" },
+			{ &xr.thumb_touch, "/user/hand/right/input/y/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/dpad_up/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/dpad_down/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/dpad_left/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/dpad_right/touch" },
+			{ &xr.thumb_touch, "/user/hand/left/input/view/touch" },
+			{ &xr.index_touch, "/user/hand/left/input/trigger/touch" },
+			{ &xr.index_touch, "/user/hand/right/input/trigger/touch" },
+		};
+
 		if (xr.has_frame_controller)
 		{
-			suggest("/interaction_profiles/valve/frame_controller_valve", frame_controller,
-				sizeof(frame_controller) / sizeof(frame_controller[0]));
+			suggest_bindings("/interaction_profiles/valve/frame_controller_valve", frame_controller,
+				sizeof(frame_controller) / sizeof(frame_controller[0]), frame_fingers,
+				sizeof(frame_fingers) / sizeof(frame_fingers[0]));
 		}
-		suggest("/interaction_profiles/oculus/touch_controller", touch, sizeof(touch) / sizeof(touch[0]));
-		suggest("/interaction_profiles/valve/index_controller", index, sizeof(index) / sizeof(index[0]));
+		suggest_bindings("/interaction_profiles/oculus/touch_controller", touch, sizeof(touch) / sizeof(touch[0]),
+			touch_fingers, sizeof(touch_fingers) / sizeof(touch_fingers[0]));
+		suggest_bindings("/interaction_profiles/valve/index_controller", index, sizeof(index) / sizeof(index[0]),
+			index_fingers, sizeof(index_fingers) / sizeof(index_fingers[0]));
 		suggest("/interaction_profiles/khr/simple_controller", simple, sizeof(simple) / sizeof(simple[0]));
 	}
 
@@ -807,6 +862,21 @@ static int action_boolean(XrAction action, int hand)
 	information.subactionPath = xr.hands[hand].path;
 	if (!XR_SUCCEEDED(xrGetActionStateBoolean(xr.session, &information, &state)) || !state.isActive)
 		return 0;
+	return state.currentState != XR_FALSE;
+}
+
+/* (and whether the runtime gives the action for the hand at all) */
+static int action_boolean_active(XrAction action, int hand, int *active)
+{
+	XrActionStateGetInfo information = { XR_TYPE_ACTION_STATE_GET_INFO };
+	XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+
+	*active = 0;
+	information.action = action;
+	information.subactionPath = xr.hands[hand].path;
+	if (!XR_SUCCEEDED(xrGetActionStateBoolean(xr.session, &information, &state)) || !state.isActive)
+		return 0;
+	*active = 1;
 	return state.currentState != XR_FALSE;
 }
 
@@ -910,6 +980,17 @@ static void hands_read(struct halo_xr_frame *frame)
 			(action_boolean(xr.dpad[1], hand) ? HALO_XR_BUTTON_DPAD_DOWN : 0) |
 			(action_boolean(xr.dpad[2], hand) ? HALO_XR_BUTTON_DPAD_LEFT : 0) |
 			(action_boolean(xr.dpad[3], hand) ? HALO_XR_BUTTON_DPAD_RIGHT : 0);
+		{
+			/* the fingers' touch, and whether there is any */
+			int thumb_active = 0, index_active = 0;
+
+			if (action_boolean_active(xr.thumb_touch, hand, &thumb_active))
+				out->buttons |= HALO_XR_BUTTON_THUMB_TOUCH;
+			if (action_boolean_active(xr.index_touch, hand, &index_active))
+				out->buttons |= HALO_XR_BUTTON_INDEX_TOUCH;
+			if (thumb_active)
+				out->buttons |= HALO_XR_BUTTON_TOUCH_KNOWN;
+		}
 	}
 	frame->controller_layout = xr.frame_layout ? HALO_XR_LAYOUT_FRAME : HALO_XR_LAYOUT_TOUCH;
 	if (xr.frame_layout)

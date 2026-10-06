@@ -231,6 +231,12 @@ static struct
 	float lean_limit;
 	float crouch_limit;
 	float rise_limit;
+	/* the fingers (fingers_update, vr.fingers): each hand's thumb, index,
+	middle and the last two, curled 0 (open) to 1, and how fast */
+	int fingers;
+	float finger_curl[HALO_XR_HAND_COUNT][4];
+	float finger_velocity[HALO_XR_HAND_COUNT][4];
+	unsigned long long fingers_last_us;
 } vr;
 
 /* d3d8_gl.c */
@@ -454,6 +460,7 @@ static void vr_read_live_settings(void)
 	vr.laser = config_boolean("vr.laser");
 	vr.vehicle_wheel = config_boolean("vr.vehicle_wheel");
 	vr.comfort_vignette = (float)config_real("vr.comfort_vignette");
+	vr.fingers = config_boolean("vr.fingers");
 }
 
 void halo_vr_initialize(void)
@@ -913,6 +920,65 @@ static void melee_update(void)
 	}
 }
 
+/* The fingers, from where they rest on the controller (after
+HaloCE-Quest-VR, CC0, its vr_frame.c): the thumb curled while it touches
+the stick, a button or the rest, half curled where the controller does not
+tell; the index finger with the trigger, a little curled on it; the others
+with the grip; holding a grenade, the hand closes round it. Each eased
+towards that by a critically damped spring (no overshoot however the
+frames' lengths vary). */
+static void fingers_update(void)
+{
+	unsigned long long now = now_us();
+	float seconds = vr.fingers_last_us ? (float)(now - vr.fingers_last_us) * 1e-6f : 0.0f;
+	int hand;
+
+	vr.fingers_last_us = now;
+	if (seconds > 0.05f)
+		seconds = 0.05f;
+	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
+	{
+		const struct halo_xr_hand *state = &vr.frame.hands[hand];
+		float target[4];
+		int finger;
+
+		if (!(state->buttons & HALO_XR_BUTTON_TOUCH_KNOWN))
+			target[0] = 0.4f;
+		else
+			target[0] = (state->buttons & HALO_XR_BUTTON_THUMB_TOUCH) ? 0.75f : 0.0f;
+		target[1] = fmaxf(state->trigger, (state->buttons & HALO_XR_BUTTON_INDEX_TOUCH) ? 0.22f : 0.0f);
+		target[2] = target[3] = state->squeeze;
+		if (hand == HALO_XR_HAND_LEFT && vr.grenade_held)
+		{
+			for (finger = 0; finger < 4; finger++)
+				target[finger] = 0.8f;
+		}
+		for (finger = 0; finger < 4; finger++)
+		{
+			float omega = finger == 0 ? 20.0f : 26.0f;
+			float x = vr.finger_curl[hand][finger] - target[finger];
+			float v = vr.finger_velocity[hand][finger];
+			float j = v + omega * x, decay = expf(-omega * seconds);
+
+			vr.finger_curl[hand][finger] = fmaxf(0.0f, fminf(1.0f, target[finger] + (x + j * seconds) * decay));
+			vr.finger_velocity[hand][finger] = (v - omega * j * seconds) * decay;
+		}
+	}
+}
+
+int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
+{
+	const struct halo_xr_hand *state;
+
+	if (!vr.active || !vr.fingers || local_player_index != 0 || hand < 0 || hand >= HALO_XR_HAND_COUNT)
+		return 0;
+	state = &vr.frame.hands[hand];
+	if (!state->active || !(state->flags & HALO_XR_POSE_VALID))
+		return 0;
+	memcpy(curls, vr.finger_curl[hand], sizeof(vr.finger_curl[hand]));
+	return 1;
+}
+
 int halo_vr_melee(void)
 {
 	return vr.active && now_us() < vr.melee_until_us;
@@ -1329,6 +1395,7 @@ void halo_vr_frame_begin(void)
 	look_update();
 	grenade_update();
 	melee_update();
+	fingers_update();
 }
 
 void halo_vr_present(unsigned int back_buffer_texture)
@@ -2667,6 +2734,11 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
+{
+	(void)local_player_index; (void)hand; (void)curls;
+	return 0;
+}
 void halo_vr_set_seat(short local_player_index, int seat, int armed, float vehicle_yaw)
 {
 	(void)local_player_index; (void)seat; (void)armed; (void)vehicle_yaw;
