@@ -39,7 +39,7 @@ named where code is taken over.
 | 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
-| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | |
+| 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **built** (branch `feature/release-install`): the app's import (Quest; on the Frame now kept in `~/Documents/HaloCE`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`), a release signing key; test pending |
 
 ## Step 2, first part (done)
 

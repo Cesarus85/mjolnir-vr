@@ -49,10 +49,15 @@ public class LauncherActivity extends Activity {
         dataRoot = getExternalFilesDir(null);
         // the Steam Frame: Lepton empties the app's own folders whenever it
         // starts again; the game's data lives in the SteamOS user's
-        // Documents instead, when it is there (port/android/STEAM_FRAME.md;
-        // the same choice as host_main.c's)
-        if (new File(SHARED_DATA_ROOT, "maps/ui.map").isFile() && new File(SHARED_DATA_ROOT).canWrite())
-            dataRoot = new File(SHARED_DATA_ROOT);
+        // Documents instead, whenever they can be written, so that a disc
+        // image imported here stays too (port/android/STEAM_FRAME.md; the
+        // same choice as host_main.c's)
+        File shared = new File(SHARED_DATA_ROOT);
+        if (shared.getParentFile().canWrite() || shared.canWrite()) {
+            shared.mkdirs();
+            if (shared.canWrite())
+                dataRoot = shared;
+        }
         // created by the app, so that files pushed into it with adb stay
         // readable (a directory adb creates there belongs to the shell user)
         if (dataRoot != null)

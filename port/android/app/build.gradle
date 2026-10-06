@@ -13,9 +13,22 @@ def buildNumberText = System.getenv("HALO_BUILD_NUMBER") ?: "0"
 def buildNumber = buildNumberText.isInteger() ? buildNumberText.toInteger() : 0
 
 // the workflow's signing key (.github/workflows/build.yml): every build of
-// main signed with it can install over the one before; without it, the
+// main signed with it can install over the one before; on a computer that
+// builds for its own devices, the same key from port/android/signing.properties
+// (not in the repository: storeFile, password, keyAlias), so that its
+// builds and the releases install over each other; without either, the
 // debug key of the computer that builds
 def signingKey = System.getenv("HALO_ANDROID_KEYSTORE")
+def signingPassword = System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
+def signingAlias = System.getenv("HALO_ANDROID_KEY_ALIAS") ?: "halo"
+def signingProperties = new File(rootDir, "signing.properties")
+if (!signingKey && signingProperties.isFile()) {
+    def properties = new Properties()
+    signingProperties.withInputStream { properties.load(it) }
+    signingKey = properties.getProperty("storeFile")
+    signingPassword = properties.getProperty("password")
+    signingAlias = properties.getProperty("keyAlias", "halo")
+}
 
 android {
     namespace "com.halo.decomp"
@@ -60,9 +73,9 @@ android {
         if (signingKey) {
             halo {
                 storeFile file(signingKey)
-                storePassword System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("HALO_ANDROID_KEY_ALIAS") ?: "halo"
-                keyPassword System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
+                storePassword signingPassword
+                keyAlias signingAlias
+                keyPassword signingPassword
             }
         }
     }
