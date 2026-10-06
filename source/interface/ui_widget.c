@@ -6669,7 +6669,6 @@ enum
 	/* (the game's actions on the buttons, HALO_VR_ACTION_*'s order) */
 	_vr_option_button_first,
 	_vr_option_button_last = _vr_option_button_first + HALO_VR_ACTION_COUNT - 1,
-	_vr_option_flashlight_gesture,
 	_vr_option_buttons_reset,
 	_vr_option_graphics,
 	_vr_option_refresh_rate,
@@ -6724,8 +6723,8 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 	{ _vr_option_button_first + HALO_VR_ACTION_JUMP, _vr_option_button_first + HALO_VR_ACTION_LIGHT,
 		_vr_option_button_first + HALO_VR_ACTION_ACTION, _vr_option_button_first + HALO_VR_ACTION_WEAPON,
 		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
-		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_flashlight_gesture, _vr_option_buttons_reset,
-		_vr_option_controls, NONE, NONE },
+		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_buttons_reset, _vr_option_controls,
+		NONE, NONE, NONE },
 	{ _vr_option_graphics, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
 		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE },
 };
@@ -7101,9 +7100,6 @@ static void ui_vr_options_change(
 	}
 	case _vr_option_resolution:
 		ui_vr_options_step("vr.resolution_scale", vr_resolution_scales, NUMBEROF(vr_resolution_scales), change);
-		break;
-	case _vr_option_flashlight_gesture:
-		config_write_boolean("vr.flashlight_gesture", !config_boolean("vr.flashlight_gesture"));
 		break;
 	case _vr_option_buttons_reset:
 		ui_vr_options_buttons_reset();
@@ -7553,8 +7549,6 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add(&columns[1], "Menu", "Pause");
 			ui_vr_controls_note(320, wrist_note);
 			ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
-			if (config_boolean("vr.flashlight_gesture"))
-				ui_vr_controls_note(360, "Tap the side or top of your head: the flashlight.");
 			break;
 		case _vr_controls_vehicles:
 			ui_vr_controls_add(&columns[move], "Stick", "Drive");
@@ -7602,8 +7596,6 @@ static void ui_vr_controls_render(
 			ui_vr_controls_note(320, wrist_note);
 			ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
 			ui_vr_controls_note(360, "Hold the Meta button to recentre the view.");
-			if (config_boolean("vr.flashlight_gesture"))
-				ui_vr_controls_note(380, "Tap the side or top of your head: the flashlight.");
 			break;
 		case _vr_controls_vehicles:
 			ui_vr_controls_add(&columns[move], "Stick", "Drive");
@@ -7809,10 +7801,6 @@ static void ui_vr_options_render(
 				snprintf(value, sizeof(value), "%.0f%%", scale * 100.0f);
 			break;
 		}
-		case _vr_option_flashlight_gesture:
-			label = "Light by tapping the head";
-			snprintf(value, sizeof(value), "%s", config_boolean("vr.flashlight_gesture") ? "On" : "Off");
-			break;
 		case _vr_option_buttons_reset:
 			label = "Reset buttons to defaults";
 			unused = ui_vr_options_buttons_default();
@@ -7859,10 +7847,11 @@ static void ui_vr_options_render(
 	if (page == _vr_options_page_buttons)
 	{
 		/* (what the buttons' rows do) */
-		ui_join_code_draw_text(128, 512, 320, "An action moved to a button swaps with the one there;", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 302, "An action moved to a button swaps with the one there;", FALSE, 0,
 			&dim_color);
-		ui_join_code_draw_text(128, 512, 338, "left-handed and mirrored, the buttons are mirrored too.", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 320, "left-handed and mirrored, the buttons are mirrored too.", FALSE, 0,
 			&dim_color);
+		ui_join_code_draw_text(128, 512, 338, "The menus keep their buttons.", FALSE, 0, &dim_color);
 	}
 	if (page == _vr_options_page_more)
 	{

@@ -212,7 +212,6 @@ static struct
 	captured, and where its disc is in LOCAL space */
 	int scope_pass;
 	int scope_captured;
-	int scope_last_frame;    /* the scope was drawn the frame before */
 	struct halo_xr_pose scope_pose;
 	int motion_tracker_on_wrist;
 	float motion_tracker_size;
@@ -257,20 +256,6 @@ static struct
 	unsigned long long melee_aim_until_us;
 	int melee_button_down;
 	float melee_strength;    /* 0..1, the last attack's swing */
-	/* the flashlight by tapping the head (flashlight_gesture_update,
-	vr.flashlight_gesture): each hand where it was (the head's axes) and
-	whether it has been away from the head since its last tap; the hand at
-	the head now and since when (-1: none); when the next toggle may come,
-	and until when the game sees the flashlight's button */
-	int flashlight_gesture;
-	float tap_last[HALO_XR_HAND_COUNT][3];
-	int tap_last_valid[HALO_XR_HAND_COUNT];
-	int tap_armed[HALO_XR_HAND_COUNT];
-	int tap_hand;
-	unsigned long long tap_entered_us;
-	unsigned long long tap_last_us;
-	unsigned long long tap_ready_us;
-	unsigned long long flashlight_until_us;
 	unsigned long long melee_jab_start_us; /* the melee button's attack: the weapon jabs */
 	/* the laser along the barrel, for the frame it was set in */
 	unsigned long frame_number;
@@ -554,7 +539,6 @@ static void vr_read_live_settings(void)
 			!strcmp(foot, "turning") ? FOOT_VIGNETTE_TURNING : FOOT_VIGNETTE_OFF;
 	}
 	vr.foot_vignette_strength = (float)config_real("vr.foot_vignette_strength");
-	vr.flashlight_gesture = config_boolean("vr.flashlight_gesture");
 	vr.fingers = config_boolean("vr.fingers");
 	vr.arm_ik = config_boolean("vr.arm_ik");
 	{
@@ -602,7 +586,6 @@ void halo_vr_initialize(void)
 	if (vr.active || !getenv("HALO_VR"))
 		return;
 	vr_read_live_settings();
-	vr.tap_hand = -1;
 	vr.cinematics_3d = config_boolean("vr.cinematics_in_3d");
 	vr.hud_distance = (float)config_real("vr.hud_distance");
 	vr.hud_width = 2.0f * vr.hud_distance * tanf((float)config_real("vr.hud_field_of_view") * PI / 360.0f);
@@ -1123,148 +1106,6 @@ static void melee_update(void)
 		memcpy(vr.hand_last[hand], state->grip.position, sizeof(vr.hand_last[hand]));
 		vr.hand_last_valid[hand] = 1;
 	}
-}
-
-/* The flashlight by tapping the head (vr.flashlight_gesture; after
-HaloCE-Quest-VR, CC0, whose off hand brought near the head's middle
-toggles it): either hand brought to the side or the top of the head and
-away again, as a tap, toggles the flashlight; its button still does.
-
-The zone is in the head's axes (metres from between the eyes; x right,
-y up, z back): beside the head, from 7 to 24 cm out, 10 cm below the eyes
-to 18 cm above them; or over it, within 12 cm of its middle line, 8 to
-30 cm up; either way no further forward than 6 cm before the eyes, so a
-scope held to the eye, a two-handed weapon and a punch, all in front of
-the face, are not in it. A tap is a hand coming from 35 cm or more from
-the head's middle into the zone, slower than 3 m/s (a grenade's throw
-past the ear is faster), staying 40 to 600 ms (adjusting the headset
-takes longer) alone (both hands at the head adjust it), and leaving it 4
-cm past its edges; toggles are a second apart. No taps while the menus
-are up, while a grenade is held or just thrown, after a melee, with both
-hands on the weapon, with the weapon hand at the scope, or with a hand on
-a Warthog's wheel. */
-#define TAP_SPEED 3.0f
-#define TAP_AWAY 0.35f
-#define TAP_MARGIN 0.04f
-#define TAP_DWELL_SHORTEST 40000ULL
-#define TAP_DWELL_LONGEST 600000ULL
-#define TAP_COOLDOWN 1000000ULL
-
-static int tap_zone(const float local[3], float margin)
-{
-	float x = fabsf(local[0]), y = local[1], z = local[2];
-
-	if (z < -0.06f - margin || z > 0.18f + margin)
-		return 0;
-	if (x >= 0.07f - margin && x <= 0.24f + margin && y >= -0.10f - margin && y <= 0.18f + margin)
-		return 1;
-	return x <= 0.12f + margin && y >= 0.08f - margin && y <= 0.30f + margin;
-}
-
-static void flashlight_gesture_update(void)
-{
-	unsigned long long now = now_us();
-	float seconds = vr.tap_last_us ? (float)(now - vr.tap_last_us) * 1e-6f : 0.0f;
-	float inverse[4];
-	int blocked, hand;
-
-	vr.tap_last_us = now;
-	inverse[0] = -vr.frame.head.orientation[0];
-	inverse[1] = -vr.frame.head.orientation[1];
-	inverse[2] = -vr.frame.head.orientation[2];
-	inverse[3] = vr.frame.head.orientation[3];
-	blocked = !vr.flashlight_gesture || !vr.frame.focused || vr.last_overlay_mode == HALO_XR_OVERLAY_SCREEN ||
-		vr.recentre_frames > 0 || vr.grenade_held || now - vr.grenade_released_us < 600000 ||
-		now < vr.melee_ready_us || vr.two_hand_latched;
-	for (hand = 0; hand < HALO_XR_HAND_COUNT; hand++)
-	{
-		const struct halo_xr_hand *state = &vr.frame.hands[hand];
-		float relative[3], local[3], away[3], speed = 0.0f;
-		int axis, inside, outside;
-
-		if (!state->active || !(state->flags & HALO_XR_POSE_VALID))
-		{
-			vr.tap_last_valid[hand] = 0;
-			vr.tap_armed[hand] = 0;
-			if (vr.tap_hand == hand)
-				vr.tap_hand = -1;
-			continue;
-		}
-		for (axis = 0; axis < 3; axis++)
-			relative[axis] = state->grip.position[axis] - vr.frame.head.position[axis];
-		quaternion_rotate(inverse, relative, local);
-		if (vr.tap_last_valid[hand] && seconds > 0.0f && seconds < 0.1f)
-		{
-			float moved[3];
-
-			for (axis = 0; axis < 3; axis++)
-				moved[axis] = local[axis] - vr.tap_last[hand][axis];
-			speed = sqrtf(moved[0] * moved[0] + moved[1] * moved[1] + moved[2] * moved[2]) / seconds;
-		}
-		memcpy(vr.tap_last[hand], local, sizeof(vr.tap_last[hand]));
-		vr.tap_last_valid[hand] = 1;
-		away[0] = local[0];
-		away[1] = local[1];
-		away[2] = local[2] - 0.10f;
-		if (sqrtf(away[0] * away[0] + away[1] * away[1] + away[2] * away[2]) > TAP_AWAY)
-			vr.tap_armed[hand] = 1;
-		inside = tap_zone(local, 0.0f);
-		outside = !tap_zone(local, TAP_MARGIN);
-		if (blocked || (vr.wheel_hands & (1 << hand)) || (hand == weapon_hand() && vr.scope_last_frame))
-		{
-			/* (a hand that may be at the head for another reason taps
-			only once it has been away again) */
-			if (inside)
-				vr.tap_armed[hand] = 0;
-			if (vr.tap_hand == hand)
-				vr.tap_hand = -1;
-			continue;
-		}
-		if (vr.tap_hand == hand)
-		{
-			unsigned long long dwell = now - vr.tap_entered_us;
-
-			if (dwell > TAP_DWELL_LONGEST)
-			{
-				vr.tap_hand = -1;
-			}
-			else if (outside)
-			{
-				vr.tap_hand = -1;
-				if (dwell >= TAP_DWELL_SHORTEST && now >= vr.tap_ready_us)
-				{
-					vr.flashlight_until_us = now + 100000;
-					vr.tap_ready_us = now + TAP_COOLDOWN;
-					host_xr_haptic(hand, 0.5f, 0.05f);
-					platform_log("VR: flashlight, %s hand at the head for %llu ms", hand ? "right" : "left",
-						dwell / 1000);
-				}
-			}
-		}
-		else if (inside && vr.tap_armed[hand])
-		{
-			vr.tap_armed[hand] = 0;
-			if (vr.tap_hand >= 0)
-			{
-				/* (both hands at the head: the headset adjusted) */
-				vr.tap_hand = -1;
-			}
-			else if (speed <= TAP_SPEED)
-			{
-				vr.tap_hand = hand;
-				vr.tap_entered_us = now;
-			}
-		}
-		else if (inside && vr.tap_hand >= 0)
-		{
-			vr.tap_hand = -1;
-		}
-	}
-}
-
-int halo_vr_flashlight_tap(void)
-{
-	return vr.active && now_us() < vr.flashlight_until_us;
 }
 
 /* The fingers, from where they rest on the controller (after
@@ -1845,7 +1686,6 @@ void halo_vr_frame_begin(void)
 	vr.frame_begun = 1;
 	vr.frame_number++;
 	vr.eyes_captured = 0;
-	vr.scope_last_frame = vr.scope_captured;
 	vr.scope_captured = 0;
 	vr.crosshair_captured = 0;
 	vr.name_count = 0;
@@ -1872,7 +1712,6 @@ void halo_vr_frame_begin(void)
 	look_update();
 	grenade_update();
 	melee_update();
-	flashlight_gesture_update();
 	fingers_update();
 	torso_update();
 }
@@ -3440,7 +3279,6 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
-int halo_vr_flashlight_tap(void) { return 0; }
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 {
 	(void)local_player_index; (void)hand; (void)curls;

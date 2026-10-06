@@ -26,9 +26,8 @@ game, and this project includes none of it.
 - **Vehicles**: the Warthog's wheel turned with your hands, turrets with
   handles, first-person seats.
 - **Comfort**: snap or smooth turning in fine steps, comfort vignettes,
-  left-handed mode with mirrored controls, buttons remapped freely, the
-  flashlight by tapping your head, graphics presets, refresh rate and
-  resolution in the VR options.
+  left-handed mode with mirrored controls, buttons remapped freely,
+  graphics presets, refresh rate and resolution in the VR options.
 - **Multiplayer**: the PC version's menus and server browser, join codes,
   password lobbies, co-op campaign, bots that make room for people, up to
   128 players; cross-play with the desktop and phone builds of
