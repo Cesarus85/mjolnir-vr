@@ -577,10 +577,10 @@ long player_aim_projectile(
 		if (halo_vr_active() && player->local_player_index==0)
 		{
 			struct unit_datum *vr_unit= unit_get(player->unit_index);
-			float vr_eyes[3], vr_heading[3];
+			float vr_eyes[3], vr_neck[3], vr_heading[3];
 
 			if (vr_unit->object.parent_object_index!=NONE &&
-				halo_vr_body_frame(player->local_player_index, vr_eyes, vr_heading))
+				halo_vr_body_frame(player->local_player_index, vr_eyes, vr_neck, vr_heading))
 			{
 				/* VR, seated: as the game aims a vehicle's gun, at what lies
 				along the player's aim, from the eyes (vr.c draws the crosshair

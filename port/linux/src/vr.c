@@ -237,6 +237,12 @@ static struct
 	float finger_curl[HALO_XR_HAND_COUNT][4];
 	float finger_velocity[HALO_XR_HAND_COUNT][4];
 	unsigned long long fingers_last_us;
+	/* the torso's heading (torso_update): in LOCAL space, so that turning
+	the body by the stick turns it too; and the head's, level */
+	float torso_yaw;
+	int torso_valid;
+	unsigned long long torso_last_us;
+	float head_level_yaw;
 } vr;
 
 /* d3d8_gl.c */
@@ -966,6 +972,80 @@ static void fingers_update(void)
 	}
 }
 
+/* The torso's heading (after HaloCE-Quest-VR, CC0, its vr_body_heading):
+the head's, steady at any pitch (looking down, the top of the head points
+forward; up, the back of it), drawn halfway towards the hands when both
+are ahead of it, by at most 45 degrees (turning the body turns both,
+looking about only the head). The torso follows it beyond a 15 degree cone,
+the turn eased (10 a second, whatever the frame rate). Kept in LOCAL
+space, which the stick's turns carry (body_yaw): the shoulders turn with
+them at once. */
+#define TORSO_CONE (15.0f * PI / 180.0f)
+
+static void torso_update(void)
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	const struct halo_xr_hand *hands = vr.frame.hands;
+	unsigned long long now = now_us();
+	float seconds = vr.torso_valid ? (float)(now - vr.torso_last_us) * 1e-6f : -1.0f;
+	float forward[3], up[3], level[3], wanted;
+	int axis;
+
+	vr.torso_last_us = now;
+	if (!(vr.frame.head_flags & HALO_XR_POSE_VALID))
+	{
+		vr.torso_valid = 0;
+		return;
+	}
+	quaternion_rotate(vr.frame.head.orientation, local_forward, forward);
+	quaternion_rotate(vr.frame.head.orientation, local_up, up);
+	for (axis = 0; axis < 3; axis++)
+		level[axis] = forward[axis] - forward[1] * up[axis];
+	level[1] = 0.0f;
+	if (normalize3(level) > 1e-3f)
+	{
+		wanted = atan2f(-level[0], -level[2]);
+	}
+	else
+	{
+		float pitch;
+
+		head_angles(&wanted, &pitch);
+	}
+	vr.head_level_yaw = wanted;
+	if (hands[0].active && (hands[0].flags & HALO_XR_POSE_VALID) && hands[1].active &&
+		(hands[1].flags & HALO_XR_POSE_VALID))
+	{
+		float x = (hands[0].grip.position[0] + hands[1].grip.position[0]) * 0.5f - vr.frame.head.position[0];
+		float z = (hands[0].grip.position[2] + hands[1].grip.position[2]) * 0.5f - vr.frame.head.position[2];
+
+		if (sqrtf(x * x + z * z) > 0.12f)
+		{
+			float difference = wrap_angle(atan2f(-x, -z) - wanted);
+
+			if (fabsf(difference) < 1.745f)
+				wanted += 0.5f * fmaxf(-0.785f, fminf(0.785f, difference));
+		}
+	}
+	if (!vr.torso_valid || seconds < 0.0f || seconds > 0.25f || vr.recentre_frames > 0)
+	{
+		vr.torso_yaw = wrap_angle(wanted);
+	}
+	else
+	{
+		float difference = wrap_angle(wanted - vr.torso_yaw);
+
+		if (fabsf(difference) > TORSO_CONE)
+		{
+			float turn = difference - copysignf(TORSO_CONE, difference);
+
+			vr.torso_yaw = wrap_angle(vr.torso_yaw + turn * (1.0f - expf(-10.0f * fminf(seconds, 0.05f))));
+		}
+	}
+	vr.torso_valid = 1;
+}
+
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 {
 	const struct halo_xr_hand *state;
@@ -1396,6 +1476,7 @@ void halo_vr_frame_begin(void)
 	grenade_update();
 	melee_update();
 	fingers_update();
+	torso_update();
 }
 
 void halo_vr_present(unsigned int back_buffer_texture)
@@ -2128,27 +2209,34 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 		head[0], head[1], head[2], unit_looking[0], unit_looking[1], unit_looking[2], in_vehicle ? ", in a vehicle" : "");
 }
 
-/* the body: where the head is (world units) and its heading, flat */
-int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
+/* the body: where the head is (world units), the neck it turns about (a
+little behind the eyes, at their height) and the torso's heading, flat */
+#define NECK_BEHIND_EYES 0.09f
+
+int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3])
 {
-	float offset[3], look[3];
+	float offset[3], local[3], back[3];
 	int axis;
 
-	if (local_player_index != 0 || !halo_vr_stereo_frame() || !(vr.frame.head_flags & HALO_XR_POSE_VALID))
+	if (local_player_index != 0 || !halo_vr_stereo_frame() || !(vr.frame.head_flags & HALO_XR_POSE_VALID) ||
+		!vr.torso_valid)
+	{
 		return 0;
+	}
 	tracked_offset(vr.frame.head.position, offset);
 	for (axis = 0; axis < 3; axis++)
 		head[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
-	if (!halo_vr_look_vector(local_player_index, look))
-		return 0;
-	forward[0] = look[0];
-	forward[1] = look[1];
+	local[0] = sinf(vr.head_level_yaw) * NECK_BEHIND_EYES;
+	local[1] = 0.0f;
+	local[2] = cosf(vr.head_level_yaw) * NECK_BEHIND_EYES;
+	local_to_game(local, vr.body_yaw, back);
+	for (axis = 0; axis < 3; axis++)
+		neck[axis] = head[axis] + back[axis] / METRES_PER_WORLD_UNIT;
+	local[0] = -sinf(vr.torso_yaw);
+	local[2] = -cosf(vr.torso_yaw);
+	local_to_game(local, vr.body_yaw, forward);
 	forward[2] = 0.0f;
-	if (normalize3(forward) < 1e-3f)
-	{
-		forward[0] = cosf(vr.body_yaw);
-		forward[1] = sinf(vr.body_yaw);
-	}
+	normalize3(forward);
 	return 1;
 }
 
@@ -2767,9 +2855,9 @@ int halo_vr_grenade_throw(short local_player_index, float origin[3], float direc
 }
 float halo_vr_melee_strength(void) { return 0.0f; }
 int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 0; }
-int halo_vr_body_frame(short local_player_index, float head[3], float forward[3])
+int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3])
 {
-	(void)local_player_index; (void)head; (void)forward;
+	(void)local_player_index; (void)head; (void)neck; (void)forward;
 	return 0;
 }
 int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3])

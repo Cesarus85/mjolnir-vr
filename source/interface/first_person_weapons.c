@@ -1639,7 +1639,7 @@ static void first_person_weapon_vr_arms(
 	static char const *const upper_names[2] = { "l upperarm", "r upperarm" };
 	static char const *const fore_names[2] = { "l forearm", "r forearm" };
 	static char const *const wrist_names[2] = { "l wriste", "r wriste" };
-	float head[3], body_forward[3];
+	float head[3], neck[3], body_forward[3];
 	real_vector3d forward, left, weapon_left, weapon_right;
 	real_point3d eye;
 	real_matrix4x3 animated_forearm[2];
@@ -1720,11 +1720,12 @@ static void first_person_weapon_vr_arms(
 	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
-	if (!halo_vr_body_frame(local_player_index, head, body_forward))
+	if (!halo_vr_body_frame(local_player_index, head, neck, body_forward))
 		return;
-	eye.x = head[0];
-	eye.y = head[1];
-	eye.z = head[2];
+	/* (the shoulders hang from the neck, which the head turns about) */
+	eye.x = neck[0];
+	eye.y = neck[1];
+	eye.z = neck[2];
 	forward.i = body_forward[0];
 	forward.j = body_forward[1];
 	forward.k = 0.f;
@@ -1783,10 +1784,11 @@ static void first_person_weapon_vr_arms(
 		if (vr_arm_nodes.upper[side] == NONE || vr_arm_nodes.fore[side] == NONE || vr_arm_nodes.wrist[side] == NONE)
 			continue;
 
-		/* the shoulder: below the eyes, a little behind them, to the side */
+		/* the shoulder: below the eyes, a little behind them (in front of
+		the neck), to the side, square to the torso */
 		shoulder = eye;
 		point_from_line3d(&shoulder, global_up3d, -0.25f / VR_METRES_PER_WORLD_UNIT, &shoulder);
-		point_from_line3d(&shoulder, &forward, -0.06f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		point_from_line3d(&shoulder, &forward, 0.03f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &left, outward * 0.19f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		/* the elbow bends down, out and back */
 		pole.i = -global_up3d->i;

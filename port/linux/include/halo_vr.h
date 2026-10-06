@@ -110,14 +110,16 @@ where the controller aims */
 void halo_vr_set_laser(short local_player_index, const float start[3], const float direction[3]);
 int halo_vr_ready_laser(short local_player_index, float start[3], float direction[3]);
 /* The arms (interface/first_person_weapons.c):
-- the body: the head's position (world units) and flat heading, from
-  which the shoulders hang;
+- the body: the eyes' position (world units), the neck they turn about,
+  and the torso's flat heading (which follows the head beyond a few
+  degrees, and the hands; the stick's turns turn it at once), from which
+  the shoulders hang;
 - the left hand's pose;
 - the left hand on the weapon: given where the model's left hand holds it
   (world units) and the line from its right hand to its left in the
   weapon's forward, right and up, whether the left hand grips it; then the
   weapon aims along both hands; */
-int halo_vr_body_frame(short local_player_index, float head[3], float forward[3]);
+int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3]);
 int halo_vr_left_hand(short local_player_index, float position[3], float forward[3], float up[3]);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
 /* - the fingers of a hand (0 the left, 1 the right), from the controller's trigger,
