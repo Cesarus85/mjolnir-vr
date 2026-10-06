@@ -16,6 +16,7 @@ it exists, so that the player's edits and comments stay.
 
 #include <SDL3/SDL.h>
 #include <ctype.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -717,13 +718,24 @@ static char *config_read_file(const char *path, size_t *size)
 static int config_write_file(const char *path, const char *text)
 {
 #ifdef HALO_ANDROID
-	FILE *file = fopen(path, "wb");
+	/* written beside it and renamed over it: a file the app may not write
+	(one pushed by adb belongs to the shell) is replaced all the same, as the
+	folder is the app's, and a write cut short leaves the old file whole */
+	char temporary[1100];
+	FILE *file;
 	int written;
 
+	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
+	file = fopen(temporary, "wb");
 	if (!file)
 		return 0;
 	written = fwrite(text, 1, strlen(text), file) == strlen(text);
-	return fclose(file) == 0 && written;
+	written = fclose(file) == 0 && written;
+	if (written && rename(temporary, path) == 0)
+		return 1;
+	platform_log("settings: cannot replace %s (%s)", path, strerror(errno));
+	remove(temporary);
+	return 0;
 #else
 	return SDL_SaveFile(path, text, strlen(text));
 #endif
