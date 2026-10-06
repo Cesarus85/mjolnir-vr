@@ -1274,24 +1274,13 @@ void rasterizer_set_model_skinning(
 	they are drawn (after HaloCE-Quest-VR, CC0); _rasterizer_model_end and
 	rasterizer_transparent_geometry_group_draw end it */
 	{
-		/* (mirrored only where all of the part's nodes are: the assault
-		rifle's ammo display is mirrored back, and its part may count the
-		gun among its nodes; judged by the first alone, its triangles were
-		turned over and culled away) */
-		boolean mirrored = skinning->node_matrix_count > 0;
-		long node;
+		real_matrix4x3 const *m = &skinning->node_matrices[0];
+		real determinant =
+			m->forward.i * (m->left.j * m->up.k - m->left.k * m->up.j) -
+			m->forward.j * (m->left.i * m->up.k - m->left.k * m->up.i) +
+			m->forward.k * (m->left.i * m->up.j - m->left.j * m->up.i);
 
-		for (node = 0; node < skinning->node_matrix_count && mirrored; node++)
-		{
-			real_matrix4x3 const *m = &skinning->node_matrices[node];
-			real determinant =
-				m->forward.i * (m->left.j * m->up.k - m->left.k * m->up.j) -
-				m->forward.j * (m->left.i * m->up.k - m->left.k * m->up.i) +
-				m->forward.k * (m->left.i * m->up.j - m->left.j * m->up.i);
-
-			mirrored = determinant < 0.0f;
-		}
-		d3d8_set_mirrored_skinning(mirrored);
+		d3d8_set_mirrored_skinning(determinant < 0.0f);
 	}
 #endif
 	D3DDevice_SetVertexShaderConstant(
