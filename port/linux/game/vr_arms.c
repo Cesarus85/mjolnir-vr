@@ -749,4 +749,68 @@ void vr_straighten_finger(
 	vr_turn_subtree(skeleton, matrices, joints[1], rotation);
 }
 
+/* ---------- hands alone (vr.body "hands")
+
+The arm's bones (not the hand's, its fingers' or the weapon's) shrunk to
+nothing at a point 3.5 cm back from the wrist along the hand's line,
+knuckles to wrist: the cuff closes just behind the hand. Shrunk onto their
+own places, the forearm drew the wrist's skin to the elbow and the hand
+looked cut off (after HaloCE-Quest-VR, CC0, its vr_hide_forearms and
+vr_hand_back_axis). */
+void vr_hide_arm(
+	struct vr_skeleton const *skeleton,
+	real_matrix4x3 *matrices,
+	short const bones[NUMBER_OF_VR_ARM_BONES],
+	short const fingers[5][3],
+	short gun)
+{
+	real_point3d centre = matrices[bones[_vr_arm_hand]].position;
+	real_point3d knuckles;
+	real_vector3d back;
+	boolean along = FALSE;
+	short finger, node_index, found = 0;
+
+	knuckles.x = knuckles.y = knuckles.z = 0.0f;
+	/* (the four fingers' bases: the thumb's sits off the line) */
+	for (finger = 1; finger < 5; finger++)
+	{
+		if (fingers[finger][0] == NONE)
+			continue;
+		knuckles.x += matrices[fingers[finger][0]].position.x;
+		knuckles.y += matrices[fingers[finger][0]].position.y;
+		knuckles.z += matrices[fingers[finger][0]].position.z;
+		found++;
+	}
+	if (found)
+	{
+		knuckles.x /= found;
+		knuckles.y /= found;
+		knuckles.z /= found;
+		vr_point_minus(&centre, &knuckles, &back);
+		along = vr_unit_vector(&back);
+	}
+	if (!along)
+	{
+		vr_point_minus(&matrices[bones[_vr_arm_fore]].position, &centre, &back);
+		along = vr_unit_vector(&back);
+	}
+	if (along)
+	{
+		centre.x += back.i * 0.035f * VR_UNITS_PER_METRE;
+		centre.y += back.j * 0.035f * VR_UNITS_PER_METRE;
+		centre.z += back.k * 0.035f * VR_UNITS_PER_METRE;
+	}
+	for (node_index = 0; node_index < skeleton->node_count; node_index++)
+	{
+		if (!vr_skeleton_under(skeleton, node_index, bones[_vr_arm_upper]) ||
+			vr_skeleton_under(skeleton, node_index, bones[_vr_arm_hand]) ||
+			(gun != NONE && vr_skeleton_under(skeleton, node_index, gun)))
+		{
+			continue;
+		}
+		matrices[node_index].scale = 0.0f;
+		matrices[node_index].position = centre;
+	}
+}
+
 #endif

@@ -198,6 +198,10 @@ static const struct config_setting config_settings[] =
 	{ "vr.two_hand_reach", _config_real, "0.2", "HALO_VR_TWO_HAND_REACH", _environment_value, _platform_android,
 		"How near, in metres, the left hand must be to the weapon's foregrip for\n"
 		"its grip button to take hold of it with both hands." },
+	{ "vr.body", _config_string, "\"arms\"", "HALO_VR_BODY", _environment_value, _platform_android,
+		"What of your body is drawn with the weapon: \"arms\", the arms and hands\n"
+		"reaching from the shoulders to the controllers; \"hands\", the hands\n"
+		"alone; \"off\", neither (the weapon alone)." },
 	{ "vr.fingers", _config_boolean, "true", "HALO_VR_FINGERS", _environment_value, _platform_android,
 		"The free hand's fingers follow the controller: the index finger the\n"
 		"trigger, the others the grip, the thumb where it rests (on the Quest's\n"

@@ -71,6 +71,11 @@ joint */
 void vr_straighten_finger(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices, short const joints[3],
 	real amount);
 
+/* the arm's bones shrunk to nothing just behind the wrist, the hand (with
+its fingers) and the weapon left: the hand alone */
+void vr_hide_arm(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices,
+	short const bones[NUMBER_OF_VR_ARM_BONES], short const fingers[5][3], short gun);
+
 #endif
 
 #endif

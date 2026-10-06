@@ -6645,6 +6645,7 @@ they change), and from it a page of what the controllers' buttons do. */
 
 int config_boolean(char const *name);
 double config_real(char const *name);
+char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
 
@@ -6658,12 +6659,15 @@ enum
 	_vr_option_laser,
 	_vr_option_crosshair,
 	_vr_option_motion_tracker,
+	_vr_option_body,
+	_vr_option_fingers,
 	_vr_option_controls,
 	_vr_option_quit,
 	NUMBER_OF_VR_OPTIONS,
 
-	VR_OPTIONS_TOP = 98,
-	VR_OPTIONS_ROW_HEIGHT = 26,
+	/* (twelve rows between the title and the footer, in the box) */
+	VR_OPTIONS_TOP = 94,
+	VR_OPTIONS_ROW_HEIGHT = 22,
 	VR_OPTIONS_FOOTER = 362,
 
 	_vr_controls_on_foot = 0,
@@ -6688,6 +6692,23 @@ static real const vr_snap_angles[] = { 30.0f, 45.0f, 60.0f, 90.0f };
 static real const vr_smooth_speeds[] = { 60.0f, 90.0f, 120.0f, 150.0f, 180.0f };
 static real const vr_vignettes[] = { 0.0f, 0.35f, 0.7f, 1.0f };
 static char const *const vr_vignette_names[] = { "Off", "Light", "Medium", "Strong" };
+/* vr.body's values, and as the panel shows them */
+static char const *const vr_bodies[] = { "arms", "hands", "off" };
+static char const *const vr_body_names[] = { "Arms and hands", "Hands only", "Weapon only" };
+
+static short ui_vr_options_body(
+	void)
+{
+	char const *body = config_string("vr.body");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(vr_bodies); index++)
+	{
+		if (body && strcmp(body, vr_bodies[index]) == 0)
+			return index;
+	}
+	return 0;
+}
 
 static boolean ui_vr_options_screen(
 	void)
@@ -6753,6 +6774,11 @@ static void ui_vr_options_change(
 	case _vr_option_motion_tracker:
 		config_write_boolean("vr.motion_tracker_on_wrist", !config_boolean("vr.motion_tracker_on_wrist"));
 		break;
+	case _vr_option_body:
+		config_write("vr.body", vr_bodies[(ui_vr_options_body() + change + (short)NUMBEROF(vr_bodies)) %
+			(short)NUMBEROF(vr_bodies)]);
+		break;
+	case _vr_option_fingers: config_write_boolean("vr.fingers", !config_boolean("vr.fingers")); break;
 	case _vr_option_controls:
 		ui_vr_options_globals.controls = TRUE;
 		ui_vr_options_globals.page = _vr_controls_on_foot;
@@ -7178,6 +7204,15 @@ static void ui_vr_options_render(
 		case _vr_option_motion_tracker:
 			label = "Motion tracker";
 			snprintf(value, sizeof(value), "%s", config_boolean("vr.motion_tracker_on_wrist") ? "On the wrist" : "In the HUD");
+			break;
+		case _vr_option_body:
+			label = "Body";
+			snprintf(value, sizeof(value), "%s", vr_body_names[ui_vr_options_body()]);
+			break;
+		case _vr_option_fingers:
+			label = "Fingers";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.fingers") ? "Tracked" : "Off");
+			unused = ui_vr_options_body() == 2;
 			break;
 		case _vr_option_controls:
 			label = "Controller buttons...";

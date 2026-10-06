@@ -669,6 +669,10 @@ void first_person_weapon_draw(
 								model_vr_log_skin(first_person_interface->hands.index);
 						}
 #endif
+#ifdef HALO_ANDROID
+						/* VR: the weapon alone (vr.body "off") */
+						if (halo_vr_body_mode()!=HALO_VR_BODY_OFF)
+#endif
 						render_model(
 							first_person_interface->hands.index,
 							0.0f,
@@ -1571,6 +1575,7 @@ static void first_person_weapon_vr_arms(
 	boolean gripping;
 	boolean left_free;
 	boolean rigid = !halo_vr_free_arm_bends();
+	int body = halo_vr_body_mode();
 	float hand_position[3], hand_forward[3], hand_up[3];
 
 	if (vr_arm_nodes.graph_index != graph_index)
@@ -1692,6 +1697,9 @@ static void first_person_weapon_vr_arms(
 		reference[2] = dot_product3d(&between, &weapon_camera->up);
 		gripping = halo_vr_two_hand(local_player_index, foregrip, reference);
 	}
+	/* (the weapon alone: no hands to pose) */
+	if (body == HALO_VR_BODY_OFF)
+		return;
 	if (!gripping && vr_arm_nodes.wrist[0] != NONE)
 	{
 		if (halo_vr_left_hand(local_player_index, hand_position, hand_forward, hand_up))
@@ -1723,6 +1731,12 @@ static void first_person_weapon_vr_arms(
 		pole.k = -global_up3d->k;
 		vr_vector_scale_add(&pole, &left, outward * 0.6f);
 		vr_vector_scale_add(&pole, &forward, -0.3f);
+		bones[_vr_arm_upper] = vr_arm_nodes.upper[side];
+		bones[_vr_arm_fore] = vr_arm_nodes.fore[side];
+		bones[_vr_arm_hand] = vr_arm_nodes.wrist[side];
+		/* (the hands alone: the arms are shrunk away below) */
+		if (body == HALO_VR_BODY_HANDS)
+			continue;
 		if (!side && left_free && rigid)
 		{
 			/* the free left arm keeps its shape (vr_left_hand_free), but
@@ -1732,15 +1746,25 @@ static void first_person_weapon_vr_arms(
 		}
 		/* the hand stays where it is (at the controller, or on the
 		weapon): the arm bends to it */
-		bones[_vr_arm_upper] = vr_arm_nodes.upper[side];
-		bones[_vr_arm_fore] = vr_arm_nodes.fore[side];
-		bones[_vr_arm_hand] = vr_arm_nodes.wrist[side];
 		vr_solve_arm(&vr_arm_skeleton, node_matrices, bones, shoulder, &node_matrices[bones[_vr_arm_hand]].position,
 			&pole, TRUE, &vr_arm_history[side]);
 		vr_distribute_arm_twist(node_matrices, bones, &animated_forearm[side], &animated_wrist[side],
 			&vr_arm_history[side]);
 	}
 	first_person_weapon_vr_fingers(local_player_index, node_matrices, left_free, hand_forward, hand_up);
+	if (body == HALO_VR_BODY_HANDS)
+	{
+		for (side = 0; side < 2; side++)
+		{
+			short bones[NUMBER_OF_VR_ARM_BONES];
+
+			bones[_vr_arm_upper] = vr_arm_nodes.upper[side];
+			bones[_vr_arm_fore] = vr_arm_nodes.fore[side];
+			bones[_vr_arm_hand] = vr_arm_nodes.wrist[side];
+			if (bones[_vr_arm_upper] != NONE && bones[_vr_arm_fore] != NONE && bones[_vr_arm_hand] != NONE)
+				vr_hide_arm(&vr_arm_skeleton, node_matrices, bones, vr_arm_nodes.fingers[side], vr_arm_nodes.gun);
+		}
+	}
 }
 
 #endif

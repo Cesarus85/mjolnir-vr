@@ -141,6 +141,15 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4]);
   which the arms' bending is eased */
 int halo_vr_free_arm_bends(void);
 double halo_vr_pose_time(void);
+/* - what of the body is drawn (vr.body): the arms and hands, the hands
+  alone, or neither (the weapon alone) */
+enum
+{
+	HALO_VR_BODY_ARMS = 0,
+	HALO_VR_BODY_HANDS,
+	HALO_VR_BODY_OFF,
+};
+int halo_vr_body_mode(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
