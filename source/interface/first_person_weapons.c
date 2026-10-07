@@ -332,6 +332,9 @@ static void first_person_weapon_set_visibility(
 	boolean visible);
 static void first_person_weapon_build_node_matrices(
 	short local_player_index);
+static boolean first_person_weapon_animation_fits(
+	struct animation_graph const *animation_graph,
+	struct animation const *animation);
 static void first_person_weapon_predict(
 	short local_player_index);
 static void first_person_weapon_start_interpolation(
@@ -498,7 +501,7 @@ static void first_person_weapon_draw_held_grenade(
 	struct render_lighting *lighting,
 	struct render_model_effect const *hands_effect)
 {
-	struct unit_datum *unit= unit_get(unit_index);
+	struct unit_datum *unit= unit_try_and_get(unit_index);
 	struct object_datum *grenade;
 	struct object_definition *definition;
 	struct model *model;
@@ -510,13 +513,17 @@ static void first_person_weapon_draw_held_grenade(
 	float hand_position[3], hand_forward[3], hand_up[3], scale;
 	short node_index;
 
-	if (unit->unit.grenade_object_index==NONE ||
+	if (!unit ||
+		unit->unit.grenade_object_index==NONE ||
 		unit->unit.grenade_throw_state!=_unit_grenade_throw_in_hand ||
 		!halo_vr_grenade_in_hand(render.local_player_index, hand_position, hand_forward, hand_up, &scale))
 	{
 		return;
 	}
-	grenade= object_get(unit->unit.grenade_object_index);
+	/* (deleted since the tick: none to draw) */
+	grenade= object_try_and_get(unit->unit.grenade_object_index);
+	if (!grenade)
+		return;
 	definition= object_definition_get(grenade->definition_index);
 	if (definition->object.model.index==NONE || TEST_FLAG(grenade->object.flags, _object_invisible_bit))
 		return;
@@ -1044,10 +1051,11 @@ static void first_person_weapon_start_interpolation(
 	struct animation_graph *animation_graph= animation_graph_definition_get(
 		weapon_definition->weapon.interface_definition.first_person_animations.index);
 
+	/* port: no more nodes than the weapon's orientations hold (a map's count) */
 	csmemcpy(
 		first_person_weapon->original_node_orientations,
 		first_person_weapon->node_orientations,
-		animation_graph->nodes.count*sizeof(real_orientation));
+		PIN(animation_graph->nodes.count, 0, MAXIMUM_NODES_PER_ANIMATION)*sizeof(real_orientation));
 	if (frame_count>=first_person_weapon->interpolation_frame_count-
 		first_person_weapon->interpolation_frame_index)
 	{
@@ -1966,6 +1974,39 @@ static void first_person_weapon_vr_arms(
 }
 
 #endif
+/* port: the weapon's orientations are the animation graph's nodes (64 at
+most, the weapon's arrays): an animation of more nodes than the graph has,
+or than the arrays hold (the map's counts), is not applied, said once. Every
+retail first-person animation has the graph's count (up to 54). That is not
+the first-person model's count (up to 17, the weapon without the hands),
+which every retail animation is above. */
+static boolean first_person_weapon_animation_fits(
+	struct animation_graph const *animation_graph,
+	struct animation const *animation)
+{
+	static boolean too_many_nodes_reported = FALSE;
+
+	if (animation->node_count>=0 &&
+		animation->node_count<=animation_graph->nodes.count &&
+		animation->node_count<=MAXIMUM_NODES_PER_ANIMATION)
+	{
+		return TRUE;
+	}
+
+	if (!too_many_nodes_reported)
+	{
+		too_many_nodes_reported= TRUE;
+		error(
+			_error_silent,
+			"first person animation %.32s of %d nodes (the graph has %d) not applied",
+			animation->name,
+			animation->node_count,
+			animation_graph->nodes.count);
+	}
+
+	return FALSE;
+}
+
 static void first_person_weapon_build_node_matrices(
 	short local_player_index)
 {
@@ -1977,7 +2018,10 @@ static void first_person_weapon_build_node_matrices(
 	struct render_camera weapon_camera;
 	float weapon_position[3], weapon_forward[3], weapon_up[3];
 
-	if (first_person_weapon->weapon_index!=NONE)
+	/* (the weapon may have been deleted since the tick: below, the game
+	forgets it, "deleted unexpectedly") */
+	if (first_person_weapon->weapon_index!=NONE &&
+		weapon_try_and_get(first_person_weapon->weapon_index))
 	{
 		/* once per skeleton: its nodes, for the arms (debug.txt) */
 		static long logged_graph_index= NONE;
@@ -2103,7 +2147,9 @@ static void first_person_weapon_build_node_matrices(
 								state_animation,
 								(short)(first_person_weapon->state_animation.frame_index+1),
 								next_node_orientations);
-							for (node_index= 0; node_index<state_animation->node_count; node_index++)
+							/* port: no more nodes than the orientations hold (a
+							map's count) */
+							for (node_index= 0; node_index<MIN(state_animation->node_count, MAXIMUM_NODES_PER_ANIMATION); node_index++)
 							{
 								orientations_interpolate(
 									&first_person_weapon->node_orientations[node_index],
@@ -2138,7 +2184,12 @@ static void first_person_weapon_build_node_matrices(
 						firing_animation_index,
 						struct animation);
 
-					if (weapon_definition->weapon.weapon_type==_weapon_type_needler &&
+					/* port: and one of the graph's nodes (see first_person_weapon_animation_fits) */
+					if (!first_person_weapon_animation_fits(animation_graph, firing_animation))
+					{
+						/* (not applied) */
+					}
+					else if (weapon_definition->weapon.weapon_type==_weapon_type_needler &&
 						(first_person_weapons->state==_first_person_weapon_state_reload_while_empty ||
 						first_person_weapons->state==_first_person_weapon_state_reload_while_full))
 					{
@@ -2186,10 +2237,14 @@ static void first_person_weapon_build_node_matrices(
 						first_person_weapon->moving_animation.index,
 						struct animation);
 
-					overlay_animation_apply(
-						moving_animation,
-						first_person_weapon->moving_animation.frame_index,
-						first_person_weapon->node_orientations);
+					/* port: and one of the graph's nodes */
+					if (first_person_weapon_animation_fits(animation_graph, moving_animation))
+					{
+						overlay_animation_apply(
+							moving_animation,
+							first_person_weapon->moving_animation.frame_index,
+							first_person_weapon->node_orientations);
+					}
 				}
 
 				if (first_person_weapon->overcharged_jitter_animation.index!=NONE)
@@ -2199,11 +2254,15 @@ static void first_person_weapon_build_node_matrices(
 						first_person_weapon->overcharged_jitter_animation.index,
 						struct animation);
 
-					overlay_animation_apply_continuous_scaled(
-						overcharged_jitter_animation,
-						first_person_weapon->overcharged_jitter_animation.frame_index,
-						weapon->weapon.overcharged+0.5f,
-						first_person_weapon->node_orientations);
+					/* port: and one of the graph's nodes */
+					if (first_person_weapon_animation_fits(animation_graph, overcharged_jitter_animation))
+					{
+						overlay_animation_apply_continuous_scaled(
+							overcharged_jitter_animation,
+							first_person_weapon->overcharged_jitter_animation.frame_index,
+							weapon->weapon.overcharged+0.5f,
+							first_person_weapon->node_orientations);
+					}
 				}
 
 				overlay_animation_index= VALID_INDEX(
@@ -2220,7 +2279,9 @@ static void first_person_weapon_build_node_matrices(
 						overlay_animation_index,
 						struct animation);
 
-					if (overlay_animation->frame_count>=NUMBER_OF_FIRST_PERSON_WEAPON_OVERLAY_FRAMES)
+					/* port: and one of the graph's nodes */
+					if (overlay_animation->frame_count>=NUMBER_OF_FIRST_PERSON_WEAPON_OVERLAY_FRAMES &&
+						first_person_weapon_animation_fits(animation_graph, overlay_animation))
 					{
 						if (first_person_weapon->position.i>0.0f)
 						{
@@ -2321,10 +2382,11 @@ static void first_person_weapon_build_node_matrices(
 			&camera->forward,
 			&camera->up);
 		/* the pose between the last two ticks (render_interpolation.c) */
+		/* port: no more nodes than the weapon's matrices hold (a map's count) */
 		render_interpolation_first_person(
 			local_player_index,
 			first_person_weapon->node_matrices,
-			(short)animation_graph->nodes.count,
+			(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION),
 			camera);
 #ifdef HALO_ANDROID
 		first_person_weapon_vr_pose_serial[local_player_index]= camera!=&render.camera ? halo_vr_frame_serial() : 0;
@@ -2337,7 +2399,7 @@ static void first_person_weapon_build_node_matrices(
 				local_player_index,
 				weapon_definition->weapon.interface_definition.first_person_animations.index,
 				first_person_weapon->node_matrices,
-				(short)animation_graph->nodes.count,
+				(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION),
 				camera,
 				first_person_weapon->state);
 			/* (left-handed: out of model space; what the frame takes from
@@ -3010,7 +3072,9 @@ static boolean model_build_remapping_table_for_animation_graph(
 	boolean valid= TRUE;
 	short model_node_index;
 
-	for (model_node_index=0; model_node_index<model->nodes.count; model_node_index++)
+	/* port: no more model nodes than the table holds, and only graph nodes
+	the weapon's matrices hold (a map's counts) */
+	for (model_node_index=0; model_node_index<MIN(model->nodes.count, MAXIMUM_NODES_PER_ANIMATION); model_node_index++)
 	{
 		struct model_node *model_node= TAG_BLOCK_GET_ELEMENT(
 			&model->nodes,
@@ -3019,7 +3083,7 @@ static boolean model_build_remapping_table_for_animation_graph(
 		short animation_graph_node_index= NONE;
 		short node_index;
 
-		for (node_index=0; node_index<animation_graph->nodes.count; node_index++)
+		for (node_index=0; node_index<MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION); node_index++)
 		{
 			struct animation_graph_node *animation_graph_node= TAG_BLOCK_GET_ELEMENT(
 				&animation_graph->nodes,
@@ -3074,7 +3138,10 @@ static void weapon_play_first_person_weapon_sound(
 								&animation_graph->first_person_weapon_animations,
 								0,
 								struct animation_graph_first_person_weapon_animations);
-					short animation_index= (animation_type>=0 &&
+					/* port: and the graph has first-person animations (a map's
+					graph without them was a NULL read) */
+					short animation_index= (first_person_weapon_animations &&
+						animation_type>=0 &&
 						animation_type<first_person_weapon_animations->animations.count) ?
 							animation_graph_animation_index_get(
 								&first_person_weapon_animations->animations)
@@ -3088,7 +3155,8 @@ static void weapon_play_first_person_weapon_sound(
 							animation_index,
 							struct animation)->sound_index;
 
-						if (sound_index!=NONE)
+						/* port: a sound the graph has (a map's index) */
+						if (VALID_INDEX(sound_index, animation_graph->sound_references.count))
 						{
 							long definition_index= TAG_BLOCK_GET_ELEMENT(
 								&animation_graph->sound_references,
@@ -3224,7 +3292,9 @@ static void model_remap_node_matrices_to_match_animation_graph(
 	struct animation_graph *animation_graph= animation_graph_definition_get(animation_graph_index);
 	short node_index;
 
-	for (node_index=0; node_index<model->nodes.count; node_index++)
+	/* port: no more nodes than the table and model_node_matrices hold (a
+	map's count) */
+	for (node_index=0; node_index<MIN(model->nodes.count, MAXIMUM_NODES_PER_ANIMATION); node_index++)
 	{
 		short animation_graph_node_index= node_remapping_table[node_index];
 
