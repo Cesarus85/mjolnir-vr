@@ -501,7 +501,7 @@ static void first_person_weapon_draw_held_grenade(
 	struct render_lighting *lighting,
 	struct render_model_effect const *hands_effect)
 {
-	struct unit_datum *unit= unit_get(unit_index);
+	struct unit_datum *unit= unit_try_and_get(unit_index);
 	struct object_datum *grenade;
 	struct object_definition *definition;
 	struct model *model;
@@ -513,13 +513,17 @@ static void first_person_weapon_draw_held_grenade(
 	float hand_position[3], hand_forward[3], hand_up[3], scale;
 	short node_index;
 
-	if (unit->unit.grenade_object_index==NONE ||
+	if (!unit ||
+		unit->unit.grenade_object_index==NONE ||
 		unit->unit.grenade_throw_state!=_unit_grenade_throw_in_hand ||
 		!halo_vr_grenade_in_hand(render.local_player_index, hand_position, hand_forward, hand_up, &scale))
 	{
 		return;
 	}
-	grenade= object_get(unit->unit.grenade_object_index);
+	/* (deleted since the tick: none to draw) */
+	grenade= object_try_and_get(unit->unit.grenade_object_index);
+	if (!grenade)
+		return;
 	definition= object_definition_get(grenade->definition_index);
 	if (definition->object.model.index==NONE || TEST_FLAG(grenade->object.flags, _object_invisible_bit))
 		return;
@@ -2014,7 +2018,10 @@ static void first_person_weapon_build_node_matrices(
 	struct render_camera weapon_camera;
 	float weapon_position[3], weapon_forward[3], weapon_up[3];
 
-	if (first_person_weapon->weapon_index!=NONE)
+	/* (the weapon may have been deleted since the tick: below, the game
+	forgets it, "deleted unexpectedly") */
+	if (first_person_weapon->weapon_index!=NONE &&
+		weapon_try_and_get(first_person_weapon->weapon_index))
 	{
 		/* once per skeleton: its nodes, for the arms (debug.txt) */
 		static long logged_graph_index= NONE;
