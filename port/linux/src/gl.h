@@ -221,6 +221,7 @@ this list to generate the guest's entry points */
 	X(glVertexAttribIFormat) \
 	X(glVertexAttribBinding) \
 	X(glBindVertexBuffer) \
+	X(glBindTextures) \
 	X(glGetQueryBufferObjectuiv) \
 	X(glVertexAttrib4fv) \
 	X(glVertexAttribI4ui) \
@@ -452,6 +453,7 @@ pointers, sees the declarations without these aliases */
 #define glVertexAttribIFormat halo_glVertexAttribIFormat
 #define glVertexAttribBinding halo_glVertexAttribBinding
 #define glBindVertexBuffer halo_glBindVertexBuffer
+#define glBindTextures halo_glBindTextures
 #define glGetQueryBufferObjectuiv halo_glGetQueryBufferObjectuiv
 #define glVertexAttrib4fv halo_glVertexAttrib4fv
 #define glVertexAttribI4ui halo_glVertexAttribI4ui
