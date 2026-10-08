@@ -92,8 +92,9 @@ int host_sdl_resume_audio_stream_device(unsigned int stream);
 void host_gl_get_string(unsigned int name, int index, char *buffer, unsigned int size);
 /* nonzero if the context supports the named extension */
 int host_gl_has_extension(const char *name);
-/* a 32-bit word of a GL buffer object, waiting for the GPU */
-unsigned int host_gl_read_buffer_word(unsigned int buffer, unsigned int offset);
+/* copies size bytes at offset of a GL buffer object into data, waiting for
+the GPU's writes to it */
+void host_gl_read_buffer(unsigned int buffer, unsigned int offset, unsigned int size, void *data);
 /* unsynchronized write into the buffer bound to target */
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
 /* persistent, coherent storage for the buffer bound to target (0: the driver

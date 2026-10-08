@@ -429,7 +429,11 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             sdk_flags,
         ])
         for source in game_sources(config):
-            add_object(source, game_cflags)
+            # The halt screen and version command identify this native build.
+            flags = game_cflags
+            if source.as_posix() == "source/main/main.c":
+                flags += " " + updater_defines(getattr(sln, "port_release", False))
+            add_object(source, flags)
         # Port-specific units that must see the game exactly as its own
         # sources do (port/linux/game).
         for source in sorted(Path(config["game_sources"]).glob("*.c")):
@@ -505,7 +509,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             rule="linux_link",
             inputs=objects,
             variables={
-                "ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *extra_ldflags]),
+                "ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *extra_ldflags,
+                                     # (posix_trace_marker.c's, which the GPU driver's calls must reach)
+                                     *(f"-Wl,--export-dynamic-symbol={name}"
+                                       for name in ("open", "open64", "openat", "openat64"))]),
                 "libs": libs,
             },
             implicit=[Path("tools/linux_link_check.py")],
@@ -524,7 +531,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 inputs=tool,
                 variables={"cflags": " ".join([posix_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES, posix_extra])},
             )
+            # (and the Custom Edition maps' loader, cache_file_formats.c)
             tool_objects = [tool_object, obj_dir / (game_dir / "tag_validate.o"),
+                            obj_dir / (game_dir / "cache_file_formats.o"),
                             *(obj_dir / source.with_suffix(".o") for source in sorted(game_dir.glob("tag_schema*.c"))),
                             *(obj_dir / (ZLIB_DIR / name).with_suffix(".o") for name in ZLIB_SOURCES)]
             n.build(

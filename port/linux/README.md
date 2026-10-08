@@ -81,6 +81,7 @@ These files are in the data root:
 | --- | --- |
 | `debug.txt` | The log of the game. At start-up, the game shows the data root in the terminal. A crash writes its report (the faulting address and the calls that led to it) here as well; the `reference address` line at the top of each session places those addresses in the build. |
 | `init.txt` | Console commands that the game does at start-up. For example, `map_name levels\a10\a10` starts the first campaign level. |
+| `tags/` | Sound tag files that replace the sounds of the maps (`audio.loose_sounds`). |
 
 The settings are in `config.toml` next to the executable. Refer to
 "Settings". Internet play's MQTT brokers are in `brokers.txt` next to it
@@ -247,6 +248,7 @@ the setting for one start of the game. It has priority over the file.
 | `audio.music_volume` | `1.0` | `HALO_MUSIC_VOLUME` | The music's volume, of the master volume. |
 | `audio.effects_volume` | `1.0` | `HALO_EFFECTS_VOLUME` | The volume of the other sounds (effects and speech), of the master volume. |
 | `audio.reverb` | `true` | `HALO_REVERB` | `true`: the sounds of the world reverberate as the place the player is in does: the sound environments of the maps (a corridor, a cave, a large hall, outdoors) set the reverberation, as the I3DL2 reverb of the Xbox did. A sound behind a wall or a door is muffled in it too. `false`: no reverberation (sounds behind a wall are still muffled). |
+| `audio.loose_sounds` | `false` | `HALO_LOOSE_SOUNDS` | For those who make sounds. `true`: each sound of a map that has a sound tag file of its name in `tags/` in the data root (for example `tags/sound/sfx/weapons/assault rifle/fire.sound`) plays from that file. The files are Halo PC tag files, as the Halo Editing Kit and Invader write them. At the console, `loose_sounds_reload` reads the files again, and `loose_sounds false` plays the sounds of the map again. When a file changes, all sounds stop. |
 | `input.mouse_sensitivity` | `1.0` | `HALO_MOUSE_SENSITIVITY` | The multiplier for the mouse aim. |
 | `input.mouse_vertical_sensitivity` | `0.0` | `HALO_MOUSE_VERTICAL_SENSITIVITY` | The multiplier for the vertical mouse aim. `0`: the same as `input.mouse_sensitivity`. |
 | `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. |
@@ -267,7 +269,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.coop_friendly_fire` | `"on"` | `HALO_NET_COOP_FRIENDLY_FIRE` | Whether the players of an online co-op game hurt each other: `"off"`, `"on"`, `"shields_only"` or `"explosives_only"`. FRIENDLY FIRE in co-op's Server Setup writes its choice here. Their AI allies they always can, as in the campaign. |
 | `network.coop_player_collisions` | `true` | `HALO_NET_COOP_PLAYER_COLLISIONS` | Whether the players of an online co-op game bump into each other. `false`: they walk through each other, so that one cannot block a doorway or stand on another; they still bump into the AI's characters. PLAYER COLLISIONS in co-op's Server Setup writes its choice here. |
 | `network.coop_enemies_mode` | `"per_player"` | `HALO_NET_COOP_ENEMIES_MODE` | Online co-op's extra enemies: `"none"`; `"per_player"`, each squad of enemies that a level places grows by `network.coop_enemies` for each player past the first; or `"multiplier"`, each squad is `network.coop_enemies_multiplier` times as large, for any number of players. The extra enemies stand around the squad's places, and those that a dropship has no seats for drop out of it after its passengers. EXTRA ENEMIES in co-op's Server Setup writes its choice here. |
-| `network.coop_enemies` | `50` | `HALO_NET_COOP_ENEMIES` | The extra enemies per player, a percentage from `25` to `200`: for each player past the first, each squad of enemies gets this much of itself more (`100`: as many again, so four players meet four times the squad). PER PLAYER in co-op's Server Setup writes its choice here. |
+| `network.coop_enemies` | `50` | `HALO_NET_COOP_ENEMIES` | The extra enemies per player, a percentage from `25` to `200`: for each player past the first, each squad of enemies gets this much of itself more (`100`: as many again, so four players meet four times the squad), up to 8 times the squad however many players there are. PER PLAYER in co-op's Server Setup writes its choice here. |
 | `network.coop_enemies_multiplier` | `2` | `HALO_NET_COOP_ENEMIES_MULTIPLIER` | The static multiplier of the enemies, `2` to `32`: each squad of enemies is this many times as large. MULTIPLIER in co-op's Server Setup writes its choice here. |
 | `network.coop_public` | `false` | `HALO_NET_COOP_PUBLIC` | `true`: an online co-op game (Create Game > Internet, a SINGLEPLAYER map) starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in co-op's Server Setup writes its choice here. Refer to "Server browser". |
 | `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
@@ -582,8 +584,9 @@ Only machines with the invite can find the game:
   console (Tab completes the name). Remove a line from `bans.txt` to unban.
   Refer to `NETCODE.md`. `kick <player name>` drops the player the same
   way, but keeps nothing: no line in `bans.txt`, and the player can join
-  again at once. So that every player can be named, the host trims
-  the spaces around a name and removes characters that draw as nothing. A
+  again at once. In co-op, `bringto` brings every player to the host.
+  So that every player can be named, the host trims the spaces around a
+  name and removes characters that draw as nothing. A
   letter with a mark is typed as the plain letter (`ban jose` for "José").
   A name with nothing left to type becomes "Player", and a name that another
   player already has gets a number ("Player 2"). The game refuses a profile
@@ -676,6 +679,20 @@ allowlist in `hs/hs.c`). They cannot call the functions for files, the
 saved state of the game, the console, debugging or cheats. A script that
 calls one does not run. The developer console can call every function.
 
+Halo Custom Edition maps get the same checks (those that need OpenSauce are
+refused). Their own loader (`game/cache_file_formats.c`) reads them into
+their tag cache at 0x40440000 and converts what Custom Edition lays out
+differently, then the validator checks their tags and each of their BSPs as
+it checks this build's maps, before the game converts their models, BSP
+geometry and scripts. Put them with `bitmaps.map`, `sounds.map` and
+`loc.map` in `custom_maps`, beside `maps`, or set `paths.custom_edition` to
+a Custom Edition install; the map lists show them as CUSTOM SINGLEPLAYER and
+CUSTOM MULTIPLAYER, played as campaign levels (alone, or as network co-op)
+or as multiplayer maps by their scenario type, and `game.custom_edition =
+false` refuses them. `map_validate` checks them too, with the resource maps
+beside each map or in `--maps <folder>`. See
+`docs/custom_edition_caches.md`.
+
 Defensive checks stay in the game code too. An index into a tag block, the
 tags or a tag's data that is out of range gets zeros (`tag_empty_data` in
 `tag_files/tag_groups.c`), not other memory.
@@ -757,6 +774,14 @@ definition. Without this check, the linker gives the reference the address
   `d3d_find_flipcount`.
 - The build returns small structures and unions in registers
   (`-freg-struct-return`), as on Win32.
+- The GPU driver cannot open the kernel's `trace_marker`
+  (`src/posix_trace_marker.c`). SteamOS keeps kernel tracing on for its GPU
+  performance captures (`gpu-trace.service`), and its Mesa then writes a
+  marker for each traced driver function: on the Steam Frame, some 480,000
+  writes a second, which took the game from the headset's 72 Hz to about
+  50 frames a second. The Steam Deck runs the same service and Mesa.
+  `HALO_GPU_TRACE_MARKERS=1` lets the driver write them, to capture with
+  gpuvis.
 
 ### Game source changes
 

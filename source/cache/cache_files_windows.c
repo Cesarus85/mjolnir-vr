@@ -190,6 +190,7 @@ symbols in this file:
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
 #include "rasterizer/rasterizer.h"
+#include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 
 #include <xtl.h>
 
@@ -581,6 +582,11 @@ boolean cache_files_precache_is_copying_map(
 boolean cache_files_precache_map_loaded(
 	const char *map_name)
 {
+	/* port: a Halo Custom Edition map (custom_maps\<name>) is read in place
+	and never copied to the cache partition; it is never the game's own map
+	of that file name (port/linux/game/custom_edition_cache.c) */
+	if (custom_edition_level_name(map_name))
+		return custom_edition_cache_playable(map_name);
 	return cached_map_files_find_map(tag_name_strip_path(map_name)) != NONE;
 }
 
@@ -593,6 +599,19 @@ boolean cache_files_precache_map_begin(
 {
 	const char *cache_map_name = tag_name_strip_path(map_name);
 
+	/* port: a Halo Custom Edition map (custom_maps\<name>) this machine has
+	not is missing, as a map not on the DVD is: never the game's own map of
+	its file name (port/linux/game/custom_edition_cache.c) */
+	if (custom_edition_level_name(map_name) && !custom_edition_cache_playable(map_name))
+	{
+		error(_error_silent, "couldn't find the Custom Edition map '%s' in custom_maps", map_name);
+		if (copy_map)
+		{
+			display_error_damaged_media();
+		}
+
+		return FALSE;
+	}
 	if (!cache_files_precache_map_loaded(map_name))
 	{
 		struct cache_file_header header;
@@ -690,6 +709,10 @@ void cache_files_initialize(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		188,
 		cache_file_globals.requests);
+	/* port: cache_file_open clears the requests before a map is read; a Halo
+	Custom Edition map is read without it, so they start out free
+	(port/linux/game/custom_edition_cache.c) */
+	memset(cache_file_globals.requests, 0, MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS * sizeof(struct cache_file_request));
 	cache_file_windows_thread_create();
 	cache_files_verify_language();
 	cache_files_open_cache_files();
@@ -834,6 +857,15 @@ short cache_file_read(
 	short request_index = cache_request_next_free_index();
 	struct cache_file_request *request = cache_request_get(request_index);
 
+	/* port: the reads of a Halo Custom Edition map are served in place, at
+	once; the request stays free (port/linux/game/custom_edition_cache.c) */
+	if (custom_edition_cache_tags_loaded())
+	{
+		custom_edition_cache_read(tag_index, offset, size, buffer);
+		*completion_flag_reference = TRUE;
+
+		return request_index;
+	}
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		269,

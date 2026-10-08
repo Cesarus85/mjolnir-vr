@@ -385,6 +385,12 @@ static const struct config_setting config_settings[] =
 		"Reverberate the world's sounds as the place the player is in does (the\n"
 		"maps' sound environments, as the Xbox's I3DL2 reverb did); false keeps\n"
 		"them dry." },
+	{ "audio.loose_sounds", _config_boolean, "false", "HALO_LOOSE_SOUNDS", _environment_value, _platform_all,
+		"For those making sounds: play each of a map's sounds that has a Halo PC\n"
+		"sound tag file of its name under the data root's tags folder\n"
+		"(tags/sound/.../name.sound) from that file. At the console,\n"
+		"loose_sounds_reload reads the files again and loose_sounds false gives\n"
+		"the map's sounds back." },
 
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_desktop,
 		"How far the view turns for the mouse's movement." },
@@ -454,6 +460,13 @@ static const struct config_setting config_settings[] =
 	{ "game.language", _config_string, "\"\"", "HALO_LANGUAGE", _environment_value, _platform_all,
 		"The language the game asks the Xbox for: \"ja\", \"de\", \"fr\", \"es\" or \"it\";\n"
 		"empty for English. The game data decides what is translated." },
+	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
+		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
+		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"
+		"the custom_maps folder beside the maps folder; the map lists show them\n"
+		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
+		"as the game's own maps' are before they run; false refuses them\n"
+		"(docs/custom_edition_caches.md)." },
 
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop,
 		"The folder holding the game data's maps folder; empty looks in the\n"
@@ -462,6 +475,10 @@ static const struct config_setting config_settings[] =
 	{ "paths.saves", _config_string, "\"\"", "HALO_SAVE_ROOT", _environment_value, _platform_desktop,
 		"Where saved games and profiles go; empty for the usual place\n"
 		"(~/.local/share/halo-linux, or %APPDATA%\\halo on Windows)." },
+	{ "paths.custom_edition", _config_string, "\"\"", "HALO_CUSTOM_EDITION_ROOT", _environment_value, _platform_desktop,
+		"A Halo Custom Edition install whose maps folder is looked in after the\n"
+		"custom_maps folder for Custom Edition maps and their bitmaps.map,\n"
+		"sounds.map and loc.map (game.custom_edition); empty for none." },
 
 	{ "network.address", _config_string, "\"\"", "HALO_NET_ADDRESS", _environment_value, _platform_all,
 		"This machine's IPv4 address for system link, for a machine on several\n"
