@@ -3043,8 +3043,9 @@ boolean server_has_enough_machines(
 	struct network_game_server *server)
 {
 	boolean has_enough_machines;
-	long minimum_machine_count =
-		network_game_is_splitscreen_local() ? 1 : 2;
+	/* port: a system link or internet game starts with the host's machine
+	alone, and others join it in progress */
+	long minimum_machine_count = 1;
 	long machine_count = 0;
 	long client_machine_index;
 
@@ -3070,13 +3071,21 @@ boolean server_has_enough_machines(
 	return has_enough_machines;
 }
 
+/* port: a game's one player, with no one else in it yet, may start it:
+a system link or internet game's host, or split screen's first player */
+static boolean server_alone(
+	struct network_game_server *server)
+{
+	return server->game.player_count == 1;
+}
+
 boolean server_ok_to_countdown(
 	struct network_game_server *server)
 {
 	if (server_has_enough_machines(server) &&
 		server_has_a_player_on_each_machine(server) &&
-		!server_needs_more_teams(server) &&
-		server->game.player_count >= server->game.minimum_players)
+		(!server_needs_more_teams(server) || server_alone(server)) &&
+		(server->game.player_count >= server->game.minimum_players || server_alone(server)))
 	{
 		return TRUE;
 	}
@@ -3237,7 +3246,7 @@ boolean network_game_server_game_can_start(
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x782, server);
 
 	return server->state == 0 &&
-		server->game.player_count >= server->game.minimum_players;
+		(server->game.player_count >= server->game.minimum_players || server_alone(server));
 }
 
 void network_game_server_pause_countdown(
@@ -3289,6 +3298,7 @@ void network_game_server_change_map_name(
 		map_name,
 		NETWORK_GAME_MAP_NAME_LENGTH - 1);
 	server->game.map.name[NETWORK_GAME_MAP_NAME_LENGTH - 1] = 0;
+	server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 
 	if (!network_game_server_send_game_data_pregame(server))
 	{
@@ -3740,7 +3750,8 @@ void network_game_server_update_countdown(
 #ifdef HALO_ANDROID
 							+ network_game_server_bot_machine_count(server)
 #endif
-							> 1)
+							> 1 ||
+						server_alone(server))
 					{
 						unsigned long countdown;
 
@@ -4027,6 +4038,7 @@ static void network_game_server_cooperative_round(
 	server->game.variant_options.friendly_fire = friendly_fire;
 	csstrncpy(server->game.map.name, network_game_server_cooperative_next_map, sizeof(server->game.map.name) - 1);
 	server->game.map.name[sizeof(server->game.map.name) - 1] = 0;
+	server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 	main_set_multiplayer_map_name(server->game.map.name);
 	server->game.maximum_teams = 1;
 	network_game_server_cooperative_next_map[0] = 0;
@@ -4101,7 +4113,7 @@ static boolean network_game_server_setup_game_from_playlist(
 		network_game_generate_local_machine_name(machine_name);
 		ustrncpy(server->game.name, machine_name, NETWORK_GAME_NAME_LENGTH - 1);
 		server->game.name[NETWORK_GAME_NAME_LENGTH - 1] = L'\0';
-		server->game.map.version = 0;
+		server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 		server->game.minimum_players = 2;
 		server->game.maximum_players = MAXIMUM_NETWORK_PLAYER_COUNT;
 		network_game_server_port_settings_apply(server);

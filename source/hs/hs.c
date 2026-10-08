@@ -2793,6 +2793,7 @@ symbols in this file:
 #include "cutscene/cinematics.h"
 #include "effects/player_effects.h"
 #include "game/cheats.h"
+#include "game/game_engine.h"
 #include "game/players.h"
 #include "interface/attract_mode.h"
 #include "interface/hud.h"
@@ -3377,7 +3378,7 @@ typedef void (*hs_token_enumerator)(
 
 struct hs_function_table_storage
 {
-	struct hs_function_definition const *functions[418];
+	struct hs_function_definition const *functions[418 + 4];
 	struct profile_section profile;
 	hs_token_enumerator token_enumerators[18];
 };
@@ -11624,7 +11625,115 @@ static struct hs_function_definition_with_1_parameter const xbox_set_machine_nam
 	},
 };
 
-long const hs_function_table_count= 418;
+/* port: Halo PC's sv_say and sv_end_game, which Custom Edition maps' scripts
+call (lookout_classic's and the Halo Kart maps' sv_say). They go at the end
+of the table: Xbox maps call functions by their place in it, Custom Edition
+maps by name (custom_edition_scripts.c). Every machine runs the scripts */
+
+/* (each machine shows the message to its own players) */
+static void hs_sv_say(
+	char const *message)
+{
+	wchar_t text[128];
+	short local_player_index;
+	long length = 0;
+	long index;
+
+	/* (without '|', which the HUD's text takes with the character after it
+	as one: at the end, the string's terminator) */
+	for (index = 0; message && message[index] && length < NUMBEROF(text) - 1; index++)
+	{
+		if (message[index] != '|')
+		{
+			text[length++] = (unsigned char)message[index];
+		}
+	}
+	text[length] = 0;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+	{
+		if (local_player_get_player_index(local_player_index) != NONE)
+			hud_print_message(local_player_index, text);
+	}
+
+	return;
+}
+
+/* (the host ends the game, as its time running out does) */
+static void hs_sv_end_game(
+	void)
+{
+	if (global_network_game_server_get() && game_engine_running())
+		game_engine_end_game();
+
+	return;
+}
+
+HS_EVALUATE_VOID_STRING(hs_sv_say_evaluate, hs_sv_say)
+HS_EVALUATE_NO_ARGUMENTS(hs_sv_end_game_evaluate, hs_sv_end_game)
+
+static struct hs_function_definition_with_1_parameter const sv_say_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_say",
+		hs_macro_function_parse,
+		hs_sv_say_evaluate,
+		"Halo PC's: shows every player a message.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const sv_end_game_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_end_game",
+	hs_macro_function_parse,
+	hs_sv_end_game_evaluate,
+	"Halo PC's: the host ends the game.",
+	NULL,
+	0,
+};
+
+/* port: the sounds of tag files played over the map's, for those making
+them (audio.loose_sounds: port/linux/game/loose_sounds.c), at the console */
+void loose_sounds_reload(void);
+void loose_sounds_enable(boolean enabled);
+
+HS_EVALUATE_NO_ARGUMENTS(hs_loose_sounds_reload_evaluate, loose_sounds_reload)
+HS_EVALUATE_VOID_BOOLEAN(hs_loose_sounds_evaluate, loose_sounds_enable)
+
+static struct hs_function_definition const loose_sounds_reload_definition=
+{
+	_hs_type_void,
+	0,
+	"loose_sounds_reload",
+	hs_macro_function_parse,
+	hs_loose_sounds_reload_evaluate,
+	"reads the sound tag files under the data root's tags folder again (all sounds stop if any changed).",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const loose_sounds_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"loose_sounds",
+		hs_macro_function_parse,
+		hs_loose_sounds_evaluate,
+		"plays the map's sounds from the tags folder's sound tag files, or (false) from the map, until the map changes.",
+		NULL,
+		1,
+		{ _hs_type_boolean },
+	},
+};
+
+long const hs_function_table_count= 418 + 4;
 
 struct hs_enum_definition const hs_enum_table[]=
 {
@@ -12056,6 +12165,10 @@ struct hs_function_table_storage hs_function_table=
 		&display_scenario_help_definition.definition,
 		&hs_network_game_start_now_definition,
 		&xbox_set_machine_name_definition.definition,
+		&sv_say_definition.definition,
+		&sv_end_game_definition,
+		&loose_sounds_reload_definition,
+		&loose_sounds_definition.definition,
 	},
 	{
 		"hs_update",
@@ -12553,6 +12666,14 @@ static boolean const hs_function_allowed_in_maps[]=
 	TRUE, /* display_scenario_help */
 	FALSE, /* network_game_start_now: starts a network game */
 	FALSE, /* xbox_set_machine_name: the machine's name */
+
+	/* Halo PC's, for Custom Edition maps */
+	TRUE, /* sv_say */
+	TRUE, /* sv_end_game: the host's */
+
+	/* the port's, for those making sounds */
+	FALSE, /* loose_sounds_reload */
+	FALSE, /* loose_sounds */
 };
 typedef char verify_hs_function_allowed_in_maps_size[
 	NUMBEROF(hs_function_allowed_in_maps) == NUMBEROF(hs_function_table.functions) ? 1 : -1];
@@ -12667,14 +12788,13 @@ static boolean hs_scenario_syntax_data_valid(
 {
 	long const syntax_data_size =
 		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);
-	byte const *tag_cache = (byte const *)physical_memory_get_tag_cache_base_address();
 	byte const *address = (byte const *)scenario->hs_syntax_data.address;
 	struct data_array const *data = (struct data_array const *)address;
 
+	/* (in the loaded map's tag cache: this build's, or a Custom Edition
+	map's, cache_file_tag_cache_contains) */
 	if (scenario->hs_syntax_data.size != syntax_data_size ||
-		!tag_cache ||
-		address < tag_cache ||
-		address > tag_cache+TAG_CACHE_SIZE-syntax_data_size ||
+		!cache_file_tag_cache_contains(address, syntax_data_size) ||
 		((unsigned long)address & 3))
 	{
 		return FALSE;
@@ -12700,15 +12820,11 @@ bytes at their end that the console's expressions are written to
 static boolean hs_scenario_string_constants_valid(
 	struct scenario const *scenario)
 {
-	byte const *tag_cache = (byte const *)physical_memory_get_tag_cache_base_address();
 	byte const *address = (byte const *)scenario->hs_string_constants.address;
 	long size = scenario->hs_string_constants.size;
 
-	return tag_cache &&
-		size >= 0x400 &&
-		size <= TAG_CACHE_SIZE &&
-		address >= tag_cache &&
-		address <= tag_cache+TAG_CACHE_SIZE-size;
+	return size >= 0x400 &&
+		cache_file_tag_cache_contains(address, size);
 }
 
 /* port: the scenario runs no scripts, its script data not being sound: a
@@ -15095,28 +15211,15 @@ boolean hs_scenario_postprocess(
 		else
 			error(0, "%s: %s", error_source, error_message);
 
-		if (hs_compile_source() && hs_compile_postprocess(&error_message, &error_source))
-		{
-			success = TRUE;
-			/* port: a cache file's blocks can't be resized (tag_block_resize),
-			so the recompile didn't reset the map's scripts and globals: they
-			still name the nodes hs_compile_initialize deleted. None run */
-			hs_scenario_scripts_disable(scenario);
-		}
-		else
-		{
-			data_delete_all(hs_syntax_data);
-			if (!tag_block_resize(&scenario->hs_globals, 0) ||
-				!tag_block_resize(&scenario->hs_scripts, 0) ||
-				!tag_data_resize(&global_scenario_get()->hs_string_constants, 0x400))
-			{
-				error(0, "couldn't reset scripts.");
-				/* port: a cache file's can't be resized: none run against the
-				nodes just deleted */
-				hs_scenario_scripts_disable(scenario);
-			}
-			success = FALSE;
-		}
+		/* port: the map's script source is not compiled again. A cache
+		file's blocks can't be resized (tag_block_resize), so the recompile
+		never reset the map's scripts and globals and none ran afterwards
+		either way; and the source is the map's, which the compiler would
+		recurse into as deep as it nests. The nodes go, and none run */
+		error(0, "the scenario's scripts won't run");
+		data_delete_all(hs_syntax_data);
+		hs_scenario_scripts_disable(scenario);
+		success = FALSE;
 	}
 	if (restore_syntax_data)
 		hs_syntax_data = saved_syntax_data;
@@ -15254,6 +15357,10 @@ static boolean hs_compile_and_evaluate_command(
 	char buffer[1024];
 	char expanded[1024];
 
+	/* port: the co-op host's bringto, which brings every player to the host
+	(players.c; a client is told it is the host's) */
+	if (hs_host_player_command(expression, "bringto"))
+		return players_coop_bring_to_host();
 	/* port: playing in another's game, the host decides the game: no
 	cheats, no game speed, nothing else a command changes of the game (the
 	game run each tick also puts back what was changed before joining,
