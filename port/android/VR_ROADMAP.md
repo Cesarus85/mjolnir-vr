@@ -23,7 +23,7 @@ named where code is taken over.
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
-| Multiplayer | Up to date with OpenCE (network version 21, 2026-10-07): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
+| Multiplayer | Up to date with OpenCE (network version 24, 2026-10-08): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
 | Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
 | Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
