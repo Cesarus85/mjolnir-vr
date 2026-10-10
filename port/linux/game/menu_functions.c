@@ -78,6 +78,8 @@ their handlers open opens.
 #include "halo_menus.h"
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
+#include "network_voice.h"
+#include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
 
@@ -101,6 +103,8 @@ void platform_binding_capture_begin(void);
 int platform_binding_capture_poll(int *input);
 void halo_input_name(int input, char *name, unsigned int size);
 short pc_menu_string_index(long definition_index);
+/* cseries_windows.c's */
+unsigned long system_milliseconds(void);
 
 /* the game's (port) */
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
@@ -815,6 +819,7 @@ static void profile_name_show(struct widget_instance *description)
 	static struct player_profile profile;
 	static long read_index = NONE;
 	static unsigned long read_time;
+	static boolean read_good;
 	long index = player_ui_get_active_player_profile_index(0);
 
 	if (!description)
@@ -826,13 +831,17 @@ static void profile_name_show(struct widget_instance *description)
 	}
 	else if ((index = player_ui_get_player1_last_used_profile_index()) == NONE)
 		return;
-	else if (index != read_index || system_milliseconds() - read_time > 1000)
+	else
 	{
-		read_index = NONE;
-		if (!player_profile_get(index, &profile))
+		/* (one that cannot be read too: tried again a second later) */
+		if (index != read_index || system_milliseconds() - read_time > 1000)
+		{
+			read_index = index;
+			read_good = player_profile_get(index, &profile);
+			read_time = system_milliseconds();
+		}
+		if (!read_good)
 			return;
-		read_index = index;
-		read_time = system_milliseconds();
 	}
 	text_set(named(description, "current_profile_name", 0), profile.player_name);
 }
@@ -1497,6 +1506,17 @@ static boolean color_list_initialize(struct widget_instance *list)
 	return TRUE;
 }
 
+/* (ui_widget.c) whether the pointer moved the menus' focus last */
+boolean ui_widget_port_pointer_focused(void);
+
+/* Whether a list whose focus is on its first or last row moves on: when the
+d-pad put it there. The pointer resting there would make it move every
+frame; the wheel scrolls it instead. */
+static boolean list_scrolls_at_end(void)
+{
+	return !ui_widget_port_pointer_focused();
+}
+
 /* a list of more items than its rows: the row chosen kept off its ends
 while there are more past them, the list moving instead; the item chosen,
 or NONE (its buttons) */
@@ -1504,12 +1524,12 @@ static short list_scroll(struct widget_instance *list, short *first, short count
 {
 	short row = focused_row(list);
 
-	if (row == rows - 1 && *first + rows < count)
+	if (row == rows - 1 && *first + rows < count && list_scrolls_at_end())
 	{
 		(*first)++;
 		focus_row(list, --row);
 	}
-	else if (row == 0 && *first > 0)
+	else if (row == 0 && *first > 0 && list_scrolls_at_end())
 	{
 		(*first)--;
 		focus_row(list, ++row);
@@ -1875,6 +1895,8 @@ static struct
 	{ "controls.flashlight", L"FLASHLIGHT", 2 },
 	{ "controls.scoreboard", L"SHOW SCORES", 2 },
 	{ "controls.pause", L"PAUSE MENU", 2 },
+	{ "controls.screenshot", L"SCREENSHOT", 2 },
+	{ "controls.push_to_talk", L"PUSH TO TALK", 2 },
 };
 
 static struct
@@ -2198,7 +2220,7 @@ void p2p_set_hosting_allowed(int allowed);
 int p2p_peer_address(unsigned char const *identifier, unsigned long *address);
 int platform_clipboard_get(char *text, int size);
 void platform_clipboard_set(char const *text);
-void platform_text_field(int typing);
+void platform_text_field(int typing, int password);
 #ifdef HALO_ANDROID
 /* (VR: the Xbox's on-screen keyboard, virtual_keyboard.c) */
 int halo_vr_active(void);
@@ -2229,9 +2251,10 @@ static struct
 	starts with COOPERATIVE_DEFAULT_PLAYERS players at most) */
 	short cooperative_maximum_players_index;
 	boolean cooperative_maximum_players_set;
-	/* co-op's FRIENDLY FIRE shown (network.coop_friendly_fire's) */
+	/* the co-op game's FRIENDLY FIRE, and its PLAYER COLLISIONS OFF, as it
+	starts (CO-OP OPTIONS': network.coop_friendly_fire's and
+	network.coop_player_collisions': server_start) */
 	short cooperative_friendly_fire;
-	/* co-op's PLAYER COLLISIONS shown, OFF (network.coop_player_collisions's) */
 	boolean cooperative_no_player_collisions;
 	/* the browser's games */
 	struct advertised_game *games[MAXIMUM_ADVERTISED_GAMES];
@@ -2297,8 +2320,8 @@ static boolean text_field_editing(struct widget_instance *row)
 	return text_field.row && (!row || text_field.row == row);
 }
 
-static void text_field_begin(struct widget_instance *row, char const *text, short maximum,
-	void (*done)(char const *text))
+static void text_field_open(struct widget_instance *row, char const *text, short maximum,
+	void (*done)(char const *text), boolean masked)
 {
 	struct key_stroke key;
 
@@ -2307,30 +2330,35 @@ static void text_field_begin(struct widget_instance *row, char const *text, shor
 	snprintf(text_field.before, sizeof(text_field.before), "%s", text);
 	text_field.maximum = (short)MIN(maximum, TEXT_FIELD_LENGTH - 1);
 	text_field.done = done;
-	text_field.masked = FALSE;
+	text_field.masked = masked;
 	text_field_shown_time = system_milliseconds();
 	while (input_get_key(&key))
 		;
-	platform_text_field(TRUE);
+	platform_text_field(TRUE, masked);
 #ifdef HALO_ANDROID
 	if (halo_vr_active())
 		text_field_keyboard_launch();
 #endif
 }
 
+static void text_field_begin(struct widget_instance *row, char const *text, short maximum,
+	void (*done)(char const *text))
+{
+	text_field_open(row, text, maximum, done, FALSE);
+}
+
 /* a password's field: as text_field_begin, its text shown as stars */
 static void text_field_begin_masked(struct widget_instance *row, char const *text, short maximum,
 	void (*done)(char const *text))
 {
-	text_field_begin(row, text, maximum, done);
-	text_field.masked = TRUE;
+	text_field_open(row, text, maximum, done, TRUE);
 }
 
 static void text_field_end(boolean keep)
 {
 	void (*done)(char const *text) = text_field.done;
 
-	platform_text_field(FALSE);
+	platform_text_field(FALSE, FALSE);
 	text_field.row = NULL;
 	text_field.done = NULL;
 	if (!keep)
@@ -2717,13 +2745,13 @@ static void gametype_list_update(struct widget_instance *list)
 		if (row == list->focused_child && row_index >= 1 && row_index <= GAMETYPE_ROWS)
 			focused = (short)(row_index - 1);
 	}
-	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count)
+	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first++;
 		focus_row(list, (short)focused);
 		focused--;
 	}
-	else if (focused == 0 && multiplayer.gametype_first > 0)
+	else if (focused == 0 && multiplayer.gametype_first > 0 && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first--;
 		focus_row(list, 2);
@@ -2819,18 +2847,15 @@ static char const *const server_settings_gametype_rows[] =
 
 /* the most players a co-op game hosted starts with (maximum_players') */
 #define COOPERATIVE_DEFAULT_PLAYERS 16
-/* Server Setup's help for co-op's FRIENDLY FIRE and EXTRA ENEMIES, by
-their choices, and EXTRA ENEMIES' PER PLAYER and MULTIPLIER (its
-help_strings, tools/port_settings.py) */
-#define COOPERATIVE_FRIENDLY_FIRE_HELP 12
-#define COOPERATIVE_EXTRA_ENEMIES_HELP 16
-#define COOPERATIVE_ENEMIES_PER_PLAYER_HELP 19
-#define COOPERATIVE_ENEMIES_MULTIPLIER_HELP 20
-#define COOPERATIVE_PLAYER_COLLISIONS_HELP 21
-#define SERVER_PASSWORD_HELP 23
+/* Server Setup's help for co-op's options' rows (CO-OP OPTIONS, VOICE AND
+VOTING), and PASSWORD's (its help_strings, tools/port_settings.py) */
+#define COOPERATIVE_OPTIONS_HELP 12
+#define COOPERATIVE_VOICE_OPTIONS_HELP 13
+#define SERVER_PASSWORD_HELP 14
 
-/* co-op's EXTRA ENEMIES' choices (port_settings.COOP_ENEMIES_MODES, in this
-order): its amount's row is the choice's */
+/* co-op's EXTRA ENEMIES' choices (network.coop_enemies_mode's values, as
+gametype_options' coop_extra_enemies_spinner has them, in this order): its
+amount's row is the choice's */
 enum
 {
 	_cooperative_enemies_none,
@@ -2839,8 +2864,9 @@ enum
 	NUMBER_OF_COOPERATIVE_ENEMIES_MODES
 };
 
-/* co-op's FRIENDLY FIRE's choices (network.coop_friendly_fire's values,
-port_settings.COOP_FRIENDLY_FIRE_VALUES, in this order) */
+/* co-op's FRIENDLY FIRE's choices (network.coop_friendly_fire's values, as
+gametype_options' coop_friendly_fire_spinner and server_start have them, in
+this order) */
 static short const cooperative_friendly_fire_modes[] =
 {
 	_friendly_fire_off, _friendly_fire_on, _friendly_fire_shields_only, _friendly_fire_explosives_only
@@ -2954,54 +2980,17 @@ static void server_settings_update(struct widget_instance *list)
 
 		for (row = 0; row < NUMBEROF(server_settings_gametype_rows); row++)
 			visible_set(named(list, server_settings_gametype_rows[row], 0), !cooperative);
-		/* co-op's FRIENDLY FIRE, in their place: its help is its choice's */
-		visible_set(named(list, "op_friendly_fire", 0), cooperative);
-		if (cooperative && (spinner = named(list, "friendly_fire_spinner", 0)) != NULL)
-		{
-			short choice = (short)PIN(spinner->parameters.list.selected_index, 0,
-				NUMBEROF(cooperative_friendly_fire_modes) - 1);
-			struct widget_instance *help = list->parameters.list.extended_description;
-
-			multiplayer.cooperative_friendly_fire = cooperative_friendly_fire_modes[choice];
-			if (help && list->focused_child == named(list, "op_friendly_fire", 0))
-				help->parameters.text_box.string_list_index = (short)(COOPERATIVE_FRIENDLY_FIRE_HELP + choice);
-		}
-		/* ... and its EXTRA ENEMIES, with the row of the amount of the one
-		chosen below it (network.coop_enemies_mode and its amounts, which the
-		host reads as the game begins: coop_enemies.c) */
+		/* co-op's options in their place, rows opening their screens
+		(tools/port_settings.py's COOP_SETUP_SCREENS), each its help */
 		{
 			struct widget_instance *help = list->parameters.list.extended_description;
-			short mode = _cooperative_enemies_none;
 
-			if ((spinner = named(list, "extra_enemies_spinner", 0)) != NULL)
-			{
-				mode = (short)PIN(spinner->parameters.list.selected_index, 0,
-					NUMBER_OF_COOPERATIVE_ENEMIES_MODES - 1);
-			}
-			visible_set(named(list, "op_extra_enemies", 0), cooperative);
-			visible_set(named(list, "op_enemies_per_player", 0), cooperative && mode == _cooperative_enemies_per_player);
-			visible_set(named(list, "op_enemies_multiplier", 0), cooperative && mode == _cooperative_enemies_multiplier);
-			if (cooperative && help)
-			{
-				if (list->focused_child == named(list, "op_extra_enemies", 0))
-					help->parameters.text_box.string_list_index = (short)(COOPERATIVE_EXTRA_ENEMIES_HELP + mode);
-				else if (list->focused_child == named(list, "op_enemies_per_player", 0))
-					help->parameters.text_box.string_list_index = COOPERATIVE_ENEMIES_PER_PLAYER_HELP;
-				else if (list->focused_child == named(list, "op_enemies_multiplier", 0))
-					help->parameters.text_box.string_list_index = COOPERATIVE_ENEMIES_MULTIPLIER_HELP;
-			}
-		}
-		/* ... and its PLAYER COLLISIONS, below them: ON or OFF, its help its
-		choice's */
-		visible_set(named(list, "op_player_collisions", 0), cooperative);
-		if (cooperative && (spinner = named(list, "player_collisions_spinner", 0)) != NULL)
-		{
-			short choice = (short)PIN(spinner->parameters.list.selected_index, 0, 1);
-			struct widget_instance *help = list->parameters.list.extended_description;
-
-			multiplayer.cooperative_no_player_collisions = choice == 1;
-			if (help && list->focused_child == named(list, "op_player_collisions", 0))
-				help->parameters.text_box.string_list_index = (short)(COOPERATIVE_PLAYER_COLLISIONS_HELP + choice);
+			visible_set(named(list, "op_coop_options", 0), cooperative);
+			visible_set(named(list, "op_voice_options", 0), cooperative);
+			if (help && list->focused_child == named(list, "op_coop_options", 0))
+				help->parameters.text_box.string_list_index = COOPERATIVE_OPTIONS_HELP;
+			else if (help && list->focused_child == named(list, "op_voice_options", 0))
+				help->parameters.text_box.string_list_index = COOPERATIVE_VOICE_OPTIONS_HELP;
 		}
 	}
 	/* LISTING (an internet game's): PUBLIC, listed in everyone's server
@@ -3096,7 +3085,21 @@ static boolean server_start(void)
 	and its FRIENDLY FIRE) */
 	if (hosting_cooperative())
 	{
+		/* (as CO-OP OPTIONS left them: network.coop_friendly_fire, in
+		cooperative_friendly_fire_modes' order, and
+		network.coop_player_collisions) */
+		static char const *const friendly_fire_names[] = { "off", "on", "shields_only", "explosives_only" };
+		char const *friendly_fire = config_string("network.coop_friendly_fire");
+		short index;
+
 		gametype_setup_end();
+		multiplayer.cooperative_friendly_fire = _friendly_fire_on;
+		for (index = 0; friendly_fire && index < (short)NUMBEROF(friendly_fire_names); index++)
+		{
+			if (!strcmp(friendly_fire, friendly_fire_names[index]))
+				multiplayer.cooperative_friendly_fire = cooperative_friendly_fire_modes[index];
+		}
+		multiplayer.cooperative_no_player_collisions = !config_boolean("network.coop_player_collisions");
 		network_game_server_port_set_cooperative_friendly_fire(multiplayer.cooperative_friendly_fire);
 		network_game_server_port_set_cooperative_player_collisions(!multiplayer.cooperative_no_player_collisions);
 	}
@@ -3302,8 +3305,8 @@ scenario's path or name */
 static void map_display_name(char const *map_name, wchar_t *text)
 {
 	char const *const *names;
-	short last, index;
-	short count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, &last));
+	short index;
+	short count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, NULL));
 
 	/* (a Custom Edition map's, if this machine has it: custom_edition_maps.c) */
 	if (custom_edition_level_name(map_name))
@@ -3493,12 +3496,12 @@ static void lobby_browser_update(struct widget_instance *list)
 
 	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
-	if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count)
+	if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count && list_scrolls_at_end())
 	{
 		lobby_browser.first++;
 		lobby_browser_focus_row(list, --focused);
 	}
-	else if (focused == 0 && lobby_browser.first > 0)
+	else if (focused == 0 && lobby_browser.first > 0 && list_scrolls_at_end())
 	{
 		lobby_browser.first--;
 		lobby_browser_focus_row(list, ++focused);
@@ -4009,6 +4012,27 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
 	return TRUE;
 }
 
+/* "port profile settings save" (Gamepads' OK in a single-player campaign:
+menu_tags.c's pause_settings_patch): the profile saved at once, not on
+Settings' OK, so that the campaign's next save of the player's profile
+keeps it; saving makes it the player's own (player_ui_save_profile), and it
+is edited again from what was saved, for Settings to go on with */
+static boolean profile_settings_save(struct widget_instance *widget)
+{
+	long index = player_ui_get_edit_profile_index();
+
+	settings_each(screen_of(widget), setting_changed_save);
+	if (!player_ui_get_edit_player_profile() || !player_ui_edit_profile_is_dirty())
+		return TRUE;
+	if (!player_ui_save_profile())
+	{
+		platform_log("menus: could not save the profile's changes");
+		return campaign_fail();
+	}
+	player_ui_begin_editing_profile(index);
+	return TRUE;
+}
+
 /* "port pause end game" (the in-game pause menu's END GAME, the host's:
 menu_tags.c's pause_patch): the game ends as its time limit would, its
 players staying for the next (the carnage report, then the host's PICK GAME) */
@@ -4251,7 +4275,7 @@ static void lobby_row_text(short row, wchar_t *text)
 static void lobby_map_show(struct widget_instance *description, char const *map_name)
 {
 	char const *const *names;
-	short last, count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, &last)), map = 19, index;
+	short count = xbox_multiplayer_map_count(ui_widget_port_multiplayer_maps(&names, NULL)), map = 19, index;
 	short level = campaign_level_of(map_name);
 	struct widget_instance *widget;
 
@@ -4282,6 +4306,59 @@ static void lobby_map_show(struct widget_instance *description, char const *map_
 		widget->parameters.text_box.string_list_index = level;
 }
 
+/* the lobby's rows' texts as last updated, and their players' machines,
+for their speaker icons (menu_functions_text_box_drawn); and when */
+static struct
+{
+	struct widget_instance *texts[LOBBY_ROWS];
+	long machines[LOBBY_ROWS];
+	short count;
+	unsigned long updated_at;
+} lobby_icons;
+
+/* ui_widget.c's: a text box drawn, at the bounds its text was drawn in
+(its font and justification still set): a lobby row's player talking in
+voice chat (or muted) has a speaker just left of their name
+(port/linux/game/network_voice.c) */
+void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d const *bounds)
+{
+	short row;
+
+	/* (as the lobby last updated them: the rows' widgets go with it) */
+	if (!lobby_icons.count || system_milliseconds() - lobby_icons.updated_at > 250)
+		return;
+	for (row = 0; row < lobby_icons.count; row++)
+	{
+		long machine_index = lobby_icons.machines[row];
+		rectangle2d icon;
+		short size;
+
+		if (lobby_icons.texts[row] != widget)
+			continue;
+		if (!network_voice_machine_speaking(machine_index) && !network_voice_machine_muted(machine_index))
+			return;
+		size = (short)MIN(14, bounds->y1 - bounds->y0);
+		icon.x1 = (short)(bounds->x1 - 4);
+		icon.y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
+		/* (the name's ink: the icon just left of it, centred on its
+		capitals) */
+		if (widget->parameters.text_box.text && widget->parameters.text_box.text[0])
+		{
+			rectangle2d text;
+			rectangle2d cursor;
+
+			draw_unicode_string_compute_bounds(bounds, widget->parameters.text_box.text, &text, &cursor);
+			if (text.x0 - size - 6 >= bounds->x0)
+				icon.x1 = (short)(text.x0 - 6);
+			icon.y0 = (short)(draw_unicode_string_capital_middle(bounds, widget->parameters.text_box.text) - size / 2);
+		}
+		icon.x0 = (short)(icon.x1 - size);
+		icon.y1 = (short)(icon.y0 + size);
+		network_voice_draw_icon(&icon, network_voice_machine_muted(machine_index), 1.0f);
+		return;
+	}
+}
+
 /* "port lobby update" */
 static void lobby_update(struct widget_instance *list)
 {
@@ -4302,6 +4379,21 @@ static void lobby_update(struct widget_instance *list)
 	if (multiplayer.lobby_first > MAX(0, lobby_player_count - LOBBY_ROWS))
 		multiplayer.lobby_first = (short)MAX(0, lobby_player_count - LOBBY_ROWS);
 	rows_update(list, (short)MIN(lobby_player_count, LOBBY_ROWS), lobby_row_text);
+	/* (the rows' players, for their speaker icons) */
+	{
+		struct widget_instance *row = list->child;
+
+		lobby_icons.count = 0;
+		for (index = 0; row && index < MIN(lobby_player_count, LOBBY_ROWS); row = row->next, index++)
+		{
+			if (strncmp(row->name, "list_item_", 10))
+				break;
+			lobby_icons.texts[index] = named(row, "list_item_text", 0);
+			lobby_icons.machines[index] = lobby_players[multiplayer.lobby_first + index]->machine_index;
+			lobby_icons.count = (short)(index + 1);
+		}
+		lobby_icons.updated_at = system_milliseconds();
+	}
 	lobby_join_help(list);
 	visible_set(named(list, "lobby_button_team", 0), game && game->variant.universal_variant.teams);
 	/* (the buttons' focus, off Switch Team when it is hidden) */
@@ -4536,7 +4628,8 @@ enum
 	_option_health,		/* the variant's health, tenths */
 	_option_short,		/* a short of the options */
 	_option_option_byte,	/* a byte of the options */
-	_option_radar		/* the options' radar players, and the variant's flag */
+	_option_radar,		/* the options' radar players, and the variant's flag */
+	_option_setting		/* the host's own (config.toml): Server Setup's copy only */
 };
 
 struct gametype_option
@@ -4547,6 +4640,9 @@ struct gametype_option
 	unsigned long argument;
 	short count;
 	long values[16];
+	/* (_option_setting: the setting, and its values' text) */
+	char const *setting;
+	char const *setting_values[16];
 };
 
 #define VARIANT_FIELD(field) (short)offsetof(struct game_variant, field)
@@ -4638,10 +4734,51 @@ static struct gametype_option const gametype_options[] =
 		{ _friendly_fire_off, _friendly_fire_on, _friendly_fire_shields_only, _friendly_fire_explosives_only } },
 	{ "friendly_fire_penalty_spinner", _option_short, OPTIONS_FIELD(friendly_fire_penalty), 0, 4, { 0, 5, 10, 15 } },
 	{ "autobalance_spinner", _option_option_byte, OPTIONS_FIELD(auto_team_balance), 0, 2, { 0, 1 } },
+	/* (the host's voice chat, below them: port/linux/game/network_voice.c;
+	tools/port_settings.py's TEAMPLAY_ROWS) */
+	{ "voice_mode_spinner", _option_setting, 0, 0, 5, { 0 }, "network.voice_mode",
+		{ "off", "team_proximity", "team_enemy_proximity", "team_global", "team_global_enemy_proximity" } },
+	{ "voice_lobby_spinner", _option_setting, 0, 0, 2, { 0 }, "network.voice_lobby", { "true", "false" } },
+	{ "voice_kbps_spinner", _option_setting, 0, 0, 7, { 0 }, "network.voice_kbps",
+		{ "8", "12", "16", "24", "32", "48", "64" } },
+	{ "voice_proximity_spinner", _option_setting, 0, 0, 6, { 0 }, "network.voice_proximity",
+		{ "5", "10", "15", "20", "30", "50" } },
+	/* (and the players' votes to kick: port/linux/game/network_votekick.c) */
+	{ "votekick_spinner", _option_setting, 0, 0, 2, { 0 }, "network.votekick", { "true", "false" } },
+	/* co-op's options (Server Setup's CO-OP OPTIONS: tools/port_settings.py's
+	COOP_SETUP_SCREENS; coop_enemies.c) */
+	{ "coop_friendly_fire_spinner", _option_setting, 0, 0, 4, { 0 }, "network.coop_friendly_fire",
+		{ "off", "on", "shields_only", "explosives_only" } },
+	{ "coop_extra_enemies_spinner", _option_setting, 0, 0, 3, { 0 }, "network.coop_enemies_mode",
+		{ "none", "per_player", "multiplier" } },
+	{ "coop_enemies_per_player_spinner", _option_setting, 0, 0, 5, { 0 }, "network.coop_enemies",
+		{ "25", "50", "100", "150", "200" } },
+	{ "coop_enemies_multiplier_spinner", _option_setting, 0, 0, 5, { 0 }, "network.coop_enemies_multiplier",
+		{ "2", "4", "8", "16", "32" } },
+	{ "coop_player_collisions_spinner", _option_setting, 0, 0, 2, { 0 }, "network.coop_player_collisions",
+		{ "true", "false" } },
 	/* vehicle options (the side's set and counts: vehicles_update) */
 	{ "vehicles_respawn_spinner", _option_short, OPTIONS_FIELD(vehicle_respawn_time), 0, 7,
 		{ 0, 30, 60, 90, 120, 180, 300 } },
 };
+
+/* an option of the host's own setting: the value shown for it (the one
+set, else the nearest) */
+static short gametype_option_setting_index(struct gametype_option const *option)
+{
+	struct pc_menu_setting setting;
+	char text[64];
+	short index;
+
+	csmemset(&setting, 0, sizeof(setting));
+	setting.setting = option->setting;
+	setting.value_count = option->count;
+	for (index = 0; index < option->count; index++)
+		setting.values[index] = option->setting_values[index];
+	if (!setting_text(option->setting, text, sizeof(text), FALSE))
+		return 0;
+	return setting_value_index(&setting, text);
+}
 
 /* (an instance's name is its definition's cut to 31 characters:
 "item_options_infinite_grenades_") */
@@ -4748,6 +4885,25 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 
 			if (!option)
 				continue;
+			/* (the host's own settings: Server Setup's alone, their rows
+			hidden in Edit Gametypes', which edits a gametype for any game;
+			written on OK, as the gametype's are kept) */
+			if (option->kind == _option_setting)
+			{
+				short index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count - 1);
+
+				visible_set(row, gametype_edit.setup);
+				if (!gametype_edit.setup)
+					continue;
+				if (!save)
+					spinner->parameters.list.selected_index = gametype_option_setting_index(option);
+				else if (index != gametype_option_setting_index(option) &&
+					!setting_write(option->setting, option->setting_values[index]))
+				{
+					platform_log("menus: could not set %s", option->setting);
+				}
+				continue;
+			}
 			if (save)
 			{
 				short index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count - 1);
@@ -4757,6 +4913,36 @@ static void gametype_options_each(struct widget_instance *list, boolean save)
 			else
 				spinner->parameters.list.selected_index =
 					gametype_option_index(option, gametype_option_value(option, variant, options));
+		}
+	}
+}
+
+/* each of a screen's rows of the host's own settings (_option_setting:
+co-op's options' screens, tools/port_settings.py's _setup_option_screen),
+shown, or (save) set */
+static void setting_options_each(struct widget_instance *list, boolean save)
+{
+	struct widget_instance *row;
+
+	for (row = list->child; row; row = row->next)
+	{
+		struct widget_instance *spinner;
+
+		for (spinner = row->child; spinner; spinner = spinner->next)
+		{
+			struct gametype_option const *option = spinner->type == 2 ? gametype_option_named(spinner->name) : NULL;
+			short index;
+
+			if (!option || option->kind != _option_setting)
+				continue;
+			index = (short)PIN(spinner->parameters.list.selected_index, 0, option->count - 1);
+			if (!save)
+				spinner->parameters.list.selected_index = gametype_option_setting_index(option);
+			else if (index != gametype_option_setting_index(option) &&
+				!setting_write(option->setting, option->setting_values[index]))
+			{
+				platform_log("menus: could not set %s", option->setting);
+			}
 		}
 	}
 }
@@ -4999,7 +5185,7 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		gametype_edit_read();
 	focused = list_scroll(list, &gametype_edit.first, gametype_edit.count, GAMETYPE_EDIT_ROWS);
 	if (focused != NONE)
-		gametype_edit.chosen = (short)MIN(focused, gametype_edit.count - 1);
+		gametype_edit.chosen = (short)MAX(0, MIN(focused, gametype_edit.count - 1));
 	rows_update(list, (short)MIN(gametype_edit.count, GAMETYPE_EDIT_ROWS), gametype_edit_row_text);
 	visible_set(named(description, "gametype_right_item", 0), gametype_edit.count > 0);
 	if (gametype_edit.chosen < gametype_edit.count)
@@ -5092,6 +5278,15 @@ static void gametype_option_help(struct widget_instance *list)
 		visible_set(named(list, "op_weapon_set", 0), !custom);
 		visible_set(named(list, "op_primary_weapon", 0), custom);
 		visible_set(named(list, "op_secondary_weapon", 0), custom);
+	}
+	/* (CO-OP OPTIONS: the row of the amount of the extra enemies chosen,
+	PER PLAYER's or MULTIPLIER's, in the one place) */
+	if (named(list, "coop_extra_enemies_spinner", 0))
+	{
+		short mode = named(list, "coop_extra_enemies_spinner", 0)->parameters.list.selected_index;
+
+		visible_set(named(list, "op_coop_enemies_per_player", 0), mode == _cooperative_enemies_per_player);
+		visible_set(named(list, "op_coop_enemies_multiplier", 0), mode == _cooperative_enemies_multiplier);
 	}
 	/* (the server browser's filters, hidden: their helps are fewer than
 	their values) */
@@ -5261,6 +5456,18 @@ boolean pc_menu_event_function_invoke(
 		{
 			return gametype_setup_edit();
 		}
+		/* (co-op's options' screens: their settings shown, and OK's) */
+		else if (!strcmp(name, "port setup options init"))
+		{
+			setting_options_each(widget, FALSE);
+		}
+		else if (!strcmp(name, "port setup options save"))
+		{
+			struct widget_instance *list = gametype_options_list(widget);
+
+			if (list)
+				setting_options_each(list, TRUE);
+		}
 		else if (!strcmp(name, "mp profile save changes"))
 		{
 			return ui_widget_port_gametype_save(widget, widget_deleted);
@@ -5310,6 +5517,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "player profile save changes"))
 		{
 			return profile_save_changes(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port profile settings save"))
+		{
+			return profile_settings_save(widget);
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{

@@ -128,6 +128,7 @@ symbols in this file:
 #include "halo_vr.h"
 #include "vr_arms.h"
 #endif
+#include "view_fov.h" /* port: port/linux/game/view_fov.c */
 
 /* ---------- constants */
 
@@ -580,6 +581,9 @@ void first_person_weapon_draw(
 	if (halo_vr_scope_pass())
 		return;
 #endif
+	/* port: not drawn with display.viewmodel_visible off (view_fov.c) */
+	if (!viewmodel_is_visible())
+		return;
 	if (render.local_player_index!=NONE)
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);
