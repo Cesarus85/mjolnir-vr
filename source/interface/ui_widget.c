@@ -7716,8 +7716,8 @@ static void ui_vr_options_vignette_text(
 		snprintf(text, size, "%.0f%%", strength * 100.0f);
 }
 /* vr.body's values, and as the panel shows them */
-static char const *const vr_bodies[] = { "arms", "hands", "off" };
-static char const *const vr_body_names[] = { "Arms and hands", "Hands only", "Weapon only" };
+static char const *const vr_bodies[] = { "full", "arms", "hands", "off" };
+static char const *const vr_body_names[] = { "Full body", "Arms and hands", "Hands only", "Weapon only" };
 /* audio.voice_chat's (network_voice.c); push to talk is the free hand's grip */
 static char const *const vr_voice_chats[] = { "push_to_talk", "open_mic", "off" };
 static char const *const vr_voice_chat_names[] = { "Push to talk (grip)", "Open mic", "Off" };
@@ -7803,7 +7803,7 @@ static short ui_vr_options_body(
 		if (body && strcmp(body, vr_bodies[index]) == 0)
 			return index;
 	}
-	return 0;
+	return 1; /* (vr.c: anything else is "arms") */
 }
 
 static boolean ui_vr_options_screen(
@@ -8582,7 +8582,7 @@ static void ui_vr_options_render(
 		case _vr_option_fingers:
 			label = "Fingers";
 			snprintf(value, sizeof(value), "%s", config_boolean("vr.fingers") ? "Tracked" : "Off");
-			unused = ui_vr_options_body() == 2;
+			unused = strcmp(vr_bodies[ui_vr_options_body()], "off") == 0;
 			break;
 		case _vr_option_voice_chat:
 			label = "Voice chat";

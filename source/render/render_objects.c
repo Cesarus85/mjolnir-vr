@@ -115,6 +115,7 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/vehicles.h"
 #include "halo_vr.h"
+#include "vr_body.h" /* port: port/linux/game/vr_body.c */
 #endif
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
@@ -584,10 +585,16 @@ static void render_object_list(
 	while (object_index != NONE)
 	{
 		struct object_datum *object = object_get(object_index);
+#ifdef HALO_ANDROID
+		/* port: VR, the player's own body under the first-person arms and
+		weapon (vr.body "full", vr_body.c), without what it carries */
+		boolean vr_body = !data->shadow && !render.camera.mirrored && object_is_first_person_camera(object_index) &&
+			vr_body_drawn(render.local_player_index, object_index);
+#endif
 
 		if (!object_is_first_person_camera(object_index) || render.camera.mirrored
 #ifdef HALO_ANDROID
-			|| (!data->shadow && render_object_vr_seated_body(object_index))
+			|| (!data->shadow && render_object_vr_seated_body(object_index)) || vr_body
 #endif
 			)
 		{
@@ -627,7 +634,11 @@ static void render_object_list(
 
 #ifdef HALO_ANDROID
 				if (object_is_first_person_camera(object_index) && !render.camera.mirrored)
-					node_matrices = object_vr_headless_node_matrices(object_index);
+				{
+					node_matrices = vr_body ?
+						vr_body_node_matrices(object_index) :
+						object_vr_headless_node_matrices(object_index);
+				}
 #endif
 
 				match_assert(
@@ -771,7 +782,11 @@ static void render_object_list(
 				widgets_render(object_index, data->lighting, &animation);
 			}
 
-			if (object->object.first_child_object_index != NONE)
+			if (object->object.first_child_object_index != NONE
+#ifdef HALO_ANDROID
+				&& !vr_body
+#endif
+				)
 			{
 				render_object_list(
 					data,

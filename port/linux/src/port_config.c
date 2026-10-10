@@ -255,8 +255,10 @@ static const struct config_setting config_settings[] =
 		"its grip button to take hold of it with both hands." },
 	{ "vr.body", _config_string, "\"arms\"", "HALO_VR_BODY", _environment_value, _platform_android,
 		"What of your body is drawn with the weapon: \"arms\", the arms and hands\n"
-		"reaching from the shoulders to the controllers; \"hands\", the hands\n"
-		"alone; \"off\", neither (the weapon alone)." },
+		"reaching from the shoulders to the controllers; \"full\", the whole\n"
+		"body, its torso, hips and legs too, under the head and following the\n"
+		"physical crouch and lean, the feet stepping after it; \"hands\", the\n"
+		"hands alone; \"off\", neither (the weapon alone)." },
 	{ "vr.fingers", _config_boolean, "true", "HALO_VR_FINGERS", _environment_value, _platform_android,
 		"The free hand's fingers follow the controller: the index finger the\n"
 		"trigger, the others the grip, the thumb where it rests (on the Quest's\n"
@@ -715,6 +717,15 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"Off the headset (flat), the first-person weapon drawn mirrored, as the\n"
 		"left hand's is in VR: a test aid for what reads mirrored there. Read once." },
+	{ "debug.vr_body", _config_string, "\"off\"", "HALO_DEBUG_VR_BODY", _environment_value, _platform_android,
+		"Off the headset (flat), the player's own body drawn as vr.body \"full\"\n"
+		"draws it, posed from the flat camera, a test aid: \"eye\" (seen from the\n"
+		"eyes), \"down\" (looking down, as in the headset), \"front\", \"side\" or\n"
+		"\"back\" (the camera moved to look at it); after a colon how the head\n"
+		"moves: \"cycle\" (turning, crouching, leaning, five seconds each; the\n"
+		"default), \"still\", \"turn\", \"crouch\", \"lean\", or \"raw\" (the game's\n"
+		"own pose, only the head and arms shrunk). \"off\" (default): none. Read\n"
+		"once." },
 	{ "debug.network_corrupt", _config_real, "0.0", "HALO_NETWORK_CORRUPT", _environment_value, _platform_all,
 		"Percent of the datagrams received that are damaged at random, to test\n"
 		"that nothing a machine sends can crash the game; 0 none." },

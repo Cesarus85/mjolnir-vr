@@ -44,6 +44,12 @@ struct vr_limb_history
 
 boolean vr_skeleton_build(struct vr_skeleton *skeleton, long graph_index, short node_count);
 boolean vr_skeleton_under(struct vr_skeleton const *skeleton, short node_index, short root);
+/* the rotation (column vectors) taking direction a to direction b, the
+shortest way; a node and all under it turned by one about the node (the
+whole body, vr_body.c) */
+void vr_rotation_between(real_vector3d const *a, real_vector3d const *b, real rotation[3][3]);
+void vr_turn_subtree(struct vr_skeleton const *skeleton, real_matrix4x3 *matrices, short root,
+	real rotation[3][3]);
 
 /* one arm (bones: upper arm, forearm, hand) bent from the shoulder for the
 hand to reach target, its elbow towards the pole; the hand (and what it
