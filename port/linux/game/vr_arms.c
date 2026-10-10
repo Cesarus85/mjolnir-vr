@@ -115,7 +115,7 @@ static boolean vr_unit_vector(
 }
 
 /* the rotation taking direction a to direction b, the shortest way */
-static void vr_rotation_between(
+void vr_rotation_between(
 	real_vector3d const *a,
 	real_vector3d const *b,
 	real rotation[3][3])
@@ -648,7 +648,7 @@ void vr_finger_nodes(
 }
 
 /* a node and all under it turned about the node */
-static void vr_turn_subtree(
+void vr_turn_subtree(
 	struct vr_skeleton const *skeleton,
 	real_matrix4x3 *matrices,
 	short root,

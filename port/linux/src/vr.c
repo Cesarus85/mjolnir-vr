@@ -545,7 +545,8 @@ static void vr_read_live_settings(void)
 		const char *body = config_string("vr.body");
 
 		vr.body_mode = !strcmp(body, "hands") ? HALO_VR_BODY_HANDS :
-			!strcmp(body, "off") ? HALO_VR_BODY_OFF : HALO_VR_BODY_ARMS;
+			!strcmp(body, "off") ? HALO_VR_BODY_OFF :
+			!strcmp(body, "full") ? HALO_VR_BODY_FULL : HALO_VR_BODY_ARMS;
 	}
 	{
 		int left_handed = !strcmp(config_string("vr.handedness"), "left");
@@ -750,9 +751,24 @@ void halo_vr_phase(int phase, int ticks)
 		vr.frame_ticks = ticks;
 }
 
+/* debug.vr_body (flat, port/linux/game/vr_body.c): the body's pose timed
+off the headset too */
+static int debug_body_timing(void)
+{
+	static int timing = -1;
+
+	if (timing < 0)
+	{
+		const char *view = config_string("debug.vr_body");
+
+		timing = view && *view && strcmp(view, "off") != 0;
+	}
+	return timing;
+}
+
 unsigned long long halo_vr_timing_start(void)
 {
-	return vr.active && vr.log_performance ? now_us() : 0;
+	return (vr.active && vr.log_performance) || (!vr.active && debug_body_timing()) ? now_us() : 0;
 }
 
 unsigned long halo_vr_frame_serial(void)
@@ -766,6 +782,23 @@ void halo_vr_timing_end(int part, unsigned long long start)
 		return;
 	vr.timing_us[part] += now_us() - start;
 	vr.timing_count[part]++;
+	if (!vr.active)
+	{
+		/* (flat, debug.vr_body: the body alone, every five seconds) */
+		unsigned long long now = now_us();
+
+		if (!vr.report_start_us)
+			vr.report_start_us = now;
+		if (now - vr.report_start_us >= 5000000 && vr.timing_count[HALO_VR_TIMING_BODY])
+		{
+			platform_log("VR body (flat): %.3f ms a pose, %d poses in %.1f s",
+				vr.timing_us[HALO_VR_TIMING_BODY] * 1e-3f / vr.timing_count[HALO_VR_TIMING_BODY],
+				vr.timing_count[HALO_VR_TIMING_BODY], (now - vr.report_start_us) * 1e-6f);
+			memset(vr.timing_us, 0, sizeof(vr.timing_us));
+			memset(vr.timing_count, 0, sizeof(vr.timing_count));
+			vr.report_start_us = now;
+		}
+	}
 }
 
 /* the frame's parts, from the marks halo_vr_phase left (a part not marked
@@ -843,11 +876,14 @@ static void performance_report(int stereo)
 		memset(vr.phase_late, 0, sizeof(vr.phase_late));
 		/* (the first-person pose: built how often a frame and in how long,
 		the arms' part of it, and how often taken as built) */
-		platform_log("VR:   first person: %.2f ms a frame in %.2f builds (arms %.3f ms), %.2f kept",
+		platform_log("VR:   first person: %.2f ms a frame in %.2f builds (arms %.3f ms), %.2f kept; "
+			"body %.3f ms a frame in %.2f poses",
 			vr.timing_us[HALO_VR_TIMING_FIRST_PERSON] * 1e-3f / frames,
 			vr.timing_count[HALO_VR_TIMING_FIRST_PERSON] / frames,
 			vr.timing_us[HALO_VR_TIMING_ARMS] * 1e-3f / frames,
-			vr.timing_count[HALO_VR_TIMING_FIRST_PERSON_KEPT] / frames);
+			vr.timing_count[HALO_VR_TIMING_FIRST_PERSON_KEPT] / frames,
+			vr.timing_us[HALO_VR_TIMING_BODY] * 1e-3f / frames,
+			vr.timing_count[HALO_VR_TIMING_BODY] / frames);
 		memset(vr.timing_us, 0, sizeof(vr.timing_us));
 		memset(vr.timing_count, 0, sizeof(vr.timing_count));
 	}
@@ -1257,6 +1293,19 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 		return 0;
 	memcpy(curls, vr.finger_curl[hand], sizeof(vr.finger_curl[hand]));
 	return HALO_VR_FINGERS_CURLED | ((state->buttons & HALO_XR_BUTTON_TOUCH_KNOWN) ? HALO_VR_FINGERS_TOUCH : 0);
+}
+
+/* Voice chat's push to talk in VR (network_voice.c, through
+halo_push_to_talk_held): the free hand's grip, while it holds neither the
+weapon's foregrip nor the Warthog's wheel; the grip has no button of the
+game's of its own. */
+int halo_vr_push_to_talk_held(void)
+{
+	int hand = free_hand();
+
+	if (!vr.active || !vr.frame.focused || !(vr.frame.hands[hand].buttons & HALO_XR_BUTTON_SQUEEZE))
+		return 0;
+	return !vr.two_hand_gripping && !vr.wheel_held[hand];
 }
 
 int halo_vr_melee(void)
@@ -2574,6 +2623,29 @@ int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], f
 	return 1;
 }
 
+/* the whole body (vr.body "full", port/linux/game/vr_body.c): the eyes
+(world units), the head's forward and up, and the game's camera, where the
+eyes are standing straight (as recentred; lower crouched by the button) */
+int halo_vr_head_pose(short local_player_index, float eye[3], float forward[3], float up[3], float standing[3])
+{
+	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
+	static const float local_up[3] = { 0.0f, 1.0f, 0.0f };
+	float offset[3], direction[3];
+	int axis;
+
+	if (local_player_index != 0 || !halo_vr_stereo_frame() || !(vr.frame.head_flags & HALO_XR_POSE_VALID))
+		return 0;
+	tracked_offset(vr.frame.head.position, offset);
+	for (axis = 0; axis < 3; axis++)
+		eye[axis] = vr.game_camera[axis] + offset[axis] / METRES_PER_WORLD_UNIT;
+	quaternion_rotate(vr.frame.head.orientation, local_forward, direction);
+	local_to_game(direction, vr.body_yaw, forward);
+	quaternion_rotate(vr.frame.head.orientation, local_up, direction);
+	local_to_game(direction, vr.body_yaw, up);
+	memcpy(standing, vr.game_camera, sizeof(vr.game_camera));
+	return 1;
+}
+
 int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
@@ -3279,6 +3351,7 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+int halo_vr_push_to_talk_held(void) { return 0; }
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 {
 	(void)local_player_index; (void)hand; (void)curls;
@@ -3318,6 +3391,11 @@ int halo_vr_look_delta(float *yaw, float *pitch) { *yaw = *pitch = 0.0f; return 
 int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3])
 {
 	(void)local_player_index; (void)head; (void)neck; (void)forward;
+	return 0;
+}
+int halo_vr_head_pose(short local_player_index, float eye[3], float forward[3], float up[3], float standing[3])
+{
+	(void)local_player_index; (void)eye; (void)forward; (void)up; (void)standing;
 	return 0;
 }
 int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3])

@@ -127,6 +127,7 @@ symbols in this file:
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
 #include "vr_arms.h"
+#include "vr_body.h"
 #endif
 #include "view_fov.h" /* port: port/linux/game/view_fov.c */
 
@@ -584,6 +585,11 @@ void first_person_weapon_draw(
 	/* port: not drawn with display.viewmodel_visible off (view_fov.c) */
 	if (!viewmodel_is_visible())
 		return;
+#ifdef HALO_ANDROID
+	/* (debug.vr_body: the body seen from aside, flat, vr_body.c) */
+	if (vr_body_debug_hides_first_person())
+		return;
+#endif
 	if (render.local_player_index!=NONE)
 	{
 		struct first_person_weapon *first_person_weapon= first_person_weapon_get(render.local_player_index);
@@ -1705,6 +1711,9 @@ static void first_person_weapon_vr_arms(
 	static char const *const fore_names[2] = { "l forearm", "r forearm" };
 	static char const *const wrist_names[2] = { "l wriste", "r wriste" };
 	float head[3], neck[3], body_forward[3];
+	/* the whole body's shoulders (vr.body "full", vr_body.c) */
+	real_point3d body_shoulders[2];
+	boolean body_drawn = FALSE;
 	real_vector3d forward, left, weapon_left, weapon_right;
 	real_point3d eye;
 	real_matrix4x3 animated_upper[2];
@@ -1805,6 +1814,31 @@ static void first_person_weapon_vr_arms(
 			vr_mirror_point(on, normal, neck);
 			vr_mirror_vector(normal, body_forward);
 		}
+		/* (the drawn body's shoulders: the room's left one is the model's
+		right in its mirror image) */
+		if (body == HALO_VR_BODY_FULL && vr_body_shoulders(local_player_index, body_shoulders))
+		{
+			body_drawn = TRUE;
+			if (halo_vr_first_person_mirror(local_player_index, on, normal))
+			{
+				real_point3d room_left = body_shoulders[0];
+
+				body_shoulders[0] = body_shoulders[1];
+				body_shoulders[1] = room_left;
+				for (side = 0; side < 2; side++)
+				{
+					float point[3];
+
+					point[0] = body_shoulders[side].x;
+					point[1] = body_shoulders[side].y;
+					point[2] = body_shoulders[side].z;
+					vr_mirror_point(on, normal, point);
+					body_shoulders[side].x = point[0];
+					body_shoulders[side].y = point[1];
+					body_shoulders[side].z = point[2];
+				}
+			}
+		}
 	}
 	/* (the shoulders hang from the neck, which the head turns about) */
 	eye.x = neck[0];
@@ -1884,6 +1918,9 @@ static void first_person_weapon_vr_arms(
 		point_from_line3d(&shoulder, global_up3d, -0.20f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &forward, -0.04f / VR_METRES_PER_WORLD_UNIT, &shoulder);
 		point_from_line3d(&shoulder, &left, outward * 0.19f / VR_METRES_PER_WORLD_UNIT, &shoulder);
+		/* (the whole body drawn: from its shoulders) */
+		if (body_drawn)
+			shoulder = body_shoulders[side];
 		/* the elbow bends down, out and back */
 		pole.i = -global_up3d->i;
 		pole.j = -global_up3d->j;

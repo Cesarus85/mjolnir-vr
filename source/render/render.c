@@ -95,6 +95,9 @@ symbols in this file:
 
 /* port/linux/game/vr_graphics.c */
 void vr_graphics_update(void);
+/* port/linux/game/vr_body.c: debug.vr_body, flat */
+boolean vr_body_debug_camera(short local_player_index, struct render_camera *render_camera,
+	struct render_camera *rasterizer_camera);
 #endif
 #include "main/main.h"
 #include "structures/structures.h"
@@ -154,6 +157,8 @@ static void render_vr_overlay(
 static void render_vr_laser(
 	short local_player_index);
 static void render_vr_scope(
+	struct render_window *window);
+static boolean render_vr_body_debug_frame(
 	struct render_window *window);
 #endif
 
@@ -645,6 +650,22 @@ static void render_player_frame(
 }
 
 #ifdef HALO_ANDROID
+/* debug.vr_body (flat, vr_body.c): the player's own body as VR draws it,
+the camera moved to look at it; FALSE when the view is the player's own */
+static boolean render_vr_body_debug_frame(
+	struct render_window *window)
+{
+	struct render_window debug_window = *window;
+
+	if (!vr_body_debug_camera(window->local_player_index, &debug_window.render_camera,
+		&debug_window.rasterizer_camera))
+	{
+		return FALSE;
+	}
+	render_player_frame(&debug_window, NULL);
+	return TRUE;
+}
+
 static void render_vr_camera_set(
 	struct render_camera *camera,
 	const float position[3],
@@ -981,6 +1002,13 @@ void render_frame(
 			halo_vr_stereo_player(window->local_player_index, cinematic_in_progress()))
 		{
 			render_vr_player_frame(window);
+			continue;
+		}
+#endif
+#ifdef HALO_ANDROID
+		else if (window->local_player_index != NONE && screenshot_index == NULL &&
+			render_vr_body_debug_frame(window))
+		{
 			continue;
 		}
 #endif

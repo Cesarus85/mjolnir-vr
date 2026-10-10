@@ -131,6 +131,10 @@ int halo_vr_ready_laser(short local_player_index, float start[3], float directio
   weapon aims along both hands; */
 int halo_vr_body_frame(short local_player_index, float head[3], float neck[3], float forward[3]);
 int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3]);
+/* - for the whole body: the eyes (world units), the head's forward and up,
+  and the game's camera: where the eyes are standing straight (lower
+  crouched by the button), from which the physical crouch is measured; */
+int halo_vr_head_pose(short local_player_index, float eye[3], float forward[3], float up[3], float standing[3]);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
 /* - the fingers of a hand of the model (0 the left, the free hand; 1 the
   right, the weapon's), from the controller's trigger, grip and touch: the thumb, index, middle finger and the last two, each
@@ -152,16 +156,21 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4]);
 int halo_vr_free_arm_bends(void);
 double halo_vr_pose_time(void);
 /* - what of the body is drawn (vr.body): the arms and hands, the hands
-  alone, or neither (the weapon alone) */
+  alone, or neither (the weapon alone); or the whole body, its torso, hips
+  and legs the player's own biped's (port/linux/game/vr_body.c), the arms
+  and hands as with "arms" */
 enum
 {
 	HALO_VR_BODY_ARMS = 0,
 	HALO_VR_BODY_HANDS,
 	HALO_VR_BODY_OFF,
+	HALO_VR_BODY_FULL,
 };
 int halo_vr_body_mode(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
+/* the free hand's grip as voice chat's push to talk (vr.c) */
+int halo_vr_push_to_talk_held(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
@@ -359,13 +368,15 @@ enum
 void halo_vr_phase(int phase, int ticks);
 /* vr.log_performance: time taken by a part of the drawing, for the report
 (first_person_weapons.c): its start (0 when not logged), and its end. The
-first-person pose (its animation and the arms), the arms alone, and the
-pose taken as built already this frame (counted) */
+first-person pose (its animation and the arms), the arms alone, the
+pose taken as built already this frame (counted), and the whole body's pose
+(vr_body.c; flat with debug.vr_body too, reported alone) */
 enum
 {
 	HALO_VR_TIMING_FIRST_PERSON,
 	HALO_VR_TIMING_ARMS,
 	HALO_VR_TIMING_FIRST_PERSON_KEPT,
+	HALO_VR_TIMING_BODY,
 	HALO_VR_TIMING_COUNT
 };
 unsigned long long halo_vr_timing_start(void);

@@ -36,7 +36,7 @@ named where code is taken over.
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
 | 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Second part **done** (in `main` 2026-10-06; Quest 3 good): buttons remapped, finer turning and vignette choices; the flashlight by tapping the head taken out (did not work) |
-| 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | |
+| 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | **done** (in `main` 2026-10-10; Quest 3 good): `vr.body` "full" ("Full body" in the VR options; "arms" still the default), legs walking the way the player moves, feet on the ground. Also in: voice chat's push to talk on the free hand's grip. Steam Frame: its cost still to measure |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
 | 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **done** (in `main` 2026-10-06): the app's import (tried on the Quest 3: all 24 maps; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`; tried on the Frame: the old folder renamed, the shortcut added by Steam), a release signing key (CI and local builds the same). Sprint by arm swing still open |
@@ -264,6 +264,139 @@ After the first Quest tries (2026-10-06):
 
 Not in it (3a.7): the glove fitted to each weapon's grip (gun anchor) and
 the left hand animated through reloads.
+
+## Step 3b (done)
+
+On `feature/vr-voice-and-body`, not yet tried in the headset. The neck
+pivot, the planted feet with their steps and the leg's clamped reach follow
+HaloCE-Quest-VR (CC0), its full body, rebuilt in
+`port/linux/game/vr_body.c` on this port's skeleton (`vr_arms.c`).
+
+- `vr.body = "full"` (VR options, Body: "Full body") draws the player's own
+  biped under the first-person arms and weapon: its torso, hips and legs, in
+  the map's own model and colours. "arms" stays the default until the
+  headsets have tried it.
+- Drawn among the world's objects, so it sorts against the world by depth;
+  the first-person weapon and arms, drawn before the world into the
+  stencil, stay over it, as before. In both eyes (multiview on the Quest,
+  each eye on SteamVR), posed once a frame for every eye and the scope.
+- The torso: the torso's heading (the head's beyond 15 degrees, drawn
+  towards the hands, the stick's turns at once), upright from the hips to a
+  neck 14 cm behind and 20 cm below the eyes as the head turns about it
+  (looking down, the eyes go forward and the chest stays behind them). The
+  aiming's twist and bend of the third-person torso are taken out.
+- The hips: down with the physical crouch (and back a little, the torso
+  leaning forward), a third of the way with a lean (the spine tilts the
+  rest). The body's model has its neck higher than the eyes' pivot: it is
+  moved down to it, so the shoulders stay below the eyes, crouched by the
+  button too.
+- The legs: the game's own animation (walking, running, jumping, crouched
+  by the button). Moving, the hips and legs stay as the game faces them, so
+  its own choice of animation (forward, back, aside, as for any player,
+  by the way it moves against the way it faces) runs along the way the
+  player moves, and the spine turns the torso; standing, the hips turn to
+  the torso's heading (eased, 0.12 s). Walking off, the feet ease from
+  where they stood into the walk (0.2 s); stopping, they stay where the
+  walk left them and step into place. Standing still, the feet stay
+  planted and step, one at a time (0.22 s, 6 cm lifted), when the body has
+  turned 35 degrees from them or their place moved 18 cm; the knees bend by
+  IK to them as the hips go down. Moved 80 cm at once (a teleporter), they
+  are put down there.
+- The ground: put down, each foot rests on the ground under it (a slope, a
+  stair), its height above the ground as the animation has it, tilted with
+  the slope (no steeper than 45 degrees), up to 45 cm from the ground under
+  the body; a foot's ground below it lowers the hips as far. Rays straight
+  down, read only, cast only as the feet are put down (three: under the
+  body and each foot) and as one steps (one), none while walking, where
+  the animation's feet are kept; eased (0.08 s) in and out. Nothing found
+  (a ledge): level.
+- Hidden: the head and neck (shrunk onto the neck's root: no head or
+  collar seen from inside), the third-person arms (shrunk onto their
+  shoulders), the third-person weapon and all the biped carries.
+- The first-person arms hang from the body's shoulders: beside its neck,
+  as wide as its shoulder joints within 14 to 24 cm (the aiming's shrug
+  left out). Left-handed, the shoulders go into the mirror with the arms
+  (the room's left one is the model's right): the body itself is the
+  room's, not mirrored.
+- Seats: a passenger in an open vehicle (the Warthog's back) sits as the
+  seat's animation has it, the head and arms shrunk alike; at a wheel or a
+  gun the body is drawn whole as before (its hands on them, no
+  first-person weapon); in a closed seat (Ghost, Banshee, tank) none.
+- Not drawn when dead, in cutscenes, in third person, in a mirror's view;
+  camouflage as the game has it.
+- Only drawn, on this machine: the game's own pose, hit boxes, markers and
+  network messages are unchanged.
+- Cost: `vr.log_performance` adds `body ... ms a frame in ... poses` to the
+  `first person:` line. In the emulator 0.006 to 0.025 ms a pose standing
+  (as busy as the emulator was), up to 0.1 ms averaged while turning with
+  the feet's rays (at most a few a second); the drawing is one more biped
+  model (as one more player close by).
+
+| Setting | Values |
+| --- | --- |
+| `vr.body` | `"full"` (the whole body), `"arms"` (default), `"hands"`, `"off"` |
+| `debug.vr_body` | `"off"` (default); off the headset (the emulator) the body posed from the flat camera: `"eye"`, `"down"` (looking down 60 degrees, 90 degrees wide), `"front"`, `"side"`, `"back"` (the camera 2.6 m away); after a colon the head's motion: `"cycle"` (turning, crouching, leaning, 5 s each), `"still"`, `"turn"`, `"crouch"`, `"lean"`, `"raw"` (the game's pose, only shrunk). Logs its pose once a second |
+
+Checked in the emulator (`debug.vr_body`): the cyborg's 19 nodes (bip01
+pelvis, spine, spine1, neck, head, clavicles, arms, thighs, calves, feet);
+the body standing, crouched physically and by the button, leaning,
+turning with the feet stepping; looking down, the shoulders below the eyes
+and no head or collar; two-minute bot games on Blood Gulch with it on and
+off, deaths and respawns, nothing in the log. Then the legs by the way of
+moving (strafing, backwards, diagonally with the touch stick: the game's
+sideways and backwards walk) and the feet on the ground: on the ramp of a
+Blood Gulch base, the upper foot 15 cm up, the lower 10 cm down, both on
+it; stairs not reached in the emulator (Prisoner's spawn was level). Three
+rays when the feet are put down, one a step, none walking. Screenshots in
+`build/body-shots/` (local).
+
+Push to talk is built on the same branch: voice chat's talking on the free
+hand's grip, while it holds neither the weapon's foregrip nor the Warthog's
+wheel (`audio.voice_chat`, VR options PLAY page "Voice chat": push to talk
+(grip), open mic, off).
+
+To try in the headset (Quest 3 and Steam Frame), with `vr.body = "full"`
+(VR options, Body: Full body) and `vr.log_performance = true`:
+1. Standing, looking down: torso, hips, legs and feet, the shoulders below
+   the eyes, no head, collar or helmet in view, the chest not in the way;
+   the arms from the shoulders, lined up with the body, the weapon as
+   before.
+2. Turning the head alone: the body stays within about 15 degrees, then
+   follows; turning further, the feet step after it, one at a time, and
+   settle. Snap and smooth turns: the body turns, the feet step.
+3. Physical crouch: the knees bend, the feet stay; kneeling deep, nothing
+   of the body in the eyes. Leaning forward and aside: the torso tilts, the
+   feet stay. Crouch button: the game's crouch, shoulders below the eyes.
+4. Walking, running, jumping by the stick: the legs walk with the game's
+   animation, no sliding when starting or stopping. Strafing left and
+   right, walking backwards and diagonally, also with the head turned away
+   from the way of walking: the legs step the way the body moves (sideways,
+   backwards), the torso facing as the head and hands have it; stopping,
+   the hips turn back under the torso and the feet step into place.
+4a. Ground: standing still on a slope (Blood Gulch's hills and the bases'
+   ramps), across it and along it: both feet on the ground, tilted with
+   it, the lower knee straighter, the hips down with the lower foot; on
+   stairs (Prisoner, Chill Out, Damnation), one foot a step higher than
+   the other, turning in place there: each step lands on its stair. At a
+   ledge, one foot over it: level, nothing odd.
+5. Left-handed (`vr.handedness = left`, mirrored or not): the arms from
+   the body's shoulders, the weapon in the left hand, the body as
+   right-handed.
+6. Vehicles: Warthog driver and gunner as before (body with its hands on
+   the wheel or gun); Warthog passenger: seated legs and torso, the
+   first-person arms from its shoulders; Ghost, Banshee, Scorpion: no body.
+7. Dying and respawning, a teleporter, a cutscene (campaign), the menus
+   and pause menu, the scope, camouflage, a game with 15 bots: nothing
+   broken, no body where it should not be.
+8. Body "Arms and hands", "Hands only", "Weapon only": as before.
+9. Performance: `first person: ... body ... ms` in `adb logcat -s halo`;
+   the Quest holds 90 Hz in a bot game; the Steam Frame's working time
+   against "arms" (about 12 ms of 13.9 before).
+10. Push to talk (Voice chat: push to talk), in a network game with
+    another player: holding the free grip away from the weapon talks;
+    nothing while the free hand holds the foregrip or the Warthog's wheel;
+    "Open mic" talks without the grip; "Off" sends nothing (others still
+    heard).
 
 ## Open points outside the order
 

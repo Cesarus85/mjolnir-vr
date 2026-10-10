@@ -7456,6 +7456,7 @@ enum
 	_vr_option_motion_tracker,
 	_vr_option_body,
 	_vr_option_fingers,
+	_vr_option_voice_chat,
 	/* (the game's actions on the buttons, HALO_VR_ACTION_*'s order) */
 	_vr_option_button_first,
 	_vr_option_button_last = _vr_option_button_first + HALO_VR_ACTION_COUNT - 1,
@@ -7506,7 +7507,7 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 {
 	{ _vr_option_handedness, _vr_option_mirror_controls, _vr_option_laser, _vr_option_crosshair,
 		_vr_option_motion_tracker, _vr_option_body, _vr_option_fingers, _vr_option_wheel,
-		NONE, NONE, NONE, NONE },
+		_vr_option_voice_chat, NONE, NONE, NONE },
 	{ _vr_option_turning, _vr_option_snap_angle, _vr_option_smooth_speed, _vr_option_vignette,
 		_vr_option_foot_vignette, _vr_option_foot_vignette_strength,
 		NONE, NONE, NONE, NONE, NONE, NONE },
@@ -7715,8 +7716,26 @@ static void ui_vr_options_vignette_text(
 		snprintf(text, size, "%.0f%%", strength * 100.0f);
 }
 /* vr.body's values, and as the panel shows them */
-static char const *const vr_bodies[] = { "arms", "hands", "off" };
-static char const *const vr_body_names[] = { "Arms and hands", "Hands only", "Weapon only" };
+static char const *const vr_bodies[] = { "full", "arms", "hands", "off" };
+static char const *const vr_body_names[] = { "Full body", "Arms and hands", "Hands only", "Weapon only" };
+/* audio.voice_chat's (network_voice.c); push to talk is the free hand's grip */
+static char const *const vr_voice_chats[] = { "push_to_talk", "open_mic", "off" };
+static char const *const vr_voice_chat_names[] = { "Push to talk (grip)", "Open mic", "Off" };
+
+static short ui_vr_options_voice_chat(
+	void)
+{
+	char const *voice = config_string("audio.voice_chat");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(vr_voice_chats); index++)
+	{
+		if (voice && strcmp(voice, vr_voice_chats[index]) == 0)
+			return index;
+	}
+
+	return 0;
+}
 /* vr.graphics's (port/linux/game/vr_graphics.c), and vr.resolution_scale's
 (read as the app starts) */
 static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max" };
@@ -7784,7 +7803,7 @@ static short ui_vr_options_body(
 		if (body && strcmp(body, vr_bodies[index]) == 0)
 			return index;
 	}
-	return 0;
+	return 1; /* (vr.c: anything else is "arms") */
 }
 
 static boolean ui_vr_options_screen(
@@ -7869,6 +7888,10 @@ static void ui_vr_options_change(
 			(short)NUMBEROF(vr_bodies)]);
 		break;
 	case _vr_option_fingers: config_write_boolean("vr.fingers", !config_boolean("vr.fingers")); break;
+	case _vr_option_voice_chat:
+		config_write("audio.voice_chat", vr_voice_chats[(ui_vr_options_voice_chat() + change +
+			(short)NUMBEROF(vr_voice_chats)) % (short)NUMBEROF(vr_voice_chats)]);
+		break;
 	case _vr_option_graphics:
 		config_write("vr.graphics", vr_graphics_presets[(ui_vr_options_graphics() + change +
 			(short)NUMBEROF(vr_graphics_presets)) % (short)NUMBEROF(vr_graphics_presets)]);
@@ -8324,7 +8347,8 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold, throw");
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), TRUE);
-			ui_vr_controls_add(&columns[free_column], "Grip", "Weapon in both hands");
+			ui_vr_controls_add(&columns[free_column], "Grip", ui_vr_options_voice_chat() == 0 ?
+				"Both hands; else talk" : "Weapon in both hands");
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), TRUE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), TRUE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), TRUE);
@@ -8377,7 +8401,8 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), FALSE);
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold it,");
 			ui_vr_controls_add(&columns[free_column], "", "let go as you throw");
-			ui_vr_controls_add(&columns[free_column], "Grip", "Weapon in both hands");
+			ui_vr_controls_add(&columns[free_column], "Grip", ui_vr_options_voice_chat() == 0 ?
+				"Both hands; else talk" : "Weapon in both hands");
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), FALSE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), FALSE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), FALSE);
@@ -8557,7 +8582,11 @@ static void ui_vr_options_render(
 		case _vr_option_fingers:
 			label = "Fingers";
 			snprintf(value, sizeof(value), "%s", config_boolean("vr.fingers") ? "Tracked" : "Off");
-			unused = ui_vr_options_body() == 2;
+			unused = strcmp(vr_bodies[ui_vr_options_body()], "off") == 0;
+			break;
+		case _vr_option_voice_chat:
+			label = "Voice chat";
+			snprintf(value, sizeof(value), "%s", vr_voice_chat_names[ui_vr_options_voice_chat()]);
 			break;
 		case _vr_option_graphics:
 			label = "Graphics";

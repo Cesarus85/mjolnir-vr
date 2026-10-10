@@ -603,6 +603,11 @@ int halo_push_to_talk_held(void)
 	struct platform_input_state input;
 	int slot;
 
+#ifdef HALO_ANDROID
+	/* (port: in VR the free hand's grip too, halo_vr_push_to_talk_held) */
+	if (halo_vr_active() && halo_vr_push_to_talk_held())
+		return 1;
+#endif
 	/* (the window losing the focus lets every key go: sdl_platform.c) */
 	bindings_read();
 	platform_input_read(&input, FALSE);
