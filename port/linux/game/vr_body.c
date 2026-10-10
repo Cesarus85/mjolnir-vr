@@ -17,9 +17,13 @@ as it is, and nothing here changes the game.
   crouch, a little back; leaning, they follow part of the way and the
   spine tilts the rest.
 - The hips and legs keep the game's animation (walking, running, crouched
-  by the button), turned to the torso's heading. Standing still, the feet
-  stay planted and step, one at a time, after the body when it turns far
-  enough; the knees bend (two-bone IK, vr_arms.c) as the hips go down.
+  by the button). Moving, they face as the game faces the body, whose
+  animation then runs the way it moves (forward, back, aside: the game's
+  own choice, as for any player); standing, they turn to the torso's
+  heading. Standing still, the feet stay planted and step, one at a time,
+  after the body when it turns far enough, each resting on the ground under
+  it (a ray down as it is put down, read only), the hips lowered with a
+  foot below; the knees bend (two-bone IK, vr_arms.c) as the hips go down.
 - The head (with the neck's top) and the third-person arms are shrunk to
   nothing: the first-person arms hang from the body's shoulders instead
   (vr_body_shoulders), and the weapon and all the biped carries are left
@@ -51,6 +55,7 @@ to look at it (vr_body_debug_camera).
 #include "models/model_animation_definitions.h"
 #include "units/units.h"
 #include "units/vehicles.h"
+#include "physics/collisions.h"
 #include "game/players.h"
 #include "camera/director.h"
 #include "cutscene/cinematics.h"
@@ -94,6 +99,18 @@ in the animation is this far away (metres); a step's time and lift */
 #define VR_BODY_STEP_GAP 0.18f
 #define VR_BODY_STEP_SECONDS 0.22f
 #define VR_BODY_STEP_LIFT 0.06f
+/* the ground looked for this far above and below a foot (metres), and how
+far a foot's ground may be from the body's; a slope steeper than this
+(the normal's up) is no floor */
+#define VR_BODY_GROUND_ABOVE 0.35f
+#define VR_BODY_GROUND_BELOW 0.65f
+#define VR_BODY_GROUND_MOST 0.45f
+#define VR_BODY_GROUND_FLOOR 0.7f
+/* seconds: the ground's and the hips' turn eased (time constants), the
+feet eased into a walk */
+#define VR_BODY_GROUND_EASE 0.08f
+#define VR_BODY_HIPS_EASE 0.12f
+#define VR_BODY_WALK_OFF 0.2f
 /* further than this (metres), the feet are put down where they are at once */
 #define VR_BODY_STEP_FAR 0.8f
 
@@ -147,9 +164,15 @@ static struct
 	short node_count;
 	real_matrix4x3 matrices[MAXIMUM_NODES_PER_ANIMATION];
 	real_point3d shoulders[2];
+	/* rays cast for the feet's ground (debug.vr_body's log) */
+	long ground_tests;
 } vr_body = { -1, NONE, NONE };
 
-/* the feet as planted, and the step under way (the foot, NONE) */
+/* the feet as planted (where the animation, turned, had them), and the step
+under way (the foot, NONE); the ground under them (found as they are put
+down: how far each is above or below the ground under the body, and its
+slope), and that as drawn, eased; the feet as they were when walking off,
+eased into the walk; how far the hips are turned to the torso's heading */
 static struct
 {
 	boolean valid;
@@ -160,7 +183,17 @@ static struct
 	real yaw[2];
 	real_matrix4x3 planted[2];
 	real_matrix4x3 step_from;
-	real_matrix4x3 step_to;
+	boolean ground_tried;
+	boolean grounded;
+	real body_ground;
+	real ground[2];
+	real_vector3d slope[2];
+	real ground_drawn[2];
+	real_vector3d slope_drawn[2];
+	double walk_start;
+	real_matrix4x3 walk_from[2];
+	real hips_turned;
+	boolean moving;
 } vr_body_stance;
 
 static struct
@@ -240,6 +273,18 @@ static void vr_body_rotation(
 				rotation[row][column] += to[axis].n[row] * from[axis].n[column];
 		}
 	}
+}
+
+/* a vector turned (column vectors) */
+static void vr_body_rotate(
+	real rotation[3][3],
+	real_vector3d *v)
+{
+	real_vector3d in = *v;
+
+	v->i = rotation[0][0] * in.i + rotation[0][1] * in.j + rotation[0][2] * in.k;
+	v->j = rotation[1][0] * in.i + rotation[1][1] * in.j + rotation[1][2] * in.k;
+	v->k = rotation[2][0] * in.i + rotation[2][1] * in.j + rotation[2][2] * in.k;
 }
 
 /* every node turned about the vertical through pivot (cosine, sine) and
@@ -551,23 +596,76 @@ static boolean vr_body_skeleton(
 
 /* ---------- the pose */
 
+/* the ground under a point (world units): its height and its slope's
+normal; FALSE where none is near (a ledge, the air). A ray down, read only:
+the game's world is not touched. */
+static boolean vr_body_ground_at(
+	long unit_index,
+	real_point3d const *point,
+	real *ground,
+	real_vector3d *normal)
+{
+	struct collision_result collision;
+	real_point3d start = *point;
+	real_vector3d down;
+
+	start.z += VR_BODY_GROUND_ABOVE * VR_BODY_UNITS_PER_METRE;
+	down.i = down.j = 0.0f;
+	down.k = -(VR_BODY_GROUND_ABOVE + VR_BODY_GROUND_BELOW) * VR_BODY_UNITS_PER_METRE;
+	vr_body.ground_tests++;
+	if (!collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) |
+		FLAG(_collision_test_ignore_invisible_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+		FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_vehicles_bit) |
+		FLAG(_collision_test_objects_scenery_bit) | FLAG(_collision_test_objects_machines_bit),
+		&start, &down, unit_index, &collision) ||
+		collision.plane.n.k < VR_BODY_GROUND_FLOOR)
+	{
+		return FALSE;
+	}
+	*ground = collision.point.z;
+	*normal = collision.plane.n;
+	return TRUE;
+}
+
+/* a foot's ground: how far it is above (below) the ground under the body,
+and its slope; level where none is found */
+static void vr_body_ground_foot(
+	long unit_index,
+	real_point3d const *foot,
+	real *ground,
+	real_vector3d *slope)
+{
+	real height;
+
+	*ground = 0.0f;
+	slope->i = slope->j = 0.0f;
+	slope->k = 1.0f;
+	if (vr_body_ground_at(unit_index, foot, &height, slope))
+	{
+		*ground = PIN(height - vr_body_stance.body_ground, -VR_BODY_GROUND_MOST * VR_BODY_UNITS_PER_METRE,
+			VR_BODY_GROUND_MOST * VR_BODY_UNITS_PER_METRE);
+	}
+}
+
 /* standing still, the feet stay where they were (planted); one at a time
 they step to where the animation, turned with the body, has them, when the
 body has turned far from them or that place is far; walking, running or in
-the air, they are the animation's (after HaloCE-Quest-VR's
-vr_body_plant_feet). The feet's places (world units) for the legs' IK. */
+the air, they are the animation's, eased into it from where they stood
+(after HaloCE-Quest-VR's vr_body_plant_feet). Put down, each rests on the
+ground under it, the animation's own height above the ground kept, tilted
+with the slope: the ground is looked for as the feet are put down and as
+one steps (a ray each), not each frame. The feet (world units, turned) for
+the legs' IK. */
 static void vr_body_plant_feet(
 	long unit_index,
-	struct object_datum const *object,
+	boolean moving,
 	real torso_yaw,
 	double now,
-	real_point3d feet[2])
+	real_matrix4x3 feet[2])
 {
 	real_matrix4x3 *matrices = vr_body.matrices;
-	real_vector3d const *velocity = &object->object.translational_velocity;
-	real speed = (real)sqrt(velocity->i * velocity->i + velocity->j * velocity->j);
-	boolean moving = speed > 0.006f * VR_BODY_UNITS_PER_METRE ||
-		fabs(velocity->k) > 0.015f * VR_BODY_UNITS_PER_METRE;
+	double seconds = now - vr_body_stance.time;
+	boolean walking_off = moving && vr_body_stance.valid && !vr_body_stance.moving;
 	short side;
 
 	if (!vr_body.legs[0] || !vr_body.legs[1])
@@ -585,22 +683,72 @@ static void vr_body_plant_feet(
 				VR_BODY_STEP_FAR * VR_BODY_UNITS_PER_METRE)
 			{
 				vr_body_stance.valid = FALSE;
+				walking_off = FALSE;
 			}
 		}
 	}
-	if (!vr_body_stance.valid || vr_body_stance.unit_index != unit_index || now < vr_body_stance.time ||
-		now - vr_body_stance.time > 0.25 || moving)
+	if (walking_off)
 	{
+		/* (walking off: from where the feet stood, as drawn) */
+		vr_body_stance.walk_start = now;
+		for (side = 0; side < 2; side++)
+		{
+			vr_body_stance.walk_from[side] = vr_body_stance.planted[side];
+			vr_body_stance.walk_from[side].position.z += vr_body_stance.ground_drawn[side];
+		}
+	}
+	if (!vr_body_stance.valid || vr_body_stance.unit_index != unit_index || seconds < 0.0 || seconds > 0.25 ||
+		moving)
+	{
+		if (!vr_body_stance.valid || vr_body_stance.unit_index != unit_index || seconds < 0.0 || seconds > 0.25)
+		{
+			vr_body_stance.walk_start = -1.0;
+			for (side = 0; side < 2; side++)
+			{
+				vr_body_stance.ground_drawn[side] = 0.0f;
+				vr_body_stance.slope_drawn[side].i = vr_body_stance.slope_drawn[side].j = 0.0f;
+				vr_body_stance.slope_drawn[side].k = 1.0f;
+			}
+		}
 		vr_body_stance.valid = TRUE;
 		vr_body_stance.unit_index = unit_index;
 		vr_body_stance.step = NONE;
+		vr_body_stance.grounded = vr_body_stance.ground_tried = FALSE;
 		for (side = 0; side < 2; side++)
 		{
 			vr_body_stance.planted[side] = matrices[vr_body.foot[side]];
 			vr_body_stance.yaw[side] = torso_yaw;
+			vr_body_stance.ground[side] = 0.0f;
+			vr_body_stance.slope[side].i = vr_body_stance.slope[side].j = 0.0f;
+			vr_body_stance.slope[side].k = 1.0f;
 		}
 	}
 	vr_body_stance.time = now;
+	vr_body_stance.moving = moving;
+	if (!moving && !vr_body_stance.ground_tried)
+	{
+		/* (put down: the ground under the body, at its feet's height, then
+		under each foot; none found, level, and no more rays till the next
+		time the feet are put down) */
+		real_point3d under = matrices[0].position;
+		real_vector3d normal;
+
+		vr_body_stance.grounded = TRUE;
+		under.z = MIN(vr_body_stance.planted[0].position.z, vr_body_stance.planted[1].position.z);
+		if (vr_body_ground_at(unit_index, &under, &vr_body_stance.body_ground, &normal))
+		{
+			for (side = 0; side < 2; side++)
+			{
+				vr_body_ground_foot(unit_index, &vr_body_stance.planted[side].position, &vr_body_stance.ground[side],
+					&vr_body_stance.slope[side]);
+			}
+		}
+		else
+		{
+			vr_body_stance.grounded = FALSE;
+		}
+		vr_body_stance.ground_tried = TRUE;
+	}
 	if (!moving)
 	{
 		if (vr_body_stance.step == NONE)
@@ -628,8 +776,18 @@ static void vr_body_plant_feet(
 				vr_body_stance.step_start = now;
 				vr_body_stance.step_from = vr_body_stance.planted[side];
 				vr_body_stance.yaw[side] = torso_yaw;
+				/* (the ground where it goes; the drawn ground follows it through
+				the step) */
+				if (vr_body_stance.grounded)
+				{
+					vr_body_ground_foot(unit_index, &matrices[vr_body.foot[side]].position, &vr_body_stance.ground[side],
+						&vr_body_stance.slope[side]);
+				}
 				if (vr_body_debug.view > _vr_body_debug_off)
-					platform_log("VR body: the %s foot steps (%.1f times as far as it may)", side ? "right" : "left", most);
+				{
+					platform_log("VR body: the %s foot steps (%.1f times as far as it may), to ground %.2f m", side ? "right" : "left",
+						most, vr_body_stance.ground[side] / VR_BODY_UNITS_PER_METRE);
+				}
 			}
 		}
 		if (vr_body_stance.step != NONE)
@@ -664,11 +822,56 @@ static void vr_body_plant_feet(
 			}
 		}
 	}
+
 	for (side = 0; side < 2; side++)
 	{
+		real ease = seconds > 0.0 ? 1.0f - (real)exp(-MIN(seconds, 0.1) / VR_BODY_GROUND_EASE) : 1.0f;
+		real_vector3d *slope = &vr_body_stance.slope_drawn[side];
+		real_vector3d up;
+		real rotation[3][3];
+
+		/* (the ground as drawn eases to the ground found; walking, to none) */
+		vr_body_stance.ground_drawn[side] += ((moving ? 0.0f : vr_body_stance.ground[side]) -
+			vr_body_stance.ground_drawn[side]) * ease;
+		slope->i += ((moving ? 0.0f : vr_body_stance.slope[side].i) - slope->i) * ease;
+		slope->j += ((moving ? 0.0f : vr_body_stance.slope[side].j) - slope->j) * ease;
+		slope->k += ((moving ? 1.0f : vr_body_stance.slope[side].k) - slope->k) * ease;
+		if (!vr_body_unit(slope))
+		{
+			slope->i = slope->j = 0.0f;
+			slope->k = 1.0f;
+		}
+		feet[side] = moving ? matrices[vr_body.foot[side]] : vr_body_stance.planted[side];
+		if (moving && vr_body_stance.walk_start >= 0.0 && now - vr_body_stance.walk_start < VR_BODY_WALK_OFF)
+		{
+			/* (walking off: from where the foot stood into the walk) */
+			real t = (real)((now - vr_body_stance.walk_start) / VR_BODY_WALK_OFF);
+			real eased = t * t * (3.0f - 2.0f * t);
+			real_matrix4x3 const *from = &vr_body_stance.walk_from[side];
+			short axis;
+
+			for (axis = 0; axis < 3; axis++)
+			{
+				feet[side].position.n[axis] = from->position.n[axis] +
+					(feet[side].position.n[axis] - from->position.n[axis]) * eased;
+			}
+		}
+		else
+		{
+			feet[side].position.z += vr_body_stance.ground_drawn[side];
+		}
 		if (moving)
 			vr_body_stance.planted[side] = matrices[vr_body.foot[side]];
-		feet[side] = vr_body_stance.planted[side].position;
+		/* (tilted with the slope) */
+		up.i = up.j = 0.0f;
+		up.k = 1.0f;
+		if (slope->k < 0.9999f)
+		{
+			vr_rotation_between(&up, slope, rotation);
+			vr_body_rotate(rotation, &feet[side].forward);
+			vr_body_rotate(rotation, &feet[side].left);
+			vr_body_rotate(rotation, &feet[side].up);
+		}
 	}
 }
 
@@ -677,7 +880,7 @@ lengthened (an unreachable foot stops short), the knee forward; the foot
 turned as planted (after HaloCE-Quest-VR's vr_body_leg) */
 static void vr_body_leg(
 	short side,
-	real_point3d const *foot,
+	real_matrix4x3 const *foot,
 	real_vector3d const *forward)
 {
 	real_matrix4x3 *matrices = vr_body.matrices;
@@ -697,7 +900,7 @@ static void vr_body_leg(
 	calf_length = magnitude3d(&calf);
 	shortest = (real)fabs(thigh_length - calf_length) + 0.002f;
 	longest = (thigh_length + calf_length) * 0.998f;
-	vr_body_minus(foot, &matrices[bones[_vr_arm_upper]].position, &reach);
+	vr_body_minus(&foot->position, &matrices[bones[_vr_arm_upper]].position, &reach);
 	distance = magnitude3d(&reach);
 	if (!(distance > 1e-4f && distance < 1e4f) || longest <= shortest)
 		return;
@@ -713,9 +916,9 @@ static void vr_body_leg(
 	from[0] = matrices[bones[_vr_arm_hand]].forward;
 	from[1] = matrices[bones[_vr_arm_hand]].left;
 	from[2] = matrices[bones[_vr_arm_hand]].up;
-	to[0] = vr_body_stance.planted[side].forward;
-	to[1] = vr_body_stance.planted[side].left;
-	to[2] = vr_body_stance.planted[side].up;
+	to[0] = foot->forward;
+	to[1] = foot->left;
+	to[2] = foot->up;
 	vr_body_rotation(from, to, rotation);
 	vr_turn_subtree(&vr_body.skeleton, matrices, bones[_vr_arm_hand], rotation);
 }
@@ -746,13 +949,22 @@ static boolean vr_body_pose(
 			&object->object.node_matrices);
 		real_vector3d facing = object->object.forward;
 		real_vector3d model_forward, move;
-		real along[3], c, s, drop, horizontal;
+		real_vector3d const *velocity = &object->object.translational_velocity;
+		real along[3], c, s, drop, horizontal, turn, lowest;
 		real_point3d pivot = matrices[0].position;
-		real_point3d standing_neck, feet[2];
+		real_point3d standing_neck;
+		real_matrix4x3 feet[2];
 		real torso_yaw = (real)atan2(input->torso_forward.j, input->torso_forward.i);
+		boolean moving = (real)sqrt(velocity->i * velocity->i + velocity->j * velocity->j) >
+			0.006f * VR_BODY_UNITS_PER_METRE || fabs(velocity->k) > 0.015f * VR_BODY_UNITS_PER_METRE;
 
 		/* the body turned from the way it faces (as drawn: the facing in the
-		root's own axes at the tick, those axes now) to the torso's heading */
+		root's own axes at the tick, those axes now) to the torso's heading,
+		standing; walking, running or in the air the hips and legs stay as the
+		game faces them, whose animation (forward, back, aside, as the game
+		picks it for any player by the way it moves against the way it faces)
+		then runs along the way it moves, and the spine turns the torso (eased
+		between the two) */
 		along[0] = dot_product3d(&facing, &tick[0].forward);
 		along[1] = dot_product3d(&facing, &tick[0].left);
 		along[2] = dot_product3d(&facing, &tick[0].up);
@@ -763,8 +975,19 @@ static boolean vr_body_pose(
 			return FALSE;
 		c = dot_product3d(&model_forward, &input->torso_forward);
 		s = model_forward.i * input->torso_forward.j - model_forward.j * input->torso_forward.i;
+		{
+			double seconds = input->time - vr_body_stance.time;
+			real wanted = moving ? 0.0f : 1.0f;
+
+			if (!vr_body_stance.valid || vr_body_stance.unit_index != unit_index || seconds < 0.0 || seconds > 0.25)
+				vr_body_stance.hips_turned = wanted;
+			else
+				vr_body_stance.hips_turned += (wanted - vr_body_stance.hips_turned) *
+					(1.0f - (real)exp(-seconds / VR_BODY_HIPS_EASE));
+		}
+		turn = (real)atan2(s, c) * vr_body_stance.hips_turned;
 		move.i = move.j = move.k = 0.0f;
-		vr_body_turn_and_move(matrices, vr_body.node_count, &pivot, c, s, &move);
+		vr_body_turn_and_move(matrices, vr_body.node_count, &pivot, (real)cos(turn), (real)sin(turn), &move);
 		/* and moved for its neck to be where the neck is standing straight
 		(behind the game's camera, whose eyes the body's model has a little
 		further forward) */
@@ -775,7 +998,10 @@ static boolean vr_body_pose(
 		vr_body_turn_and_move(matrices, vr_body.node_count, &pivot, 1.0f, 0.0f, &move);
 
 		/* the feet, where they stand */
-		vr_body_plant_feet(unit_index, object, torso_yaw, input->time, feet);
+		vr_body_plant_feet(unit_index, moving, torso_yaw, input->time, feet);
+		/* (one foot's ground far below: the hips go down with it) */
+		lowest = MIN(vr_body_stance.ground_drawn[0], vr_body_stance.ground_drawn[1]);
+		lowest = PIN(lowest, -VR_BODY_GROUND_MOST * VR_BODY_UNITS_PER_METRE, 0.0f);
 
 		/* the hips down for the neck to be at its height (the body's model
 		has its neck higher, crouched by the button higher still, up by the
@@ -794,7 +1020,7 @@ static boolean vr_body_pose(
 		move.i = move.i * VR_BODY_HIPS_FOLLOW + input->torso_forward.i * drop * VR_BODY_HIPS_BACK;
 		move.j = move.j * VR_BODY_HIPS_FOLLOW + input->torso_forward.j * drop * VR_BODY_HIPS_BACK;
 		move.k = PIN(neck_target.z - matrices[vr_body.neck].position.z, -VR_BODY_CROUCH_MOST * VR_BODY_UNITS_PER_METRE,
-			VR_BODY_RISE_MOST * VR_BODY_UNITS_PER_METRE);
+			VR_BODY_RISE_MOST * VR_BODY_UNITS_PER_METRE) + lowest;
 		if (vr_body_debug.view > _vr_body_debug_off)
 		{
 			/* (debug.vr_body: once a second, how the pose was moved) */
@@ -806,15 +1032,19 @@ static boolean vr_body_pose(
 				real m = 1.0f / VR_BODY_UNITS_PER_METRE;
 
 				logged = now_ms;
-				platform_log("VR body: turned %.0f deg; moved %.2f %.2f %.2f m; neck %.2f m below the eyes, "
+				platform_log("VR body: turned %.0f deg (hips %.0f%%, %s, %ld ground rays); moved %.2f %.2f %.2f m; "
+					"feet's ground %.2f %.2f m; neck %.2f m below the eyes, "
 					"%.2f m behind; target %.2f below, pelvis %.2f m below; feet %.2f %.2f / %.2f %.2f m from the pelvis",
-					atan2(s, c) * 180.0f / VR_BODY_PI, move.i * m, move.j * m, move.k * m,
+					atan2(s, c) * 180.0f / VR_BODY_PI, vr_body_stance.hips_turned * 100.0f, moving ? "moving" : "still",
+					vr_body.ground_tests, move.i * m, move.j * m, move.k * m, vr_body_stance.ground_drawn[0] * m,
+					vr_body_stance.ground_drawn[1] * m,
 					(input->standing.z - matrices[vr_body.neck].position.z) * m,
 					-((matrices[vr_body.neck].position.x - input->standing.x) * input->torso_forward.i +
 					(matrices[vr_body.neck].position.y - input->standing.y) * input->torso_forward.j) * m,
 					(input->eye.z - neck_target.z) * m, (input->standing.z - matrices[0].position.z) * m,
-					(feet[0].x - matrices[0].position.x) * m, (feet[0].y - matrices[0].position.y) * m,
-					(feet[1].x - matrices[0].position.x) * m, (feet[1].y - matrices[0].position.y) * m);
+					(feet[0].position.x - matrices[0].position.x) * m, (feet[0].position.y - matrices[0].position.y) * m,
+					(feet[1].position.x - matrices[0].position.x) * m, (feet[1].position.y - matrices[0].position.y) * m);
+				vr_body.ground_tests = 0;
 			}
 		}
 		vr_body_turn_and_move(matrices, vr_body.node_count, &pivot, 1.0f, 0.0f, &move);

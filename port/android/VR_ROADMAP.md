@@ -291,11 +291,25 @@ HaloCE-Quest-VR (CC0), its full body, rebuilt in
   moved down to it, so the shoulders stay below the eyes, crouched by the
   button too.
 - The legs: the game's own animation (walking, running, jumping, crouched
-  by the button), turned to the torso's heading. Standing still, the feet
-  stay planted and step, one at a time (0.22 s, 6 cm lifted), when the body
-  has turned 35 degrees from them or their place moved 18 cm; the knees
-  bend by IK to them as the hips go down. Moved 80 cm at once (a
-  teleporter), they are put down there.
+  by the button). Moving, the hips and legs stay as the game faces them, so
+  its own choice of animation (forward, back, aside, as for any player,
+  by the way it moves against the way it faces) runs along the way the
+  player moves, and the spine turns the torso; standing, the hips turn to
+  the torso's heading (eased, 0.12 s). Walking off, the feet ease from
+  where they stood into the walk (0.2 s); stopping, they stay where the
+  walk left them and step into place. Standing still, the feet stay
+  planted and step, one at a time (0.22 s, 6 cm lifted), when the body has
+  turned 35 degrees from them or their place moved 18 cm; the knees bend by
+  IK to them as the hips go down. Moved 80 cm at once (a teleporter), they
+  are put down there.
+- The ground: put down, each foot rests on the ground under it (a slope, a
+  stair), its height above the ground as the animation has it, tilted with
+  the slope (no steeper than 45 degrees), up to 45 cm from the ground under
+  the body; a foot's ground below it lowers the hips as far. Rays straight
+  down, read only, cast only as the feet are put down (three: under the
+  body and each foot) and as one steps (one), none while walking, where
+  the animation's feet are kept; eased (0.08 s) in and out. Nothing found
+  (a ledge): level.
 - Hidden: the head and neck (shrunk onto the neck's root: no head or
   collar seen from inside), the third-person arms (shrunk onto their
   shoulders), the third-person weapon and all the biped carries.
@@ -313,8 +327,10 @@ HaloCE-Quest-VR (CC0), its full body, rebuilt in
 - Only drawn, on this machine: the game's own pose, hit boxes, markers and
   network messages are unchanged.
 - Cost: `vr.log_performance` adds `body ... ms a frame in ... poses` to the
-  `first person:` line. In the emulator 0.006 ms a pose; the drawing is one
-  more biped model (as one more player close by).
+  `first person:` line. In the emulator 0.006 to 0.025 ms a pose standing
+  (as busy as the emulator was), up to 0.1 ms averaged while turning with
+  the feet's rays (at most a few a second); the drawing is one more biped
+  model (as one more player close by).
 
 | Setting | Values |
 | --- | --- |
@@ -326,7 +342,12 @@ pelvis, spine, spine1, neck, head, clavicles, arms, thighs, calves, feet);
 the body standing, crouched physically and by the button, leaning,
 turning with the feet stepping; looking down, the shoulders below the eyes
 and no head or collar; two-minute bot games on Blood Gulch with it on and
-off, deaths and respawns, nothing in the log. Screenshots in
+off, deaths and respawns, nothing in the log. Then the legs by the way of
+moving (strafing, backwards, diagonally with the touch stick: the game's
+sideways and backwards walk) and the feet on the ground: on the ramp of a
+Blood Gulch base, the upper foot 15 cm up, the lower 10 cm down, both on
+it; stairs not reached in the emulator (Prisoner's spawn was level). Three
+rays when the feet are put down, one a step, none walking. Screenshots in
 `build/body-shots/` (local).
 
 Push to talk is built on the same branch: voice chat's talking on the free
@@ -346,8 +367,18 @@ To try in the headset (Quest 3 and Steam Frame), with `vr.body = "full"`
 3. Physical crouch: the knees bend, the feet stay; kneeling deep, nothing
    of the body in the eyes. Leaning forward and aside: the torso tilts, the
    feet stay. Crouch button: the game's crouch, shoulders below the eyes.
-4. Walking, running, strafing, jumping by the stick: the legs walk with
-   the game's animation, no sliding when stopping.
+4. Walking, running, jumping by the stick: the legs walk with the game's
+   animation, no sliding when starting or stopping. Strafing left and
+   right, walking backwards and diagonally, also with the head turned away
+   from the way of walking: the legs step the way the body moves (sideways,
+   backwards), the torso facing as the head and hands have it; stopping,
+   the hips turn back under the torso and the feet step into place.
+4a. Ground: standing still on a slope (Blood Gulch's hills and the bases'
+   ramps), across it and along it: both feet on the ground, tilted with
+   it, the lower knee straighter, the hips down with the lower foot; on
+   stairs (Prisoner, Chill Out, Damnation), one foot a step higher than
+   the other, turning in place there: each step lands on its stair. At a
+   ledge, one foot over it: level, nothing odd.
 5. Left-handed (`vr.handedness = left`, mirrored or not): the arms from
    the body's shoulders, the weapon in the left hand, the body as
    right-handed.
