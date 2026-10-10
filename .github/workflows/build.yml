@@ -23,7 +23,10 @@ name: Build
 # https://github.com/<repository>/releases/latest/download/<file> always
 # gives the latest build; the last five are kept.
 on:
+  # (Ringfall: Mjolnir VR: main only; its branches are tried on the headsets
+  # from local builds)
   push:
+    branches: [main]
     paths-ignore:
       - "**.md"
   workflow_dispatch:
