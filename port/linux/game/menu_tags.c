@@ -1889,6 +1889,16 @@ static void pause_campaign_patch(struct cache_file_tag_instance *instances)
 				pause_list_fit(list, span);
 				list->bounds.y1 = bottom;
 			}
+#ifdef HALO_ANDROID
+			/* port: in VR the rows closer within the span they had even when
+			the list has room: the pause menu's button hints (B Cancel, A
+			Select) sit just below its last row, which a list grown longer
+			and centred would put on their line */
+			else if (halo_vr_active())
+			{
+				pause_list_fit(list, span);
+			}
+#endif
 			pause_settings_patch();
 			platform_log("menus: the pause menu has SETTINGS");
 		}
