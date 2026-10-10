@@ -841,8 +841,8 @@ static boolean vr_body_pose(
 		}
 	}
 
-	/* the shoulders, for the first-person arms; then the head shrunk onto
-	the neck, each arm onto its shoulder */
+	/* the shoulders, for the first-person arms; then the head and the neck
+	shrunk onto the neck's root, each arm onto its shoulder */
 	{
 		/* (from the neck: below it, a little behind, to each side as far
 		as the body's shoulder joints are, within 14 to 24 cm, which the aim's
@@ -871,7 +871,7 @@ static boolean vr_body_pose(
 	collapse[2] = matrices[vr_body.upper[1]].position;
 	for (node_index = 0; node_index < vr_body.node_count; node_index++)
 	{
-		short part = vr_skeleton_under(&vr_body.skeleton, node_index, vr_body.head) ? 0 :
+		short part = node_index == vr_body.neck || vr_skeleton_under(&vr_body.skeleton, node_index, vr_body.head) ? 0 :
 			vr_skeleton_under(&vr_body.skeleton, node_index, vr_body.upper[0]) ? 1 :
 			vr_skeleton_under(&vr_body.skeleton, node_index, vr_body.upper[1]) ? 2 : NONE;
 
