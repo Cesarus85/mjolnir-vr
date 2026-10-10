@@ -94,6 +94,8 @@ in the animation is this far away (metres); a step's time and lift */
 #define VR_BODY_STEP_GAP 0.18f
 #define VR_BODY_STEP_SECONDS 0.22f
 #define VR_BODY_STEP_LIFT 0.06f
+/* further than this (metres), the feet are put down where they are at once */
+#define VR_BODY_STEP_FAR 0.8f
 
 /* debug.vr_body: the camera, and the head's motion */
 enum
@@ -410,6 +412,17 @@ static void vr_body_debug_input(
 	input->eye.x += (real)cos(yaw) * lean * VR_BODY_UNITS_PER_METRE;
 	input->eye.y += (real)sin(yaw) * lean * VR_BODY_UNITS_PER_METRE;
 	input->eye.z -= (crouch + 0.1f * (real)fabs(lean)) * VR_BODY_UNITS_PER_METRE;
+	{
+		/* (the eyes go round the neck as the head pitches, as a real head's
+		do: down and forward looking down) */
+		real level = (real)asin(PIN(camera->forward.k, -1.0f, 1.0f));
+		real forward = VR_BODY_NECK_BACK * (real)(cos(pitch) - cos(level)) + VR_BODY_NECK_DOWN * (real)(-sin(pitch) + sin(level));
+		real up = VR_BODY_NECK_BACK * (real)(sin(pitch) - sin(level)) + VR_BODY_NECK_DOWN * (real)(cos(pitch) - cos(level));
+
+		input->eye.x += (real)cos(yaw) * forward * VR_BODY_UNITS_PER_METRE;
+		input->eye.y += (real)sin(yaw) * forward * VR_BODY_UNITS_PER_METRE;
+		input->eye.z += up * VR_BODY_UNITS_PER_METRE;
+	}
 	input->time = now;
 
 	if (!vr_body_debug.torso_valid || now - vr_body_debug.torso_time > 0.25 || now < vr_body_debug.torso_time)
@@ -561,6 +574,19 @@ static void vr_body_plant_feet(
 	{
 		vr_body_stance.valid = FALSE;
 		return;
+	}
+	if (vr_body_stance.valid)
+	{
+		/* (moved far at once, a teleporter's or a recentring's: no step
+		across the room, the feet are put down there) */
+		for (side = 0; side < 2; side++)
+		{
+			if (distance3d(&matrices[vr_body.foot[side]].position, &vr_body_stance.planted[side].position) >
+				VR_BODY_STEP_FAR * VR_BODY_UNITS_PER_METRE)
+			{
+				vr_body_stance.valid = FALSE;
+			}
+		}
 	}
 	if (!vr_body_stance.valid || vr_body_stance.unit_index != unit_index || now < vr_body_stance.time ||
 		now - vr_body_stance.time > 0.25 || moving)
@@ -751,11 +777,12 @@ static boolean vr_body_pose(
 		/* the feet, where they stand */
 		vr_body_plant_feet(unit_index, object, torso_yaw, input->time, feet);
 
-		/* the hips down as far as the neck is below where it is standing
-		straight, and back a little; leaning, aside part of the way (the
-		spine tilts the rest) */
+		/* the hips down for the neck to be at its height (the body's model
+		has its neck higher, crouched by the button higher still, up by the
+		eyes), back a little as far as the neck is below where it is standing
+		straight; leaning, aside part of the way (the spine tilts the rest) */
 		drop = neck_target.z - (input->standing.z - VR_BODY_NECK_DOWN * VR_BODY_UNITS_PER_METRE);
-		drop = PIN(drop, -VR_BODY_CROUCH_MOST * VR_BODY_UNITS_PER_METRE, VR_BODY_RISE_MOST * VR_BODY_UNITS_PER_METRE);
+		drop = PIN(drop, -VR_BODY_CROUCH_MOST * VR_BODY_UNITS_PER_METRE, 0.0f);
 		move.i = neck_target.x - standing_neck.x;
 		move.j = neck_target.y - standing_neck.y;
 		horizontal = (real)sqrt(move.i * move.i + move.j * move.j);
@@ -766,7 +793,8 @@ static boolean vr_body_pose(
 		}
 		move.i = move.i * VR_BODY_HIPS_FOLLOW + input->torso_forward.i * drop * VR_BODY_HIPS_BACK;
 		move.j = move.j * VR_BODY_HIPS_FOLLOW + input->torso_forward.j * drop * VR_BODY_HIPS_BACK;
-		move.k = drop;
+		move.k = PIN(neck_target.z - matrices[vr_body.neck].position.z, -VR_BODY_CROUCH_MOST * VR_BODY_UNITS_PER_METRE,
+			VR_BODY_RISE_MOST * VR_BODY_UNITS_PER_METRE);
 		if (vr_body_debug.view > _vr_body_debug_off)
 		{
 			/* (debug.vr_body: once a second, how the pose was moved) */
@@ -916,7 +944,7 @@ static boolean vr_body_wanted(
 	player_index = local_player_get_player_index(local_player_index);
 	if (player_index == NONE || player_get(player_index)->unit_index != object_index ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person ||
-		cinematic_in_progress() || render.camera.mirrored)
+		cinematic_in_progress())
 	{
 		return FALSE;
 	}
@@ -986,7 +1014,8 @@ boolean vr_body_drawn(
 	short local_player_index,
 	long object_index)
 {
-	return vr_body_build(local_player_index, object_index);
+	/* (not in a mirror's view, which shows the body as the game has it) */
+	return !render.camera.mirrored && vr_body_build(local_player_index, object_index);
 }
 
 real_matrix4x3 *vr_body_node_matrices(
