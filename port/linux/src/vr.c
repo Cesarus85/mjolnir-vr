@@ -1259,6 +1259,19 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 	return HALO_VR_FINGERS_CURLED | ((state->buttons & HALO_XR_BUTTON_TOUCH_KNOWN) ? HALO_VR_FINGERS_TOUCH : 0);
 }
 
+/* Voice chat's push to talk in VR (network_voice.c, through
+halo_push_to_talk_held): the free hand's grip, while it holds neither the
+weapon's foregrip nor the Warthog's wheel; the grip has no button of the
+game's of its own. */
+int halo_vr_push_to_talk_held(void)
+{
+	int hand = free_hand();
+
+	if (!vr.active || !vr.frame.focused || !(vr.frame.hands[hand].buttons & HALO_XR_BUTTON_SQUEEZE))
+		return 0;
+	return !vr.two_hand_gripping && !vr.wheel_held[hand];
+}
+
 int halo_vr_melee(void)
 {
 	return vr.active && now_us() < vr.melee_until_us;
@@ -3279,6 +3292,7 @@ void halo_vr_debug_look(short local_player_index, const float unit_looking[3], i
 	(void)local_player_index; (void)unit_looking; (void)in_vehicle;
 }
 int halo_vr_melee(void) { return 0; }
+int halo_vr_push_to_talk_held(void) { return 0; }
 int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 {
 	(void)local_player_index; (void)hand; (void)curls;

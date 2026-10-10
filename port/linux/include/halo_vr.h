@@ -162,6 +162,8 @@ enum
 int halo_vr_body_mode(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
+/* the free hand's grip as voice chat's push to talk (vr.c) */
+int halo_vr_push_to_talk_held(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
 0 with none): the game scales melee damage by the player's run instead,
 and in VR a player punches standing (units.c) */
