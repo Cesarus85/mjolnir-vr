@@ -36,7 +36,7 @@ named where code is taken over.
 | 1 | Steam Frame CPU time: Mesa's trace markers off (after astromaddie/HaloCE-VR), no `glGet` stalls in the visibility counters' copies | **done** (in `main` 2026-10-06): markers quieted, no problems; the frame's work about unchanged (11-12.5 ms of 13.9 in a bot game) |
 | 3a | Visible arms and hands: the arms by IK to the controllers, fingers by trigger and grip | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good; 0.02 ms a frame) |
 | 2 | Controls and comfort: left-handed mode, buttons remapped, flashlight by tapping the head, finer turning and vignette choices, graphics presets and refresh rate in the VR options | first part **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good): left-handed mode, graphics presets, refresh rate and resolution in the VR options. Second part **done** (in `main` 2026-10-06; Quest 3 good): buttons remapped, finer turning and vignette choices; the flashlight by tapping the head taken out (did not work) |
-| 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | **built** on `feature/vr-voice-and-body` (2026-10-10; checked in the emulator, `debug.vr_body`): `vr.body` "full", "arms" still the default. Headset test pending (Quest 3, Steam Frame), with the branch's push to talk |
+| 3b | The whole body: torso from head and hands, legs and feet following in the room; full / arms only / hands only | **done** (in `main` 2026-10-10; Quest 3 good): `vr.body` "full" ("Full body" in the VR options; "arms" still the default), legs walking the way the player moves, feet on the ground. Also in: voice chat's push to talk on the free hand's grip. Steam Frame: its cost still to measure |
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
 | 4 | Later: disc image import in the launcher, sprint by arm swing (offline) | import **done** (in `main` 2026-10-06): the app's import (tried on the Quest 3: all 24 maps; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`; tried on the Frame: the old folder renamed, the shortcut added by Steam), a release signing key (CI and local builds the same). Sprint by arm swing still open |
@@ -265,7 +265,7 @@ After the first Quest tries (2026-10-06):
 Not in it (3a.7): the glove fitted to each weapon's grip (gun anchor) and
 the left hand animated through reloads.
 
-## Step 3b (built)
+## Step 3b (done)
 
 On `feature/vr-voice-and-body`, not yet tried in the headset. The neck
 pivot, the planted feet with their steps and the leg's clamped reach follow
