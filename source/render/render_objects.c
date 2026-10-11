@@ -379,6 +379,12 @@ void render_objects(
 	return;
 }
 
+/* port: port/linux/game/first_person_legs.c */
+boolean first_person_legs_wanted(long object_index);
+real_matrix4x3 const *first_person_legs_node_matrices(long object_index, real_matrix4x3 const *nodes);
+/* port: port/linux/game/shield_color.c */
+real_rgb_color const *shield_color_colors(long unit_index, real_rgb_color const *colors);
+
 void render_object_shadows(
 	void)
 {
@@ -591,8 +597,16 @@ static void render_object_list(
 		boolean vr_body = !data->shadow && !render.camera.mirrored && object_is_first_person_camera(object_index) &&
 			vr_body_drawn(render.local_player_index, object_index);
 #endif
+		/* port: the player's own legs, seen looking down in first person
+		(port/linux/game/first_person_legs.c): its body drawn from the waist
+		down, nothing it carries (never in VR: first_person_legs_wanted) */
+		boolean legs = !data->shadow && !render.camera.mirrored &&
+			object_is_first_person_camera(object_index) && first_person_legs_wanted(object_index);
+		real_matrix4x3 const *node_matrices = legs ?
+			first_person_legs_node_matrices(object_index, object_get_node_matrices(object_index)) :
+			object_get_node_matrices(object_index);
 
-		if (!object_is_first_person_camera(object_index) || render.camera.mirrored
+		if (!object_is_first_person_camera(object_index) || render.camera.mirrored || (legs && node_matrices)
 #ifdef HALO_ANDROID
 			|| (!data->shadow && render_object_vr_seated_body(object_index)) || vr_body
 #endif
@@ -630,10 +644,10 @@ static void render_object_list(
 				struct object_definition *definition =
 					object_definition_get(object->definition_index);
 				real level_of_detail_pixels = object_get_level_of_detail_pixels(object_index);
-				real_matrix4x3 *node_matrices = object_get_node_matrices(object_index);
-
 #ifdef HALO_ANDROID
-				if (object_is_first_person_camera(object_index) && !render.camera.mirrored)
+				/* (VR: the body's own pose, or the head hidden; never upstream's
+				legs, which are off in VR) */
+				if (object_is_first_person_camera(object_index) && !render.camera.mirrored && !legs)
 				{
 					node_matrices = vr_body ?
 						vr_body_node_matrices(object_index) :
@@ -655,8 +669,12 @@ static void render_object_list(
 						if (shader_type_is_valid_for_modifier(
 							model_effect.modifier_shader->base.type))
 						{
+							/* port: a local player's shield in the color
+							chosen for it (port/linux/game/shield_color.c) */
 							model_effect.modifier_animation.colors =
-								object->object.outgoing_change_colors;
+								TEST_FLAG(_object_mask_unit, object->object.type) ?
+									shield_color_colors(object_index, object->object.outgoing_change_colors) :
+									object->object.outgoing_change_colors;
 							model_effect.modifier_animation.values =
 								object->object.outgoing_function_values;
 						}
@@ -773,7 +791,7 @@ static void render_object_list(
 				}
 			}
 
-			if (!data->shadow && object->object.first_widget_index != NONE)
+			if (!data->shadow && !legs && object->object.first_widget_index != NONE)
 			{
 				struct render_animation animation;
 
@@ -782,7 +800,7 @@ static void render_object_list(
 				widgets_render(object_index, data->lighting, &animation);
 			}
 
-			if (object->object.first_child_object_index != NONE
+			if (object->object.first_child_object_index != NONE && !legs
 #ifdef HALO_ANDROID
 				&& !vr_body
 #endif
