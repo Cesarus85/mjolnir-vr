@@ -97,7 +97,7 @@ the touch controls (their swipe, gyroscope or stick: halo_linux_mouse_aiming,
 halo_linux_touch_aiming) */
 static Uint64 mouse_aimed_ms = 0;
 static Uint64 stick_aimed_ms = 0;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 static Uint64 touch_aimed_ms = 0;
 #endif
 
@@ -159,7 +159,7 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 	return TRUE;
 }
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 /* the touch controls moved the player or the aim (halo_linux_touch_aiming) */
 static void touch_used(void)
 {
@@ -171,14 +171,15 @@ static void touch_used(void)
 
 /* the touch controls' stick as the player's movement (input_abstraction.c's
 keyboard_controls_update), forward and strafe -1..1, whatever the
-profile's sticks do; nonzero while it is pushed. Nothing but on Android. */
+profile's sticks do; nonzero while it is pushed. Nothing but on Android and
+the web (port/web/site/touch.js). */
 int halo_linux_touch_move(short controller_index, float *forward, float *strafe)
 {
 	*forward = 0.0f;
 	*strafe = 0.0f;
 	if (controller_index != 0)
 		return FALSE;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 	/* (port: not in VR, where the touch controls are off) */
 	if (halo_vr_active() || !touch_input_move(forward, strafe))
 		return FALSE;
@@ -193,7 +194,7 @@ int halo_linux_touch_move(short controller_index, float *forward, float *strafe)
 the mouse's rate per pixel (the view applies its own sensitivity), each
 apart: player_control.c inverts the swipe as the profile inverts the stick,
 not the gyroscope, which turns as the phone does, and makes them the
-stick's rate before the magnetism. Nothing but on Android. */
+stick's rate before the magnetism. Nothing but on Android and the web. */
 int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *gyro_yaw, float *gyro_pitch)
 {
 	*yaw = 0.0f;
@@ -202,7 +203,7 @@ int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *
 	*gyro_pitch = 0.0f;
 	if (gamepad_index != 0)
 		return FALSE;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 	/* (port: not in VR, where the touch controls are off) */
 	if (halo_vr_active())
 		return FALSE;
@@ -221,7 +222,7 @@ assist (input.touch_aim_assist false): no magnetism, as for the mouse
 (player_control.c), until a stick moves the aim again */
 int halo_linux_touch_aiming(short gamepad_index)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 	int aiming;
 
 	if (gamepad_index != 0 || touch_input_aim_assist())
@@ -628,6 +629,14 @@ the same weapon straight back. Timed in milliseconds, not polls: polls come
 once a frame, at the display's refresh rate. */
 #define WHEEL_PRESS_MS 50
 #define WHEEL_SCROLL_GAP_MS 200
+/* how far the wheel turns before it switches: a notch. A browser's notch is
+pixels, which SDL counts as a notch per 100, and some send fewer for one
+(about half), so in the web build half of SDL's notch is one */
+#ifdef HALO_WEB
+#define WHEEL_NOTCH 0.5f
+#else
+#define WHEEL_NOTCH 1.0f
+#endif
 
 /* debug.test_input "bot:<seed>": a scripted player for the automated
 network tests (port/linux/game/network_test.c), different for each seed:
@@ -704,7 +713,7 @@ static void wheel_update(void)
 	pthread_mutex_lock(&mouse_lock);
 	if (!wheel_scrolling)
 	{
-		if (fabsf(mouse_wheel_accumulated) >= 1.0f)
+		if (fabsf(mouse_wheel_accumulated) >= WHEEL_NOTCH)
 		{
 			wheel_scrolling = TRUE;
 			wheel_direction = mouse_wheel_accumulated > 0.0f ? 1 : -1;
@@ -1162,7 +1171,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 #endif
 		{
 			touch_input_gamepad(&state->Gamepad);
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 			touch_input_controls(&state->Gamepad, input.menus);
 #endif
 		}
@@ -1199,6 +1208,7 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 	feedback->Header.dwStatus = ERROR_SUCCESS;
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+#if defined(HALO_ANDROID) || defined(HALO_WEB)
 #ifdef HALO_ANDROID
 	/* VR: the heavy (left) motor in the free hand, the light one in the
 	weapon's (left-handed, the other way round), as the game refreshes them
@@ -1210,8 +1220,11 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 		host_xr_haptic(HALO_XR_HAND_COUNT - 1 - weapon, feedback->Rumble.wLeftMotorSpeed / 65535.0f, 0.1f);
 		host_xr_haptic(weapon, feedback->Rumble.wRightMotorSpeed / 65535.0f, 0.1f);
 	}
-	/* the phone vibrates for the touch controls' player */
-	else if (port == 0)
+	else
+#endif
+	/* the phone vibrates for the touch controls' player (in a browser, where
+	it can) */
+	if (port == 0)
 		touch_input_rumble(feedback->Rumble.wLeftMotorSpeed, feedback->Rumble.wRightMotorSpeed);
 #endif
 	count = sdl_gamepads(gamepads);

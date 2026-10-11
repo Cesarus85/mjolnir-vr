@@ -29,6 +29,7 @@
          predictive back (the default once an app targets Android 16) the
          system would take them and the game would never see them -->
     <application
+        android:name=".HaloApplication"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
@@ -75,7 +76,10 @@
              (without them Horizon OS shows it as a flat panel, and the OpenXR
              session never gets focus); phones ignore them. The launcher,
              a flat panel on a headset, starts it once the game data is
-             there. -->
+             there. (port: upstream runs it in a process of its own,
+             ":game", for handhelds whose Java heap covers the Xbox window;
+             not here: on the Steam Frame Lepton waits for the app's process
+             to end, and the headsets have no such overlap) -->
         <activity
             android:name=".HaloActivity"
             android:exported="true"

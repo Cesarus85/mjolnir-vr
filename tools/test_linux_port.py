@@ -232,7 +232,9 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            # (the platforms that show it: menu_files.c's MENU_PLATFORM)
+            assert element.get("platform") is None or \
+                set(element.get("platform").split()) <= {"desktop", "android", "web"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -344,6 +346,51 @@ def test_p2p_signatures_and_listings(tmp_path):
     result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+
+
+# ---------- system link's stand-in machines (tools/system_link_bots.py)
+
+
+def test_system_link_bots_messages_are_the_games():
+    """the stand-in machines number their messages as network_messages.h does,
+    and send each at the size network_messages.c's fields decode (pad 0,
+    bytes 1, shorts 2, longs 4; an array a count byte and one element)"""
+    import struct
+    import time
+    import types
+    from tools import system_link_bots as bots
+
+    root = Path(__file__).resolve().parents[1]
+    header = (root / "source/networking/network_messages.h").read_text()
+    enum = header[header.index("enum network_game_message_type"):]
+    names = re.findall(r"\t_message_(\w+)", enum[:enum.index("};")])
+    for name, value in vars(bots).items():
+        if name.lower() in names:
+            assert names.index(name.lower()) == value, name
+    sizes = {}
+    source = (root / "source/networking/network_messages.c").read_text()
+    for fields, name in re.findall(r"\t\{\n((?:\t\t.*\n)*?)\t\},\n\tNETWORK_GAME_MESSAGE_DEFINITION\((\w+),", source):
+        sizes[name] = sum(int(count) * {"pad": 0, "bytes": 1, "shorts": 2, "longs": 4}.get(kind, 0) + (kind == "array")
+                          for kind, count in re.findall(r"_data_packet_field_(\w+), (\d+)", fields))
+
+    sent = []
+    machine = bots.Machine(1, "127.0.0.2", "127.0.0.1", print)
+    machine.udp.close()
+    machine.send = sent.append
+    machine.udp = types.SimpleNamespace(sendto=lambda data, address: sent.append(data))
+    machine.joined()
+    machine.handle(bots.SERVER_MACHINE_ACCEPTED, struct.pack(">ih", 0, 1))
+    settings = bytes(0x24) + b"levels\\test\\bloodgulch\\bloodgulch".ljust(0x80, b"\0")
+    machine.handle(bots.SERVER_GAME_SETTINGS_UPDATE, struct.pack(">HHH", len(settings), 0, len(settings)) + settings)
+    machine.tick(time.monotonic())
+    machine.handle(bots.SERVER_BEGIN_GAME, b"")
+    machine.tick(time.monotonic() + 60)
+    machine.handle(bots.SERVER_GAME_UPDATE, struct.pack(">I", 1))
+    machine.tick(time.monotonic())
+    assert len(sent) == 6
+    for data in sent:
+        name = names[data[-1]]
+        assert len(data) - 4 == sizes[name], name
 
 
 # ---------- the tag validator (port/linux/game/tag_validate.c)

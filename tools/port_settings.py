@@ -18,14 +18,19 @@ from xml.sax.saxutils import quoteattr
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
 YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
+# the multiplayer armor colors, in the profile's order (player_profile.c)
+SHIELD_COLORS = ["white", "black", "red", "blue", "gray", "yellow", "green", "pink", "purple", "cyan", "cobalt",
+                 "orange", "teal", "sage", "brown", "tan", "maroon", "salmon"]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 
 # each screen: its folder below PE, its screen's widget (the name the profile
 # menu opens), its header (widget, bitmap), the row spacing, and its rows:
-# (label, setting, [(shown, value)], help, platform[, key]): key names the
-# row's widgets where two rows set one setting (one for each platform), else
-# the setting's name does
+# (label, setting, [(shown, value)], help, platform[, key]): platform is None
+# for every platform, else the platforms the row is for, separated by spaces
+# ("desktop", "android", "web": the menus' platform attribute,
+# port/linux/src/menu_files.c); key names the row's widgets where two rows set
+# one setting (one for each platform), else the setting's name does
 SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
@@ -53,17 +58,17 @@ SCREENS = {
             ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
              "The window's size: 4:3, then 16:10, 16:9 and 21:9\n(its edges can also be dragged).", "desktop"),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
-             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop"),
+             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop web"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             ("FRAME RATE LIMIT:", "display.max_fps",
              [("AUTO", "0"), ("30", "30"), ("60", "60"), ("120", "120"), ("144", "144"), ("165", "165"),
               ("240", "240"), ("NONE", "-1")],
-             "With V-Sync off, the most frames a second. Auto:\ntwice the display's refresh rate.", "desktop"),
+             "With V-Sync off, the most frames a second. Auto:\ntwice the display's refresh rate.", "desktop web"),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", None),
             ("INSTANT AIM:", "display.direct_camera", ON_OFF,
-             "In first person, turn the view the moment the\nmouse moves, not up to two ticks later.", "desktop"),
+             "In first person, turn the view the moment the\nmouse moves, not up to two ticks later.", "desktop web"),
             ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
@@ -76,13 +81,17 @@ SCREENS = {
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges, which the Xbox did not. FXAA\nis cheap; MSAA is sharper.",
-             "android", "anti_aliasing_android"),
+             "android web", "anti_aliasing_android"),
             ("SHADOW RESOLUTION:", "display.shadow_resolution",
              [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
              "The size objects' shadows are drawn at: 128 as on\nthe Xbox; larger for smoother, as soft, edges.",
              None),
             ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
              "Light models for each pixel, without the facets\nof the Xbox's lighting for each vertex.", None),
+            ("SHIELD GLOW:", "display.shield_glow", ON_OFF,
+             "Shields light their surroundings as they flare,\nin the shield's own color.", None),
+            ("GLOW INTENSITY:", "display.shield_glow_intensity", [("DEFAULT", "default"), ("LIGHT SHOW", "light_show")],
+             "Light Show: the shield glow three times as far,\nat full from a third of the flare.", None),
         ],
     },
     "mouse_settings": {
@@ -131,15 +140,20 @@ SCREENS = {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
         "spacing": 30,
+        # (the router, the clipboard and the updates, which the web build
+        # has not: the other rows from the top there)
+        "platform_places": True,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
-             "Host and join games over the internet by invite\nlinks; off keeps to the local network.", None),
+             "Host and join games over the internet by invite\nlinks; off keeps to the local network.",
+             "desktop android web"),
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
-             "Let internet play ask the router to forward its\nport, for networks that stop connections.", None),
+             "Let internet play ask the router to forward its\nport, for networks that stop connections.",
+             "desktop android"),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard", ON_OFF,
-             "Join the game of an invite link copied before\nswitching to the game.", None),
+             "Join the game of an invite link copied before\nswitching to the game.", "desktop android"),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Look for a new version when the game starts.", None),
+             "Look for a new version when the game starts.", "desktop android"),
             ("PLAYER NAMES:", "display.player_names",
              [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
              "In multiplayer, whose names are drawn above their\nheads.", None),
@@ -181,7 +195,8 @@ SCREENS = {
 # pending edits, Defaults, OK and Cancel as the other settings screens.
 _video = SCREENS["video_settings"]
 _graphics = {"display.high_res_hud", "display.high_res_text", "display.anti_aliasing",
-             "display.shadow_resolution", "display.per_pixel_lighting"}
+             "display.shadow_resolution", "display.per_pixel_lighting",
+             "display.shield_glow", "display.shield_glow_intensity"}
 SCREENS["video_settings/graphics"] = {
     "screen": "graphics_settings_screen", "header": _video["header"], "spacing": 30,
     "same_place": ["anti_aliasing_android"],
@@ -202,6 +217,12 @@ SCREENS["video_settings/fov_viewmodels"] = {
          "The weapon and hands, horizontal at 16:9.\nDefault keeps the weapon's stock view.", None),
         ("VIEWMODELS:", "display.viewmodel_visible", ON_OFF,
          "Draw first-person weapons, hands and attached\nvisuals. Gameplay and sound continue when off.", None),
+        ("ARM SHIELDS:", "display.viewmodel_shield", ON_OFF,
+         "The energy shield's flare on your first-person\narms too, as on your body.", None),
+        ("LEGS:", "display.first_person_legs", ON_OFF,
+         "Your legs in first person, seen looking down,\nmoving as you run. Your body as others see it.", None),
+        ("SHIELD COLOR:", "display.shield_color", [("DEFAULT", "default")] + [(c.upper(), c) for c in SHIELD_COLORS],
+         "Your shield's flare in an armor color, whatever\nyour armor. Only you see it. Default: its own.", None),
     ],
 }
 
@@ -316,25 +337,36 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
     return lines
 
 
+def _placed(row: str, platform, members: list, places: dict) -> list:
+    """a row's children (row, platform, place): one for its platforms where
+    they have it in the same place, else one for each place, with the
+    platforms whose place it is"""
+    groups = {}
+    for name in members:
+        groups.setdefault(places[name], []).append(name)
+    if len(groups) == 1:
+        return [(row, platform, places[members[0]])]
+    return [(row, " ".join(names) if len(names) < len(places) else None, place) for place, names in groups.items()]
+
+
 def _setting_screen(folder: str, spec: dict) -> list:
     base = f"{PE}/{folder}"
     rows, extra = [], []
     place = -1
     # (platform_places: each platform's rows in places of their own, with
-    # no gap where the other's are; a row for both, a child for each)
-    places = {"desktop": -1, "android": -1}
+    # no gap where the others' are; a row in one place for all its
+    # platforms, else a child for each place)
+    places = {"desktop": -1, "android": -1, "web": -1}
     for index, (label, setting, choices, _, platform, *named) in enumerate(spec["rows"]):
         key = named[0] if named else setting.split(".", 1)[1]
         row = f"{base}/op_{key}"
         shares = setting in spec.get("same_place", ()) or key in spec.get("same_place", ())
         if spec.get("platform_places"):
-            for name in places:
-                if platform in (None, name) and not shares:
+            members = platform.split() if platform else list(places)
+            for name in members:
+                if not shares:
                     places[name] += 1
-            if platform or places["desktop"] == places["android"]:
-                rows.append((row, platform, places[platform or "desktop"]))
-            else:
-                rows += [(row, name, places[name]) for name in places]
+            rows += _placed(row, platform, members, places)
         else:
             if setting not in spec.get("same_place", ()) and key not in spec.get("same_place", ()):
                 place += 1
@@ -367,10 +399,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
         if spec.get("platform_places"):
             for name in places:
                 places[name] += 1
-            if places["desktop"] == places["android"]:
-                rows.append((row, None, places["desktop"]))
-            else:
-                rows += [(row, name, places[name]) for name in ("desktop", "android")]
+            rows += _placed(row, None, list(places), places)
         else:
             rows.append((row, None, place + 1 + index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -695,6 +724,10 @@ def title_backdrop(width: float) -> str:
 # hold each number of buttons, one frame each (the Xbox's 2-button box is
 # 159 units high, and each button 35 more)
 PAUSE_BOX_BUTTONS = [3, 4]
+# the campaign pause box, tall enough for five rows at the PC version's pause
+# menu's pitch (30) with the prompts still under the last row: the stock box
+# is 159, and those rows need 36 more
+PAUSE_BOX_EXTRA_HEIGHTS = [195]
 
 
 def pause_box_height(buttons: int) -> int:
