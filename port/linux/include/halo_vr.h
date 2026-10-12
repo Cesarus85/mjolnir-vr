@@ -305,6 +305,9 @@ enum
 	HALO_VR_GRAPHICS_MAX,
 };
 int halo_vr_graphics(void);
+/* whether vr.foveation has an effect: the headset's GPU foveates (the
+Quest's; vr.c, d3d8_gl.c) */
+int halo_vr_foveation_supported(void);
 /* the VR options: the refresh rates the headset offers (Hz, at most maximum;
 0 when it lets none be chosen, as SteamVR), and the one it runs at (0:
 unknown; vr.refresh_rate asks for one); and vr.resolution_scale as the app

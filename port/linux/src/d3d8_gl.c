@@ -826,10 +826,17 @@ void xgpu_gl_state_invalidate(void)
 /* (a unit the shadows still said had it would never be bound to a new
 texture GL gives its name to; and a stage no draw samples keeps what was
 bound to it: bind_textures) */
+#ifdef HALO_ANDROID
+static void foveation_texture_deleted(GLuint texture);
+#endif
+
 void xgpu_gl_texture_deleted(unsigned int texture)
 {
 	int unit, slot;
 
+#ifdef HALO_ANDROID
+	foveation_texture_deleted(texture);
+#endif
 	for (unit = 0; unit < D3DTSS_MAXSTAGES; unit++)
 	{
 		for (slot = 0; slot < 3; slot++)
@@ -1490,6 +1497,139 @@ static GLuint framebuffer_find(GLuint color, GLuint depth, BOOL renderbuffers)
 }
 
 #ifdef HALO_ANDROID
+/* ---------- foveation (VR: GL_QCOM_texture_foveated)
+
+The eyes' pictures drawn coarser away from the lenses' centres, where the
+lenses blur them anyway: the GPU draws the target in bins, each at the
+detail its distance from a focal point asks for, and scales the coarse ones
+up as it stores them. vr.c gives each eye's focal point (its lens centre in
+the picture) and falloff (d3d8_foveation_parameters; gain 0: full detail
+everywhere). A texture once foveated stays so, so one is first foveated
+when vr.foveation is not off.
+
+Only the eyes are foveated: the multiview layers, which nothing else draws
+into; one eye at a time, the back buffer only while an eye is drawn into it
+(d3d8_foveation_eye): the HUD, the menus, the scope's and the other layers'
+pictures, drawn into it after, are drawn at full detail. */
+
+struct foveation_parameters
+{
+	float focal[2];
+	float gain;
+	float area;
+	float minimum_density;
+};
+
+struct foveated_texture
+{
+	GLuint texture;
+	BOOL foveated;
+	float minimum_density;
+	struct foveation_parameters layers[2];
+	BOOL layers_set[2];
+};
+
+static struct
+{
+	struct foveation_parameters eyes[2];
+	/* the multiview layers, and the back buffer */
+	struct foveated_texture layers, back_buffer;
+	BOOL logged;
+} foveation;
+
+int d3d8_foveation_supported(void)
+{
+	return device.gl_ready && xgpu_capabilities.foveation;
+}
+
+/* an eye's focal point (normalized device coordinates of its picture, with
+-1 at the top row: rows run from the picture's top), and its falloff: full
+detail within sqrt(1 + area) / gain of the focal point, coarser beyond, but
+never below minimum_density (gain 0: full detail everywhere) */
+void d3d8_foveation_parameters(int eye, float focal_x, float focal_y, float gain, float area, float minimum_density)
+{
+	if (eye < 0 || eye > 1)
+		return;
+	foveation.eyes[eye].focal[0] = focal_x;
+	foveation.eyes[eye].focal[1] = focal_y;
+	foveation.eyes[eye].gain = gain;
+	foveation.eyes[eye].area = area;
+	foveation.eyes[eye].minimum_density = minimum_density;
+}
+
+static void foveation_apply(struct foveated_texture *state, GLuint texture, GLenum target, int layer,
+	const struct foveation_parameters *parameters)
+{
+	if (!d3d8_foveation_supported() || !texture)
+		return;
+	if (state->texture != texture)
+	{
+		memset(state, 0, sizeof(*state));
+		state->texture = texture;
+	}
+	if (!state->foveated)
+	{
+		/* (never foveated while it is off) */
+		if (parameters->gain <= 0.0f)
+			return;
+		glBindTexture(target, texture);
+		glTexParameteri(target, GL_TEXTURE_FOVEATED_FEATURE_BITS_QCOM,
+			GL_FOVEATION_ENABLE_BIT_QCOM | GL_FOVEATION_SCALED_BIN_METHOD_BIT_QCOM);
+		state->foveated = TRUE;
+		state->minimum_density = -1.0f;
+		if (!foveation.logged)
+		{
+			GLint features = 0, focal_points = 0;
+
+			glGetTexParameteriv(target, GL_TEXTURE_FOVEATED_FEATURE_QUERY_QCOM, &features);
+			glGetTexParameteriv(target, GL_TEXTURE_FOVEATED_NUM_FOCAL_POINTS_QUERY_QCOM, &focal_points);
+			platform_log("foveation: the eyes' %s foveated (GL_QCOM_texture_foveated: features 0x%x, %d focal points)",
+				target == GL_TEXTURE_2D_ARRAY ? "layers" : "back buffer, while an eye is drawn,", (unsigned)features,
+				(int)focal_points);
+			foveation.logged = TRUE;
+		}
+		xgpu_gl_state_invalidate();
+	}
+	if (state->minimum_density != parameters->minimum_density)
+	{
+		glBindTexture(target, texture);
+		glTexParameterf(target, GL_TEXTURE_FOVEATED_MIN_PIXEL_DENSITY_QCOM, parameters->minimum_density);
+		state->minimum_density = parameters->minimum_density;
+		xgpu_gl_state_invalidate();
+	}
+	if (state->layers_set[layer] && memcmp(&state->layers[layer], parameters, sizeof(*parameters)) == 0)
+		return;
+	halo_glTextureFoveationParametersQCOM(texture, (GLuint)layer, 0, parameters->focal[0], parameters->focal[1],
+		parameters->gain, parameters->gain, parameters->area);
+	state->layers[layer] = *parameters;
+	state->layers_set[layer] = TRUE;
+}
+
+/* drawing one eye at a time: the back buffer foveated for this eye's
+picture, or (eye -1) at full detail again, for what is drawn into it next */
+void d3d8_foveation_eye(int eye)
+{
+	static const struct foveation_parameters full_detail = { { 0.0f, 0.0f }, 0.0f, 0.0f, 1.0f };
+	struct render_target_entry *back_buffer;
+
+	if (!d3d8_foveation_supported() || (eye < 0 && !foveation.back_buffer.foveated) ||
+		!(back_buffer = render_target_get(&device.back_buffer)))
+	{
+		return;
+	}
+	foveation_apply(&foveation.back_buffer, back_buffer->target.texture, GL_TEXTURE_2D, 0,
+		eye >= 0 && eye < 2 ? &foveation.eyes[eye] : &full_detail);
+}
+
+/* a texture deleted: its name may come back for another (xgpu_gl_texture_deleted) */
+static void foveation_texture_deleted(GLuint texture)
+{
+	if (foveation.layers.texture == texture)
+		memset(&foveation.layers, 0, sizeof(foveation.layers));
+	if (foveation.back_buffer.texture == texture)
+		memset(&foveation.back_buffer, 0, sizeof(foveation.back_buffer));
+}
+
 /* ---------- multiview (VR: both eyes in one draw, GL_OVR_multiview2)
 
 Between d3d8_multiview_begin and _end, what the game draws into the back
@@ -1585,6 +1725,7 @@ int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 		if (multiview.framebuffer)
 		{
 			glDeleteFramebuffers(1, &multiview.framebuffer);
+			foveation_texture_deleted(multiview.color);
 			glDeleteTextures(1, &multiview.color);
 			glDeleteTextures(1, &multiview.depth);
 		}
@@ -1613,6 +1754,8 @@ int d3d8_multiview_begin(const float rows[4][4], const float resolve_rect[2][4])
 			return FALSE;
 		}
 	}
+	foveation_apply(&foveation.layers, multiview.color, GL_TEXTURE_2D_ARRAY, 0, &foveation.eyes[0]);
+	foveation_apply(&foveation.layers, multiview.color, GL_TEXTURE_2D_ARRAY, 1, &foveation.eyes[1]);
 	memcpy(multiview.rows, rows, sizeof(multiview.rows));
 	memcpy(multiview.resolve_rect, resolve_rect, sizeof(multiview.resolve_rect));
 	multiview.serial++;
@@ -1900,6 +2043,26 @@ static void gl_initialize(void)
 			(int)major, (int)minor, xgpu_capabilities.copy_image, xgpu_capabilities.border_clamp,
 			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters,
 			xgpu_capabilities.base_vertex, base_vertex_source, xgpu_capabilities.multiview);
+#ifdef HALO_ANDROID
+		{
+			/* (the Quest's Adreno has foveation; the Steam Frame's zink has
+			neither it nor parallel compiling) */
+			GLint formats = 0;
+
+			xgpu_capabilities.foveation = host_gl_has_extension("GL_QCOM_texture_foveated") &&
+				halo_glTextureFoveationParametersQCOM != NULL;
+			xgpu_capabilities.parallel_compile = host_gl_has_extension("GL_KHR_parallel_shader_compile") &&
+				halo_glMaxShaderCompilerThreadsKHR != NULL;
+			glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
+			xgpu_capabilities.program_binary_formats = formats;
+			platform_log("OpenGL ES: foveation %d (GL_QCOM_texture_foveated%s), parallel shader compiling %d, "
+				"program binary formats %d", xgpu_capabilities.foveation,
+				host_gl_has_extension("GL_QCOM_texture_foveated_subsampled_layout") ? ", subsampled layout too" : "",
+				xgpu_capabilities.parallel_compile, (int)formats);
+			if (xgpu_capabilities.parallel_compile)
+				halo_glMaxShaderCompilerThreadsKHR(0xffffffffu);
+		}
+#endif
 	}
 #else
 	if (config_boolean("debug.gl_debug"))

@@ -196,6 +196,12 @@ static const struct config_setting config_settings[] =
 		"or camouflage's second pass (a client in another's game keeps grass,\n"
 		"lens flares and fog); \"max\" all of them, the models lit for each\n"
 		"pixel and shadows at 512x512." },
+	{ "vr.foveation", _config_string, "\"medium\"", "HALO_VR_FOVEATION", _environment_value, _platform_android,
+		"Foveated rendering on the Quest (GL_QCOM_texture_foveated): the eyes'\n"
+		"pictures drawn at full detail around the lenses' centres and coarser\n"
+		"towards their edges, which saves the GPU time. \"off\", \"low\",\n"
+		"\"medium\" or \"high\" (coarser edges, nearer the centre). The HUD and\n"
+		"menus are not foveated; a headset without it ignores it." },
 	{ "vr.positional_tracking", _config_boolean, "true", "HALO_VR_POSITIONAL", _environment_value, _platform_android,
 		"Moving your head moves the view (leaning, ducking); false only turns it.\n"
 		"The view recentres when play starts or resumes after a cinematic, and\n"

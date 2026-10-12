@@ -140,6 +140,8 @@ static struct
 	int multiview;              /* vr.multiview: both eyes in one draw */
 	int multiview_logged;
 	int multiview_logged_views;
+	/* vr.foveation's level last logged (+1; 0: none yet) */
+	int foveation_logged;
 	int vehicle_first_person;
 	int turret_handles;         /* a gun's barrel rises as its handles go down */
 	float gunner_camera_back;   /* metres */
@@ -304,6 +306,10 @@ unsigned int d3d8_multiview_end(void);
 void d3d8_clear_back_buffer(float red, float green, float blue, float alpha);
 void d3d8_clear_back_buffer_region(float left, float top, float right, float bottom);
 void d3d8_host_state_changed(void);
+int d3d8_foveation_supported(void);
+void d3d8_foveation_parameters(int eye, float focal_x, float focal_y, float gain, float area, float minimum_density);
+void d3d8_foveation_eye(int eye);
+static void foveation_update(void);
 
 /* a layer copied (host_xr_copy_layer): 2 is a deferred copy, which left GL
 as it drew, for the renderer to set again */
@@ -1897,10 +1903,14 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 	const struct halo_xr_view *view = &vr.frame.views[eye];
 	float offset[3], direction[3];
 
-	if (eye == 0)
-		vr.eyes_start_us = now_us();
 	float half_tangent;
 	int axis;
+
+	if (eye == 0)
+		vr.eyes_start_us = now_us();
+	/* (this eye's picture foveated while it is drawn) */
+	foveation_update();
+	d3d8_foveation_eye(eye);
 
 	tracked_offset(view->pose.position, offset);
 	memcpy(vr.game_camera, game_position, sizeof(vr.game_camera));
@@ -1921,6 +1931,96 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 	frustum_bounds[1] = view->tangent_right / (half_tangent * (4.0f / 3.0f));
 	frustum_bounds[2] = view->tangent_down / half_tangent;
 	frustum_bounds[3] = view->tangent_up / half_tangent;
+}
+
+/* ---------- foveation (vr.foveation)
+
+The eyes' pictures drawn at full detail about each lens's centre, coarser
+towards their edges (d3d8_gl.c, GL_QCOM_texture_foveated: the Quest's). The
+centre is where the eye looks straight ahead, tangent 0: off the picture's
+middle, as the eyes' views are asymmetric (wider outwards and downwards). In
+the picture's normalized device coordinates, rows from its top (row 0 is
+the top, -1), it lies at x = -(L + R) / (R - L), y = (U + D) / (U - D) for
+the view's edges' tangents. The levels: full detail within sqrt(1 + area)
+/ gain of it (0.69, 0.58, 0.43 of the picture's half width), then halved
+and halved again down to the least density. */
+
+static const struct
+{
+	const char *name;
+	float gain, area, minimum_density;
+} foveation_levels[] =
+{
+	{ "off", 0.0f, 0.0f, 1.0f },
+	{ "low", 2.5f, 2.0f, 0.5f },
+	{ "medium", 3.0f, 2.0f, 0.25f },
+	{ "high", 4.0f, 2.0f, 0.125f },
+};
+
+#define FOVEATION_LEVEL_COUNT (int)(sizeof(foveation_levels) / sizeof(foveation_levels[0]))
+
+/* vr.foveation, as it changes (the VR options); "medium" if unknown */
+static int foveation_level(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int level = 2;
+
+	if (read_at != config_changes())
+	{
+		const char *name = config_string("vr.foveation");
+		int index;
+
+		read_at = config_changes();
+		level = 2;
+		for (index = 0; index < FOVEATION_LEVEL_COUNT; index++)
+		{
+			if (name && !strcmp(name, foveation_levels[index].name))
+				level = index;
+		}
+	}
+	return level;
+}
+
+/* each eye's focal point and falloff, for this frame's eyes' targets */
+static void foveation_update(void)
+{
+	int level = foveation_level();
+	float focal[HALO_XR_EYE_COUNT][2];
+	int eye;
+
+	if (!d3d8_foveation_supported())
+	{
+		if (!vr.foveation_logged)
+		{
+			platform_log("VR: no foveation (the GPU has no GL_QCOM_texture_foveated)");
+			vr.foveation_logged = 1;
+		}
+		return;
+	}
+	for (eye = 0; eye < HALO_XR_EYE_COUNT; eye++)
+	{
+		const struct halo_xr_view *view = &vr.frame.views[eye];
+		float width = view->tangent_right - view->tangent_left;
+		float height = view->tangent_up - view->tangent_down;
+
+		focal[eye][0] = width > 0.0f ? -(view->tangent_left + view->tangent_right) / width : 0.0f;
+		focal[eye][1] = height > 0.0f ? (view->tangent_up + view->tangent_down) / height : 0.0f;
+		d3d8_foveation_parameters(eye, focal[eye][0], focal[eye][1], foveation_levels[level].gain,
+			foveation_levels[level].area, foveation_levels[level].minimum_density);
+	}
+	if (vr.foveation_logged != level + 1)
+	{
+		platform_log("VR: foveation %s (gain %.1f, area %.1f, least density %.3f); lens centres at "
+			"(%.2f, %.2f) and (%.2f, %.2f)", foveation_levels[level].name, foveation_levels[level].gain,
+			foveation_levels[level].area, foveation_levels[level].minimum_density, focal[0][0], focal[0][1],
+			focal[1][0], focal[1][1]);
+		vr.foveation_logged = level + 1;
+	}
+}
+
+int halo_vr_foveation_supported(void)
+{
+	return vr.active && d3d8_foveation_supported();
 }
 
 /* ---------- both eyes at once (vr.multiview)
@@ -2047,6 +2147,7 @@ void halo_vr_center_camera(const float game_position[3], float position[3], floa
 			resolve_rect[eye][2] = (views[eye].tangent_right - left) / (right - left);
 			resolve_rect[eye][3] = (top - views[eye].tangent_down) / (top - down);
 		}
+		foveation_update();
 		multiview_drawing = d3d8_multiview_begin(rows, resolve_rect);
 	}
 }
@@ -2096,6 +2197,9 @@ void halo_vr_capture_eye(int eye)
 		return;
 	if (vr_copied(host_xr_copy_layer(HALO_XR_LAYER_EYE_LEFT + eye, d3d8_back_buffer_texture(), 1)))
 		vr.eyes_captured |= 1 << eye;
+	/* (what is drawn into the back buffer next at full detail; after the
+	copy, which ends the eye's drawing into it) */
+	d3d8_foveation_eye(-1);
 	if (eye == HALO_XR_EYE_COUNT - 1 && vr.eyes_start_us)
 		vr.eyes_us += now_us() - vr.eyes_start_us;
 }
@@ -2104,6 +2208,7 @@ void halo_vr_begin_overlay(int menus_active)
 {
 	if (!vr.active)
 		return;
+	d3d8_foveation_eye(-1);
 	d3d8_clear_back_buffer(0.0f, 0.0f, 0.0f, 0.0f);
 	vr.overlay_mode = menus_active ? HALO_XR_OVERLAY_SCREEN : HALO_XR_OVERLAY_HEAD_LOCKED;
 	vr.overlay_blend = 1;
@@ -3315,6 +3420,7 @@ int halo_vr_controller_layout(void) { return 0; }
 int halo_vr_weapon_hand(void) { return 1; }
 int halo_vr_action_input(int action) { return action; }
 int halo_vr_graphics(void) { return HALO_VR_GRAPHICS_HIGH; }
+int halo_vr_foveation_supported(void) { return 0; }
 int halo_vr_refresh_rates(float *rates, int maximum, float *current)
 {
 	(void)rates; (void)maximum; *current = 0.0f;

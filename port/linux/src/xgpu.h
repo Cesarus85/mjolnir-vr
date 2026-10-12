@@ -29,6 +29,12 @@ struct xgpu_capabilities
 	const char *shading_language;
 	/* GL_OVR_multiview2: both eyes in one draw (VR, d3d8_multiview_begin) */
 	BOOL multiview;
+	/* the app's (HALO_ANDROID): GL_QCOM_texture_foveated, for the eyes'
+	targets (d3d8_foveation_parameters); GL_KHR_parallel_shader_compile,
+	and the program binary formats the driver has (xgpu_program_cache.c) */
+	BOOL foveation;
+	BOOL parallel_compile;
+	int program_binary_formats;
 };
 
 extern struct xgpu_capabilities xgpu_capabilities;
