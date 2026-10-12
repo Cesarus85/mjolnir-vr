@@ -116,7 +116,7 @@ restart. The controller buttons page shows the layout as set.
 | --- | --- |
 | `vr.handedness` | `"right"` (default), `"left"` |
 | `vr.mirror_controls` | `true` (default): sticks and buttons mirrored when left-handed; `false`: as right-handed (triggers and grips still follow the hands) |
-| `vr.graphics` | `"low"`, `"medium"`, `"high"` (default), `"max"` |
+| `vr.graphics` | `"auto"` (default, branch `fix/vr-frame-hitches`), `"low"`, `"medium"`, `"high"`, `"max"` |
 | `vr.foveation` | `"off"` (default), `"low"`, `"medium"` (the Quest only; branch `fix/vr-frame-hitches`) |
 | `vr.refresh_rate` | Hz, as offered (Quest 3: 72, 80, 90, 120) |
 | `vr.resolution_scale` | 0.7 to 1.2, on restart |
@@ -423,6 +423,29 @@ What the branch has:
 | Warm-up | `debug.shader_warm_up`: "worker" (default: each program drawn with once on the worker into a small target of the eyes' kinds), "load" (the map's programs drawn with on the game's thread as it loads), "off" |
 | Menus | The PC menus' pictures decoded on a thread of their own, drawn transparent for the frames that takes |
 
+Second Quest test (latest build): the worker works, no long frame after the
+map's first frames (245 ms and 72 ms there, each one draw of 67-75 ms with
+vertex program 4). But doubled pictures in spells of seconds with the GPU
+at 9-13 ms a frame (GPU% 0.91-0.94, 4-37 stale frames a second), 5-7 ms in
+between: "high" is too much for 90 Hz in heavy scenes, "medium" holds.
+Hence:
+
+| Part | What |
+| --- | --- |
+| Graphics "auto" | `vr.graphics = "auto"`, the new default (Graphics row: Auto): "high" while the GPU keeps up. Past 4/5 of the frame (8.9 ms at 90 Hz) for a quarter second it leaves out the next steps (shield glow, shadows, reflections, specular light, lens flares, bump maps, the rest of "low"), as many as their learnt costs say; brings one back once GPU time + its cost stays under 7/10 of the frame for 3 s (longer if it had to go again within 10 s). Logs `VR graphics auto: shadows left out (step 2): the GPU 10.2 ms a frame of 11.1`, `... saved 1.9 ms`, `... back`. On the Steam Frame (no GPU time from SteamVR) "auto" is "high" |
+| Measuring | `debug.vr_graphics_measure = true`: each effect left out in turn (1.5 s on, 1.5 s off), `VR graphics measure: shadows 2.10 ms (...)` and means each round |
+
+What the effects cost, from the code (to be measured with the option above):
+object shadows are drawn once a frame with multiview (the scene is drawn
+once), twice one eye at a time; each shadow-casting object (every bot, its
+weapon, vehicles) renders its map, blurs it and projects it onto the level
+beneath: a pass of fill on both eyes per object. Reflections and specular
+light are passes over the level's geometry. The shield's glow
+(`display.shield_glow`, off by default) is a dynamic light per flaring unit
+(at most 8), each lighting the level's surfaces in its reach once more, not
+a pass per object; upstream's shield colour on the arms only changes a
+colour. The whole body adds the player's own model and its shadow.
+
 Not done, and why:
 - Drawing the eyes straight into the swapchain: moot now (GPU not the
   bottleneck); it needs GL_EXT_sRGB_write_control, the vignette as a pass
@@ -431,7 +454,28 @@ Not done, and why:
   their mipmaps.
 - Later: XR_KHR_visibility_mask.
 
-### Headset test (Quest 3)
+### Headset test, graphics "auto" (Quest 3)
+
+1. VR options, MORE: Graphics **Auto** (a `config.toml` written before
+   still says "high"), Foveation Off; `vr.log_performance = true`.
+2. Log at start: `xr: performance metrics on (... the app's GPU time read)`,
+   `VR: graphics auto`.
+3. 15-bot match on Blood Gulch, a few minutes, also into the busy middle:
+   - `VR graphics auto: ... left out (step N): the GPU X ms` within a
+     quarter to half a second of a heavy spell, `... saved Y ms`, and
+     `... back` a few seconds after it.
+   - VrApi: `Stale=` 0 nearly every second (at most a few in the second a
+     spell begins), no `ASW=1` spells; App GPU under about 9 ms.
+   - Look for effects that pop: shadows going and coming back. If they
+     change more than every ten seconds or so, note the log lines.
+4. Costs: a second match with `debug.vr_graphics_measure = true` (Graphics
+   setting ignored meanwhile; stand somewhere busy, a few minutes):
+   `VR graphics measure: means (ms of GPU a frame): shadows ...;
+   reflections ...`. The steps' order should follow the largest costs.
+5. The first frames of a map (245/72 ms, vertex program 4): try
+   `debug.shader_warm_up = "load"` once and compare those lines.
+
+### Headset test, shader worker (Quest 3)
 
 Before: `adb logcat -G 16M` (again after any reboot); in `config.toml`
 `vr.log_performance = true`, 90 Hz, graphics "high", multiview, full body;
