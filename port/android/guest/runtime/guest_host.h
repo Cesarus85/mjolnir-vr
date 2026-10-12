@@ -116,6 +116,23 @@ void host_gl_wait_frame(unsigned int slot);
 reads a snapshot once its frame is finished */
 void host_gl_counters_snapshot(unsigned int buffer, unsigned int size, unsigned int slot);
 int host_gl_counters_read(unsigned int slot, void *out, unsigned int size);
+/* the shader programs' worker (port/android/host/host_gl_worker.c), for
+port/linux/src/xgpu_program_cache.c: started on the game's thread with its
+context current (1: running); a program asked for (its binary tried first,
+else its sources compiled; urgent: a draw waits for it), a job's number or
+0; hurried along; polled (1 done: *program, its kept binary's size, the
+time it took; 0 not yet; -1 failed); its kept binary copied out; the job
+forgotten; how many jobs are not done; and a warm-up draw with a program on
+the calling thread's context */
+int host_gl_worker_start(int warm_up);
+unsigned int host_gl_program_request(int urgent, const char *vertex_source, const char *fragment_source,
+	unsigned int binary_format, const void *binary, unsigned int binary_size, int keep_binary);
+void host_gl_program_hurry(unsigned int id);
+int host_gl_program_poll(unsigned int id, unsigned int *program, unsigned int *binary_size, unsigned int *microseconds);
+unsigned int host_gl_program_binary(unsigned int id, void *buffer, unsigned int size, unsigned int *format);
+void host_gl_program_release(unsigned int id);
+unsigned int host_gl_worker_waiting(void);
+void host_gl_program_warm_up(unsigned int program, int multiview);
 
 /* ---------- OpenXR (port/android/host/host_xr.c; the structures are in
 halo_xr_abi.h) */

@@ -98,9 +98,16 @@ with binary formats) */
 BOOL xgpu_program_cache_enabled(void);
 unsigned long long xgpu_program_key(unsigned long long vertex_hash, unsigned long long fragment_hash);
 unsigned long long xgpu_source_hash(const char *source);
-/* a linked program of these sources, made ready as the map loaded or read
-from the cache, or 0 */
-GLuint xgpu_program_cache_find(unsigned long long key, const char *vertex_source, const char *fragment_source);
+/* the program of these sources: made (*program), being made (a draw that
+needs it is left out for now), or to make here (XGPU_PROGRAM_NONE) */
+enum
+{
+	XGPU_PROGRAM_NONE,
+	XGPU_PROGRAM_READY,
+	XGPU_PROGRAM_WAITING,
+};
+int xgpu_program_cache_take(unsigned long long key, const char *vertex_source, const char *fragment_source,
+	GLuint *program);
 /* a program just linked from these sources, written to the cache */
 void xgpu_program_cache_store(unsigned long long key, GLuint program, const char *vertex_source,
 	const char *fragment_source);
@@ -108,9 +115,13 @@ void xgpu_program_cache_store(unsigned long long key, GLuint program, const char
 program as xgpu_program_map_serial changes (a new map) */
 void xgpu_program_cache_used(unsigned long long key);
 extern unsigned long xgpu_program_map_serial;
-/* each frame: programs compiling in the background, and the map's list */
+/* each frame: other maps' programs asked for, the worker's results, the
+lists */
 void xgpu_program_cache_frame(void);
 #endif
+/* the headset's copy, or anything else, left GL as it drew: all set again
+(d3d8_gl.c) */
+void d3d8_host_state_changed(void);
 
 /* ---------- generated source text */
 

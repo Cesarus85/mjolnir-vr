@@ -181,6 +181,12 @@ static const struct config_setting config_settings[] =
 		"file, and make ready those a map drew with while it loads: fewer\n"
 		"stalls the first time something is drawn. false compiles each the first\n"
 		"time it is drawn. The folder may be deleted at any time." },
+	{ "display.shader_worker", _config_boolean, "true", "HALO_SHADER_WORKER", _environment_value, _platform_android,
+		"Make the shader programs on a thread of their own (with a GL context\n"
+		"sharing the game's), from the shader cache or compiled: a draw whose\n"
+		"program is not made yet is left out for the frames it takes, and the\n"
+		"frame does not wait. false makes each on the game's thread when it is\n"
+		"first drawn with. Read when the app starts." },
 
 	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
 		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"
@@ -775,6 +781,13 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.shader_warm_up", _config_string, "\"worker\"", "HALO_SHADER_WARM_UP", _environment_value,
+		_platform_android,
+		"Each shader program made on the worker (display.shader_worker) is drawn\n"
+		"with once there, into a small target of its own, so that the driver\n"
+		"makes what it makes at a first draw then and not in a frame: \"worker\";\n"
+		"\"load\" draws with a map's programs on the game's thread as the map\n"
+		"loads instead; \"off\" draws with none. Read when the app starts." },
 	{ "debug.vr_options", _config_boolean, "false", "HALO_DEBUG_VR_OPTIONS", _environment_value, _platform_android,
 		"Off the headset (the emulator), show the VR options panel on the main\n"
 		"and pause menus all the same, for checking its pages." },

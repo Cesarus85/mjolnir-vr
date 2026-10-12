@@ -1,27 +1,31 @@
 /*
 XGPU_PROGRAM_CACHE.C
 
-The shader programs' binary cache, and their making ready as a map loads
-(the Android app). Its drivers compile a program the first time it is drawn
-with, in 10 to 30 ms on the Quest's, which the frame waits for; in VR such a
-frame is shown late, the picture doubled as the head turns, and a map's
-first seconds and its end (the scores' screen) compiled dozens at once.
+The shader programs' binary cache, their making on a thread of their own,
+and their making ready as a map loads (the Android app). Its drivers compile
+a program the first time it is drawn with, 10 to 70 ms on the Quest's, which
+the frame waited for: in VR a frame shown late, the picture doubled as the
+head turns; a map's first seconds, a weapon or effect first seen and the
+scores' screen compiled dozens at once.
 
-- A program linked (d3d8_gl.c program_make) is written to shader_cache in
-  the data folder: its binary (glGetProgramBinary), the driver that made it
-  (a hash of GL_RENDERER and GL_VERSION) and its two shaders' sources, in a
-  file named by the sources' hash (xgpu_program_key).
-- Asked for again, in this run or a later one, the file's binary is loaded
-  (glProgramBinary) instead: when the driver is the one that made it, the
-  file is whole (its sizes and checksum) and its sources are the ones asked
-  for. Anything else, and the program is compiled and linked as before, its
-  file written again.
+- A program linked is written to shader_cache in the data folder: its
+  binary (glGetProgramBinary), the driver that made it (a hash of
+  GL_RENDERER and GL_VERSION) and its two shaders' sources, in a file named
+  by the sources' hash (xgpu_program_key). A file is used again when the
+  driver is the one that made it, the file is whole (its sizes and
+  checksum) and its sources are the ones asked for.
+- The programs are made on the worker (port/android/host/host_gl_worker.c:
+  a thread whose GL context shares the game's): loaded from the file's
+  binary, or compiled from the sources (the driver refused the binary, or
+  there was none), and drawn with once there to warm them up. A draw whose
+  program is not made yet is left out (d3d8_gl.c) until it is, a frame or a
+  few later, and the frame does not wait. display.shader_worker false, or a
+  context that cannot share, makes them on the game's thread as before.
 - Each map keeps the list of the programs it drew with (shader_cache/maps/
-  <map>.txt, written as it goes and as it ends). As the map loads
-  (game_initialize_for_new_map, before its first frame) the programs listed
-  are made ready: loaded from their binaries, or (after a driver update)
-  compiled again from the sources in their files, in the background where
-  the driver has GL_KHR_parallel_shader_compile, else up to a time limit.
+  <map>.txt), and all maps together one more (shader_cache/all.txt). As a
+  map loads (game_initialize_for_new_map), its own programs are asked of the
+  worker, then everyone else's a few a frame: a map first played, or a
+  weapon first fired, mostly finds its programs made already.
 
 display.shader_cache false leaves it all out. A file the cache cannot use is
 passed over; the folder may be deleted at any time.
@@ -36,10 +40,12 @@ passed over; the folder may be deleted at any time.
 /* (the folder through posix_files.c's helpers: struct stat and struct
 dirent have the platform layer's own) */
 #include "posix.h"
+#include "guest_host.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* "RPC1" */
 #define PROGRAM_FILE_MAGIC 0x31435052u
@@ -53,13 +59,20 @@ change with the app's versions: old files are never asked for again) */
 #define CACHE_MAXIMUM_BYTES (192ul << 20)
 #define CACHE_MAXIMUM_FILES 12000ul
 #define MAXIMUM_LISTED_PROGRAMS 8192ul
-#define READY_BUCKETS 1024
-/* the map's list is written this often while it has new programs */
+#define JOB_BUCKETS 1024
+/* the lists are written this often while they grow */
 #define LIST_WRITE_MICROSECONDS 20000000ull
-/* without background compiling, how long a map's load may compile */
+/* without the worker, how long a map's load may compile */
 #define PREWARM_COMPILE_MICROSECONDS 2000000ull
-/* programs compiled in the background whose binaries a frame writes */
+/* each frame: the other maps' programs asked of the worker, the jobs looked
+at, and the binaries of those it compiled written */
+#define REQUESTS_A_FRAME 8
+#define POLLS_A_FRAME 16
 #define WRITES_A_FRAME 2
+/* debug.shader_warm_up "load": how long a map's load waits for its programs,
+and draws with them */
+#define LOAD_WAIT_MICROSECONDS 3000000ull
+#define LOAD_WARM_UP_MICROSECONDS 3000000ull
 
 struct program_file_header
 {
@@ -76,18 +89,30 @@ struct program_file_header
 	unsigned int reserved;
 };
 
-/* a program made ready as its map loaded, until it is asked for */
-struct ready_program
+/* a program asked for (of the worker, or made here as a map loaded), until
+the renderer takes it */
+enum
 {
-	struct ready_program *next;
+	JOB_WAITING,
+	JOB_READY,
+	JOB_FAILED,
+};
+
+struct program_job
+{
+	struct program_job *next;
 	unsigned long long key;
+	/* the worker's number (0: made here) */
+	unsigned int id;
+	int state;
 	GLuint program;
-	/* compiled from its file's sources (another driver): its shaders, and
-	the sources for its file once linked */
-	GLuint shaders[2];
+	/* a draw waits for it; and it was hurried along */
+	BOOL urgent, hurried;
+	/* its vertex program draws both eyes at once (debug.shader_warm_up
+	"load": the target it is warmed up in) */
+	BOOL multiview;
+	/* the sources, for the file of a program the worker compiled */
 	char *sources[2];
-	/* still linking in the background (GL_KHR_parallel_shader_compile) */
-	BOOL compiling;
 };
 
 /* a set of keys (open addressing; 0 is no key) */
@@ -108,19 +133,31 @@ static struct
 	unsigned long files;
 	BOOL full_logged;
 
-	struct ready_program *ready[READY_BUCKETS];
-	unsigned long compiling;
-	/* the programs the renderer has (found or stored here) */
+	/* the worker runs (host_gl_worker.c), and how programs are warmed up */
+	BOOL worker;
+	int warm_up;
+	struct program_job *jobs[JOB_BUCKETS];
+	/* the jobs the worker has not finished, looked at a few a frame */
+	struct program_job **waiting;
+	unsigned long waiting_count, waiting_capacity, waiting_next;
+	/* the programs the renderer has (taken or stored here) */
 	struct key_set linked;
+	/* the other maps' programs still to ask for (as the map loaded) */
+	unsigned long long *requests;
+	unsigned long request_count, request_next, request_capacity;
 
 	/* the map loaded (a file name), the programs it drew with or listed */
 	char map[96];
 	struct key_set used;
 	BOOL used_changed;
+	/* every map's (all.txt) */
+	struct key_set all;
+	BOOL all_changed;
 	unsigned long long list_written_us;
 
-	/* for the log: since the map loaded; binaries the driver refused */
-	unsigned long found_ready, found_file, stored;
+	/* for the log: since the map loaded (asked for, taken made, of them
+	compiled by the worker, read and stored here); binaries refused here */
+	unsigned long requested, found_ready, compiled, found_file, stored;
 	unsigned long refused;
 } cache;
 
@@ -235,11 +272,6 @@ static void program_path(char *path, size_t size, unsigned long long key)
 	snprintf(path, size, "%s/%016llx.bin", cache.folder, key);
 }
 
-static void list_path(char *path, size_t size, const char *map)
-{
-	snprintf(path, size, "%s/maps/%s.txt", cache.folder, map);
-}
-
 /* a program's file, whole, or NULL: header, then the vertex and fragment
 sources and the binary (free() it) */
 static unsigned char *program_file_read(unsigned long long key, struct program_file_header *header)
@@ -276,15 +308,13 @@ static unsigned char *program_file_read(unsigned long long key, struct program_f
 	return data;
 }
 
-/* written whole under another name, then renamed over the old one */
-static BOOL program_file_write(unsigned long long key, GLuint program, const char *vertex_source,
-	const char *fragment_source)
+/* a program's file: its sources and binary, written whole under another
+name, then renamed over the old one */
+static BOOL program_file_write(unsigned long long key, unsigned int format, const void *binary, unsigned int size,
+	const char *vertex_source, const char *fragment_source)
 {
 	struct program_file_header header;
 	char path[600], temporary[640];
-	GLint length = 0;
-	GLsizei written = 0;
-	GLenum format = 0;
 	size_t vertex_size = strlen(vertex_source), fragment_size = strlen(fragment_source);
 	unsigned char *data;
 	FILE *file;
@@ -298,23 +328,14 @@ static BOOL program_file_write(unsigned long long key, GLuint program, const cha
 		cache.full_logged = TRUE;
 		return FALSE;
 	}
-	glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
-	if (length <= 0 || (unsigned long)length > MAXIMUM_BINARY_SIZE || vertex_size > MAXIMUM_SOURCE_SIZE ||
-		fragment_size > MAXIMUM_SOURCE_SIZE)
-	{
+	if (!size || size > MAXIMUM_BINARY_SIZE || vertex_size > MAXIMUM_SOURCE_SIZE || fragment_size > MAXIMUM_SOURCE_SIZE)
 		return FALSE;
-	}
-	data = malloc(vertex_size + fragment_size + (size_t)length);
+	data = malloc(vertex_size + fragment_size + size);
 	if (!data)
 		return FALSE;
 	memcpy(data, vertex_source, vertex_size);
 	memcpy(data + vertex_size, fragment_source, fragment_size);
-	glGetProgramBinary(program, length, &written, &format, data + vertex_size + fragment_size);
-	if (written <= 0 || written > length)
-	{
-		free(data);
-		return FALSE;
-	}
+	memcpy(data + vertex_size + fragment_size, binary, size);
 	memset(&header, 0, sizeof(header));
 	header.magic = PROGRAM_FILE_MAGIC;
 	header.version = PROGRAM_FILE_VERSION;
@@ -322,16 +343,16 @@ static BOOL program_file_write(unsigned long long key, GLuint program, const cha
 	header.driver[1] = (unsigned int)(cache.driver >> 32);
 	header.key[0] = (unsigned int)key;
 	header.key[1] = (unsigned int)(key >> 32);
-	header.binary_format = (unsigned int)format;
-	header.binary_size = (unsigned int)written;
+	header.binary_format = format;
+	header.binary_size = size;
 	header.vertex_size = (unsigned int)vertex_size;
 	header.fragment_size = (unsigned int)fragment_size;
-	header.checksum = checksum(data, vertex_size + fragment_size + (size_t)written);
+	header.checksum = checksum(data, vertex_size + fragment_size + size);
 	program_path(path, sizeof(path), key);
 	snprintf(temporary, sizeof(temporary), "%s.new", path);
 	file = fopen(temporary, "wb");
 	ok = file && fwrite(&header, sizeof(header), 1, file) == 1 &&
-		fwrite(data, 1, vertex_size + fragment_size + (size_t)written, file) == vertex_size + fragment_size + (size_t)written;
+		fwrite(data, 1, vertex_size + fragment_size + size, file) == vertex_size + fragment_size + size;
 	if (file && fclose(file) != 0)
 		ok = FALSE;
 	ok = ok && rename(temporary, path) == 0;
@@ -340,9 +361,29 @@ static BOOL program_file_write(unsigned long long key, GLuint program, const cha
 	else
 	{
 		cache.files++;
-		cache.bytes += sizeof(header) + vertex_size + fragment_size + (size_t)written;
+		cache.bytes += sizeof(header) + vertex_size + fragment_size + size;
 	}
 	free(data);
+	return ok;
+}
+
+/* the same for a program linked on this thread */
+static BOOL program_file_write_linked(unsigned long long key, GLuint program, const char *vertex_source,
+	const char *fragment_source)
+{
+	GLint length = 0;
+	GLsizei written = 0;
+	GLenum format = 0;
+	void *binary;
+	BOOL ok;
+
+	glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
+	if (length <= 0 || (unsigned long)length > MAXIMUM_BINARY_SIZE || (binary = malloc((size_t)length)) == NULL)
+		return FALSE;
+	glGetProgramBinary(program, length, &written, &format, binary);
+	ok = written > 0 && written <= length &&
+		program_file_write(key, (unsigned int)format, binary, (unsigned int)written, vertex_source, fragment_source);
+	free(binary);
 	return ok;
 }
 
@@ -383,30 +424,31 @@ static GLuint program_from_binary(unsigned int format, const void *binary, unsig
 	return program;
 }
 
-/* ---------- the map's list */
+/* ---------- the lists */
 
-static void list_write(void)
+static void list_path(char *path, size_t size, const char *name)
+{
+	snprintf(path, size, "%s/%s.txt", cache.folder, name);
+}
+
+static void list_write(const char *name, const struct key_set *set)
 {
 	char path[600], temporary[640];
 	FILE *file;
 	unsigned long index, written = 0;
 	BOOL ok;
 
-	if (!cache.map[0] || !cache.used_changed)
-		return;
-	cache.used_changed = FALSE;
-	cache.list_written_us = xgpu_shader_work_now_us();
-	list_path(path, sizeof(path), cache.map);
+	list_path(path, sizeof(path), name);
 	snprintf(temporary, sizeof(temporary), "%s.new", path);
 	file = fopen(temporary, "w");
 	if (!file)
 		return;
-	ok = fprintf(file, "# shader programs %s drew with (xgpu_program_cache.c)\n", cache.map) > 0;
-	for (index = 0; ok && index < cache.used.capacity && written < MAXIMUM_LISTED_PROGRAMS; index++)
+	ok = fprintf(file, "# shader programs drawn with (xgpu_program_cache.c)\n") > 0;
+	for (index = 0; ok && index < set->capacity && written < MAXIMUM_LISTED_PROGRAMS; index++)
 	{
-		if (cache.used.keys[index])
+		if (set->keys[index])
 		{
-			ok = fprintf(file, "%016llx\n", cache.used.keys[index]) > 0;
+			ok = fprintf(file, "%016llx\n", set->keys[index]) > 0;
 			written++;
 		}
 	}
@@ -416,16 +458,16 @@ static void list_write(void)
 		remove(temporary);
 }
 
-static void list_read(void)
+static void list_read(const char *name, struct key_set *set)
 {
 	char path[600], line[64];
 	FILE *file;
 
-	list_path(path, sizeof(path), cache.map);
+	list_path(path, sizeof(path), name);
 	file = fopen(path, "r");
 	if (!file)
 		return;
-	while (fgets(line, sizeof(line), file) && cache.used.count < MAXIMUM_LISTED_PROGRAMS)
+	while (fgets(line, sizeof(line), file) && set->count < MAXIMUM_LISTED_PROGRAMS)
 	{
 		char *end = NULL;
 		unsigned long long key;
@@ -434,80 +476,93 @@ static void list_read(void)
 			continue;
 		key = strtoull(line, &end, 16);
 		if (end && end - line == 16)
-			key_set_add(&cache.used, key);
+			key_set_add(set, key);
 	}
 	fclose(file);
 }
 
-/* ---------- making a map's programs ready */
-
-static void ready_add(struct ready_program *ready)
+/* the map's list and every map's, where they grew */
+static void lists_write(void)
 {
-	struct ready_program **bucket = &cache.ready[ready->key % READY_BUCKETS];
+	char name[128];
 
-	ready->next = *bucket;
-	*bucket = ready;
-	if (ready->compiling)
-		cache.compiling++;
+	cache.list_written_us = xgpu_shader_work_now_us();
+	if (cache.map[0] && cache.used_changed)
+	{
+		snprintf(name, sizeof(name), "maps/%s", cache.map);
+		list_write(name, &cache.used);
+	}
+	if (cache.all_changed)
+		list_write("all", &cache.all);
+	cache.used_changed = cache.all_changed = FALSE;
 }
 
-static struct ready_program *ready_take(unsigned long long key)
+/* ---------- jobs */
+
+static struct program_job *job_find(unsigned long long key)
 {
-	struct ready_program **link;
+	struct program_job *job;
 
-	for (link = &cache.ready[key % READY_BUCKETS]; *link; link = &(*link)->next)
+	for (job = cache.jobs[key % JOB_BUCKETS]; job; job = job->next)
 	{
-		struct ready_program *ready = *link;
-
-		if (ready->key == key)
-		{
-			*link = ready->next;
-			if (ready->compiling)
-				cache.compiling--;
-			return ready;
-		}
+		if (job->key == key)
+			return job;
 	}
 	return NULL;
 }
 
-static BOOL ready_has(unsigned long long key)
+static void waiting_remove(struct program_job *job)
 {
-	struct ready_program *ready;
+	unsigned long index;
 
-	for (ready = cache.ready[key % READY_BUCKETS]; ready; ready = ready->next)
+	for (index = 0; index < cache.waiting_count; index++)
 	{
-		if (ready->key == key)
-			return TRUE;
+		if (cache.waiting[index] == job)
+		{
+			cache.waiting[index] = cache.waiting[--cache.waiting_count];
+			return;
+		}
 	}
-	return FALSE;
 }
 
-static void ready_free(struct ready_program *ready, BOOL delete_program)
+static struct program_job *job_add(unsigned long long key)
 {
-	if (ready->shaders[0])
-		glDeleteShader(ready->shaders[0]);
-	if (ready->shaders[1])
-		glDeleteShader(ready->shaders[1]);
-	if (delete_program && ready->program)
-		glDeleteProgram(ready->program);
-	free(ready->sources[0]);
-	free(ready->sources[1]);
-	free(ready);
+	struct program_job *job = calloc(1, sizeof(*job));
+
+	if (!job)
+		return NULL;
+	job->key = key;
+	job->next = cache.jobs[key % JOB_BUCKETS];
+	cache.jobs[key % JOB_BUCKETS] = job;
+	return job;
 }
 
-/* a shader of a file's source, compiling (not waited for) */
-static GLuint shader_from_source(GLenum type, const char *source)
+/* taken by the renderer or given up: forgotten (the program stays, the
+renderer's) */
+static void job_remove(struct program_job *job)
 {
-	GLuint shader = glCreateShader(type);
+	struct program_job **link;
 
-	glShaderSource(shader, 1, &source, NULL);
-	glCompileShader(shader);
-	return shader;
+	for (link = &cache.jobs[job->key % JOB_BUCKETS]; *link; link = &(*link)->next)
+	{
+		if (*link == job)
+		{
+			*link = job->next;
+			break;
+		}
+	}
+	if (job->state == JOB_WAITING)
+		waiting_remove(job);
+	if (job->id)
+		host_gl_program_release(job->id);
+	free(job->sources[0]);
+	free(job->sources[1]);
+	free(job);
 }
 
-static char *text_copy(const unsigned char *data, unsigned int size)
+static char *text_copy(const void *data, size_t size)
 {
-	char *text = malloc((size_t)size + 1);
+	char *text = malloc(size + 1);
 
 	if (text)
 	{
@@ -517,87 +572,222 @@ static char *text_copy(const unsigned char *data, unsigned int size)
 	return text;
 }
 
-/* ready: loaded from the file's binary, or compiled from its sources (in
-the background, or waited for while compile_until_us has not passed);
-returns 1 loaded, 2 compiling, 3 compiled, 0 not */
-static int program_prepare(unsigned long long key, unsigned long long compile_until_us)
+/* the worker asked for the program of this key: its file's binary where
+the driver is the one that made it, and the sources (given, or the file's:
+a map's list names only the key) to compile where it is refused or there
+is none. NULL: no sources to make it from */
+static struct program_job *job_request(unsigned long long key, const char *vertex_source,
+	const char *fragment_source, BOOL urgent)
 {
 	struct program_file_header header;
 	unsigned char *data = program_file_read(key, &header);
-	struct ready_program *ready;
-	unsigned long long driver;
+	const unsigned char *binary = NULL;
+	struct program_job *job;
+	char *sources[2] = { NULL, NULL };
 
-	if (!data)
-		return 0;
-	ready = calloc(1, sizeof(*ready));
-	if (!ready)
+	if (data)
 	{
-		free(data);
-		return 0;
-	}
-	ready->key = key;
-	driver = (unsigned long long)header.driver[0] | ((unsigned long long)header.driver[1] << 32);
-	if (driver == cache.driver)
-	{
-		unsigned long long start = xgpu_shader_work_now_us();
+		const char *file_vertex = (const char *)data;
+		const char *file_fragment = (const char *)data + header.vertex_size;
+		unsigned long long driver = (unsigned long long)header.driver[0] | ((unsigned long long)header.driver[1] << 32);
+		/* (the sources compared too: the key is only their hash) */
+		BOOL same = !vertex_source || (header.vertex_size == strlen(vertex_source) &&
+			header.fragment_size == strlen(fragment_source) &&
+			memcmp(file_vertex, vertex_source, header.vertex_size) == 0 &&
+			memcmp(file_fragment, fragment_source, header.fragment_size) == 0);
 
-		ready->program = program_from_binary(header.binary_format,
-			data + header.vertex_size + header.fragment_size, header.binary_size);
-		if (ready->program)
+		if (same && !vertex_source)
 		{
-			xgpu_shader_work_add(TRUE, start);
-			free(data);
-			ready_add(ready);
-			return 1;
+			sources[0] = text_copy(file_vertex, header.vertex_size);
+			sources[1] = text_copy(file_fragment, header.fragment_size);
 		}
+		if (same && driver == cache.driver)
+			binary = data + header.vertex_size + header.fragment_size;
 	}
-	if (!xgpu_capabilities.parallel_compile && xgpu_shader_work_now_us() > compile_until_us)
+	if (vertex_source)
 	{
-		free(ready);
-		free(data);
-		return 0;
+		sources[0] = text_copy(vertex_source, strlen(vertex_source));
+		sources[1] = text_copy(fragment_source, strlen(fragment_source));
 	}
-	/* another driver: compiled again from the sources the file keeps */
-	ready->sources[0] = text_copy(data, header.vertex_size);
-	ready->sources[1] = text_copy(data + header.vertex_size, header.fragment_size);
+	if (!sources[0] || !sources[1] || (job = job_add(key)) == NULL)
+	{
+		free(sources[0]);
+		free(sources[1]);
+		free(data);
+		return NULL;
+	}
+	job->sources[0] = sources[0];
+	job->sources[1] = sources[1];
+	job->urgent = job->hurried = urgent;
+	job->multiview = strstr(sources[0], "GL_OVR_multiview") != NULL;
+	job->state = JOB_WAITING;
+	job->id = host_gl_program_request(urgent, sources[0], sources[1], binary ? header.binary_format : 0, binary,
+		binary ? header.binary_size : 0, TRUE);
 	free(data);
-	if (!ready->sources[0] || !ready->sources[1])
+	if (!job->id)
 	{
-		ready_free(ready, FALSE);
-		return 0;
+		job_remove(job);
+		return NULL;
 	}
+	if (cache.waiting_count == cache.waiting_capacity)
 	{
+		unsigned long capacity = cache.waiting_capacity ? cache.waiting_capacity * 2 : 256;
+		struct program_job **waiting = realloc(cache.waiting, capacity * sizeof(*waiting));
+
+		if (!waiting)
+		{
+			host_gl_program_release(job->id);
+			job->id = 0;
+			job_remove(job);
+			return NULL;
+		}
+		cache.waiting = waiting;
+		cache.waiting_capacity = capacity;
+	}
+	cache.waiting[cache.waiting_count++] = job;
+	cache.requested++;
+	return job;
+}
+
+/* whether the worker is done with it (and, for a program it compiled, its
+binary written to the file: *written) */
+static void job_poll(struct program_job *job, BOOL *written)
+{
+	unsigned int program = 0, binary_size = 0, microseconds = 0;
+	int result;
+
+	if (job->state != JOB_WAITING)
+		return;
+	result = host_gl_program_poll(job->id, &program, &binary_size, &microseconds);
+	if (!result)
+		return;
+	waiting_remove(job);
+	if (result < 0)
+	{
+		job->state = JOB_FAILED;
+		return;
+	}
+	job->state = JOB_READY;
+	job->program = program;
+	if (binary_size)
+	{
+		/* (compiled: the driver refused the file's binary, or there was
+		none) */
+		void *binary = malloc(binary_size);
+		unsigned int format = 0;
+
+		cache.compiled++;
+		if (binary && host_gl_program_binary(job->id, binary, binary_size, &format) == binary_size &&
+			program_file_write(job->key, format, binary, binary_size, job->sources[0], job->sources[1]) && written)
+		{
+			*written = TRUE;
+		}
+		free(binary);
+	}
+	free(job->sources[0]);
+	free(job->sources[1]);
+	job->sources[0] = job->sources[1] = NULL;
+	host_gl_program_release(job->id);
+	job->id = 0;
+}
+
+/* ---------- without the worker */
+
+/* the program of the file's binary, made here, or 0 */
+static GLuint program_from_file(unsigned long long key, const char *vertex_source, const char *fragment_source)
+{
+	struct program_file_header header;
+	unsigned char *data = program_file_read(key, &header);
+	GLuint program = 0;
+
+	if (data)
+	{
+		unsigned long long driver = (unsigned long long)header.driver[0] | ((unsigned long long)header.driver[1] << 32);
 		unsigned long long start = xgpu_shader_work_now_us();
 
-		ready->shaders[0] = shader_from_source(GL_VERTEX_SHADER, ready->sources[0]);
-		ready->shaders[1] = shader_from_source(GL_FRAGMENT_SHADER, ready->sources[1]);
-		ready->program = glCreateProgram();
-		glProgramParameteri(ready->program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
-		glAttachShader(ready->program, ready->shaders[0]);
-		glAttachShader(ready->program, ready->shaders[1]);
-		glLinkProgram(ready->program);
-		if (xgpu_capabilities.parallel_compile)
+		if (driver == cache.driver && header.vertex_size == strlen(vertex_source) &&
+			header.fragment_size == strlen(fragment_source) &&
+			memcmp(data, vertex_source, header.vertex_size) == 0 &&
+			memcmp(data + header.vertex_size, fragment_source, header.fragment_size) == 0)
 		{
-			ready->compiling = TRUE;
-			ready_add(ready);
-			return 2;
-		}
-		{
-			GLint status = 0;
-
-			glGetProgramiv(ready->program, GL_LINK_STATUS, &status);
-			xgpu_shader_work_add(FALSE, start);
-			if (!status)
+			program = program_from_binary(header.binary_format, data + header.vertex_size + header.fragment_size,
+				header.binary_size);
+			if (program)
 			{
-				ready_free(ready, TRUE);
-				return 0;
+				xgpu_shader_work_add(TRUE, start);
+				cache.found_file++;
 			}
 		}
+		free(data);
 	}
-	program_file_write(key, ready->program, ready->sources[0], ready->sources[1]);
-	ready_add(ready);
-	return 3;
+	return program;
 }
+
+static GLuint shader_from_source(GLenum type, const char *source)
+{
+	GLuint shader = glCreateShader(type);
+	GLint status = 0;
+
+	glShaderSource(shader, 1, &source, NULL);
+	glCompileShader(shader);
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+	if (!status)
+	{
+		glDeleteShader(shader);
+		return 0;
+	}
+	return shader;
+}
+
+/* a listed program made here as its map loads: from the file's binary, or
+compiled from its sources while compile_until_us has not passed */
+static BOOL job_make_here(unsigned long long key, unsigned long long compile_until_us)
+{
+	struct program_file_header header;
+	unsigned char *data = program_file_read(key, &header);
+	unsigned long long driver, start = xgpu_shader_work_now_us();
+	struct program_job *job;
+	GLuint program = 0;
+
+	if (!data)
+		return FALSE;
+	driver = (unsigned long long)header.driver[0] | ((unsigned long long)header.driver[1] << 32);
+	if (driver == cache.driver)
+		program = program_from_binary(header.binary_format, data + header.vertex_size + header.fragment_size,
+			header.binary_size);
+	if (program)
+		xgpu_shader_work_add(TRUE, start);
+	else if (xgpu_shader_work_now_us() < compile_until_us)
+	{
+		char *vertex = text_copy(data, header.vertex_size);
+		char *fragment = text_copy(data + header.vertex_size, header.fragment_size);
+		GLuint vertex_shader = vertex ? shader_from_source(GL_VERTEX_SHADER, vertex) : 0;
+		GLuint fragment_shader = vertex_shader && fragment ? shader_from_source(GL_FRAGMENT_SHADER, fragment) : 0;
+
+		if (fragment_shader)
+			program = xgpu_link_program(vertex_shader, fragment_shader, "cached");
+		if (vertex_shader)
+			glDeleteShader(vertex_shader);
+		if (fragment_shader)
+			glDeleteShader(fragment_shader);
+		if (program)
+			program_file_write_linked(key, program, vertex, fragment);
+		free(vertex);
+		free(fragment);
+	}
+	free(data);
+	if (!program || (job = job_add(key)) == NULL)
+	{
+		if (program)
+			glDeleteProgram(program);
+		return FALSE;
+	}
+	job->state = JOB_READY;
+	job->program = program;
+	return TRUE;
+}
+
+/* ---------- a map */
 
 static void map_name_set(const char *map_name)
 {
@@ -615,24 +805,69 @@ static void map_name_set(const char *map_name)
 	cache.map[length] = 0;
 }
 
+/* debug.shader_warm_up "load": the map's programs waited for (a while), and
+each drawn with once on this thread, the game's, before its first frame */
+static void load_warm_up(void)
+{
+	unsigned long long start = xgpu_shader_work_now_us();
+	unsigned long bucket, warmed = 0;
+
+	while (cache.waiting_count && xgpu_shader_work_now_us() - start < LOAD_WAIT_MICROSECONDS)
+	{
+		unsigned long index;
+
+		for (index = cache.waiting_count; index > 0; index--)
+			job_poll(cache.waiting[index - 1], NULL);
+		if (cache.waiting_count)
+		{
+			struct timespec pause = { 0, 2000000 };
+
+			nanosleep(&pause, NULL);
+		}
+	}
+	for (bucket = 0; bucket < JOB_BUCKETS; bucket++)
+	{
+		struct program_job *job;
+
+		for (job = cache.jobs[bucket]; job; job = job->next)
+		{
+			if (job->state != JOB_READY || xgpu_shader_work_now_us() - start > LOAD_WAIT_MICROSECONDS +
+				LOAD_WARM_UP_MICROSECONDS)
+			{
+				continue;
+			}
+			host_gl_program_warm_up(job->program, job->multiview);
+			warmed++;
+		}
+	}
+	d3d8_host_state_changed();
+	platform_log("shader cache: %lu programs drawn with once as the map loaded, in %.1f ms (%lu still compiling)",
+		warmed, (xgpu_shader_work_now_us() - start) * 1e-3f, cache.waiting_count);
+}
+
 void halo_shader_programs_map_loaded(char const *map_name)
 {
 	unsigned long long start, compile_until;
-	unsigned long index, listed = 0, results[4] = { 0, 0, 0, 0 };
+	unsigned long index, listed = 0, asked = 0, made = 0, missing = 0;
+	char name[128];
 
 	if (!cache.enabled)
 		return;
-	list_write();
+	lists_write();
 	xgpu_program_map_serial++;
 	key_set_clear(&cache.used);
-	cache.used_changed = FALSE;
 	map_name_set(map_name);
 	if (!cache.map[0])
 		return;
-	list_read();
-	cache.found_ready = cache.found_file = cache.stored = 0;
+	snprintf(name, sizeof(name), "maps/%s", cache.map);
+	list_read(name, &cache.used);
+	cache.used_changed = FALSE;
+	cache.requested = cache.found_ready = cache.compiled = cache.found_file = cache.stored = 0;
 	start = xgpu_shader_work_now_us();
 	compile_until = start + PREWARM_COMPILE_MICROSECONDS;
+	/* the map's own now; with the worker, every map's after them, a few a
+	frame (xgpu_program_cache_frame) */
+	cache.request_count = cache.request_next = 0;
 	for (index = 0; index < cache.used.capacity; index++)
 	{
 		unsigned long long key = cache.used.keys[index];
@@ -640,14 +875,39 @@ void halo_shader_programs_map_loaded(char const *map_name)
 		if (!key)
 			continue;
 		listed++;
-		if (key_set_has(&cache.linked, key) || ready_has(key))
+		if (key_set_has(&cache.linked, key) || job_find(key))
 			continue;
-		results[program_prepare(key, compile_until)]++;
+		if (cache.worker ? job_request(key, NULL, NULL, FALSE) != NULL : job_make_here(key, compile_until))
+			cache.worker ? asked++ : made++;
+		else
+			missing++;
 	}
-	platform_log("shader cache: %s: %lu programs listed; %lu loaded, %lu compiling in the background, "
-		"%lu compiled, %lu not ready (no file, or out of time), %lu there already, in %.1f ms", cache.map, listed,
-		results[1], results[2], results[3], results[0], listed - results[0] - results[1] - results[2] - results[3],
-		(xgpu_shader_work_now_us() - start) * 1e-3f);
+	if (cache.worker)
+	{
+		for (index = 0; index < cache.all.capacity; index++)
+		{
+			unsigned long long key = cache.all.keys[index];
+
+			if (!key || key_set_has(&cache.used, key) || key_set_has(&cache.linked, key) || job_find(key))
+				continue;
+			if (cache.request_count == cache.request_capacity)
+			{
+				unsigned long capacity = cache.request_capacity ? cache.request_capacity * 2 : 512;
+				unsigned long long *requests = realloc(cache.requests, capacity * sizeof(*requests));
+
+				if (!requests)
+					break;
+				cache.requests = requests;
+				cache.request_capacity = capacity;
+			}
+			cache.requests[cache.request_count++] = key;
+		}
+	}
+	platform_log("shader cache: %s: %lu programs listed; %lu asked of the worker, %lu made here, %lu not (no file, "
+		"or out of time), %lu there already; %lu of other maps to ask for; in %.1f ms", cache.map, listed, asked, made,
+		missing, listed - asked - made - missing, cache.request_count, (xgpu_shader_work_now_us() - start) * 1e-3f);
+	if (cache.worker && cache.warm_up == 2)
+		load_warm_up();
 	xgpu_gl_state_invalidate();
 }
 
@@ -655,9 +915,10 @@ void halo_shader_programs_map_disposed(void)
 {
 	if (!cache.enabled || !cache.map[0])
 		return;
-	platform_log("shader cache: %s: %lu programs drawn with were made ready as it loaded, %lu read from the "
-		"cache, %lu new ones kept", cache.map, cache.found_ready, cache.found_file, cache.stored);
-	list_write();
+	platform_log("shader cache: %s: %lu programs asked of the worker; %lu taken made (%lu of them compiled there); "
+		"%lu read from the cache here, %lu new ones kept", cache.map, cache.requested, cache.found_ready,
+		cache.compiled, cache.found_file, cache.stored);
+	lists_write();
 }
 
 /* ---------- the renderer's */
@@ -667,63 +928,51 @@ BOOL xgpu_program_cache_enabled(void)
 	return cache.enabled;
 }
 
-GLuint xgpu_program_cache_find(unsigned long long key, const char *vertex_source, const char *fragment_source)
+int xgpu_program_cache_take(unsigned long long key, const char *vertex_source, const char *fragment_source,
+	GLuint *program)
 {
-	struct ready_program *ready;
-	struct program_file_header header;
-	unsigned char *data;
-	GLuint program = 0;
+	struct program_job *job;
 
+	*program = 0;
 	if (!cache.enabled)
-		return 0;
-	ready = ready_take(key);
-	if (ready)
+		return XGPU_PROGRAM_NONE;
+	job = job_find(key);
+	if (job)
 	{
-		GLint status = 0;
-		unsigned long long start = xgpu_shader_work_now_us();
-
-		/* (one still compiling is waited for: sooner than starting again) */
-		glGetProgramiv(ready->program, GL_LINK_STATUS, &status);
-		if (status)
+		job_poll(job, NULL);
+		if (job->state == JOB_READY)
 		{
-			if (ready->compiling)
-				xgpu_shader_work_add(FALSE, start);
-			if (ready->sources[0])
-				program_file_write(key, ready->program, ready->sources[0], ready->sources[1]);
-			program = ready->program;
-			cache.found_ready++;
-		}
-		ready_free(ready, !status);
-		if (program)
-		{
+			*program = job->program;
+			job_remove(job);
 			key_set_add(&cache.linked, key);
-			return program;
+			cache.found_ready++;
+			/* (the long frames' "programs from the cache") */
+			xgpu_shader_work_add(TRUE, xgpu_shader_work_now_us());
+			return XGPU_PROGRAM_READY;
 		}
-	}
-	data = program_file_read(key, &header);
-	if (data)
-	{
-		unsigned long long driver = (unsigned long long)header.driver[0] | ((unsigned long long)header.driver[1] << 32);
-		unsigned long long start = xgpu_shader_work_now_us();
-
-		/* (the sources compared too: the key is only their hash) */
-		if (driver == cache.driver && header.vertex_size == strlen(vertex_source) &&
-			header.fragment_size == strlen(fragment_source) &&
-			memcmp(data, vertex_source, header.vertex_size) == 0 &&
-			memcmp(data + header.vertex_size, fragment_source, header.fragment_size) == 0)
+		if (job->state == JOB_WAITING)
 		{
-			program = program_from_binary(header.binary_format, data + header.vertex_size + header.fragment_size,
-				header.binary_size);
-			if (program)
+			/* (a map's program a draw needs now: before the others) */
+			if (!job->hurried)
 			{
-				xgpu_shader_work_add(TRUE, start);
-				key_set_add(&cache.linked, key);
-				cache.found_file++;
+				host_gl_program_hurry(job->id);
+				job->hurried = TRUE;
 			}
+			return XGPU_PROGRAM_WAITING;
 		}
-		free(data);
+		/* (the worker could not make it: here, to log why) */
+		job_remove(job);
+		return XGPU_PROGRAM_NONE;
 	}
-	return program;
+	if (cache.worker)
+		return job_request(key, vertex_source, fragment_source, TRUE) ? XGPU_PROGRAM_WAITING : XGPU_PROGRAM_NONE;
+	*program = program_from_file(key, vertex_source, fragment_source);
+	if (*program)
+	{
+		key_set_add(&cache.linked, key);
+		return XGPU_PROGRAM_READY;
+	}
+	return XGPU_PROGRAM_NONE;
 }
 
 void xgpu_program_cache_store(unsigned long long key, GLuint program, const char *vertex_source,
@@ -732,67 +981,58 @@ void xgpu_program_cache_store(unsigned long long key, GLuint program, const char
 	if (!cache.enabled)
 		return;
 	key_set_add(&cache.linked, key);
-	if (program_file_write(key, program, vertex_source, fragment_source))
+	if (program_file_write_linked(key, program, vertex_source, fragment_source))
 		cache.stored++;
 }
 
 void xgpu_program_cache_used(unsigned long long key)
 {
-	if (cache.enabled && cache.map[0] && cache.used.count < MAXIMUM_LISTED_PROGRAMS && key_set_add(&cache.used, key))
+	if (!cache.enabled || !cache.map[0])
+		return;
+	if (cache.used.count < MAXIMUM_LISTED_PROGRAMS && key_set_add(&cache.used, key))
 		cache.used_changed = TRUE;
+	if (cache.all.count < MAXIMUM_LISTED_PROGRAMS && key_set_add(&cache.all, key))
+		cache.all_changed = TRUE;
 }
 
 void xgpu_program_cache_frame(void)
 {
 	if (!cache.enabled)
 		return;
-	if (cache.compiling)
+	if (cache.worker)
 	{
-		/* those compiled in the background since: their binaries kept, a
-		few a frame */
-		unsigned long bucket;
-		int writes = 0;
+		BOOL written = FALSE;
+		int writes = 0, polls;
 
-		for (bucket = 0; bucket < READY_BUCKETS && writes < WRITES_A_FRAME; bucket++)
+		/* every map's programs asked for, a few a frame (a file read each) */
+		for (polls = 0; polls < REQUESTS_A_FRAME && cache.request_next < cache.request_count; cache.request_next++)
 		{
-			struct ready_program **link = &cache.ready[bucket];
+			unsigned long long key = cache.requests[cache.request_next];
 
-			while (*link && writes < WRITES_A_FRAME)
-			{
-				struct ready_program *ready = *link;
-				GLint done = 0, status = 0;
+			if (key_set_has(&cache.linked, key) || job_find(key))
+				continue;
+			job_request(key, NULL, NULL, FALSE);
+			polls++;
+		}
+		/* those the worker finished: the binaries of those it compiled
+		written, a few a frame */
+		for (polls = 0; polls < POLLS_A_FRAME && cache.waiting_count && writes < WRITES_A_FRAME; polls++)
+		{
+			struct program_job *job;
 
-				if (!ready->compiling)
-				{
-					link = &ready->next;
-					continue;
-				}
-				glGetProgramiv(ready->program, GL_COMPLETION_STATUS_KHR, &done);
-				if (!done)
-				{
-					link = &ready->next;
-					continue;
-				}
-				ready->compiling = FALSE;
-				cache.compiling--;
-				glGetProgramiv(ready->program, GL_LINK_STATUS, &status);
-				if (!status)
-				{
-					*link = ready->next;
-					ready_free(ready, TRUE);
-					continue;
-				}
-				program_file_write(ready->key, ready->program, ready->sources[0], ready->sources[1]);
-				free(ready->sources[0]);
-				free(ready->sources[1]);
-				ready->sources[0] = ready->sources[1] = NULL;
-				writes++;
-				link = &ready->next;
-			}
+			if (cache.waiting_next >= cache.waiting_count)
+				cache.waiting_next = 0;
+			job = cache.waiting[cache.waiting_next++];
+			written = FALSE;
+			job_poll(job, &written);
+			writes += written;
 		}
 	}
-	if (cache.used_changed && xgpu_shader_work_now_us() - cache.list_written_us > LIST_WRITE_MICROSECONDS)
-		list_write();
+	if ((cache.used_changed || cache.all_changed) &&
+		xgpu_shader_work_now_us() - cache.list_written_us > LIST_WRITE_MICROSECONDS)
+	{
+		lists_write();
+	}
 }
 
 /* ---------- start */
@@ -881,11 +1121,23 @@ void xgpu_program_cache_initialize(void)
 		}
 	}
 	folder_survey(FALSE);
+	list_read("all", &cache.all);
 	cache.enabled = TRUE;
-	platform_log("shader cache: %s, %lu programs kept (%llu MB), driver %016llx, binary format 0x%x%s%s", cache.folder,
-		cache.files, cache.bytes >> 20, cache.driver, (unsigned)cache.binary_formats[0],
-		cache.binary_format_count > 1 ? " and others" : "",
-		xgpu_capabilities.parallel_compile ? "; a map's programs compiled in the background" : "");
+	{
+		/* the worker (display.shader_worker), and its warm-up draws
+		(debug.shader_warm_up: "worker", "load" on this thread as a map
+		loads, or "off") */
+		const char *warm_up = config_string("debug.shader_warm_up");
+
+		cache.warm_up = !strcmp(warm_up, "off") ? 0 : !strcmp(warm_up, "load") ? 2 : 1;
+		cache.worker = config_boolean("display.shader_worker") && host_gl_worker_start(cache.warm_up == 1);
+	}
+	platform_log("shader cache: %s, %lu programs kept (%llu MB, %lu listed), driver %016llx, binary format 0x%x%s; "
+		"programs made %s%s", cache.folder, cache.files, cache.bytes >> 20, cache.all.count, cache.driver,
+		(unsigned)cache.binary_formats[0], cache.binary_format_count > 1 ? " and others" : "",
+		cache.worker ? "on the worker" : "on the game's thread",
+		!cache.worker ? "" : cache.warm_up == 1 ? ", warmed up there" : cache.warm_up == 2 ?
+		", warmed up as a map loads" : "");
 }
 
 #else

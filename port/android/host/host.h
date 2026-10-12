@@ -107,6 +107,16 @@ void *host_resolve_import(const char *name);
 
 void *host_gl_resolve(const char *name);
 int host_gl_quiet_trace_markers(void);
+/* the shader programs' worker (host_gl_worker.c; the guest's imports) */
+int host_gl_worker_start(int warm_up);
+uint32_t host_gl_program_request(int urgent, const char *vertex_source, const char *fragment_source,
+	uint32_t binary_format, const void *binary, uint32_t binary_size, int keep_binary);
+void host_gl_program_hurry(uint32_t id);
+int host_gl_program_poll(uint32_t id, uint32_t *program, uint32_t *binary_size, uint32_t *microseconds);
+uint32_t host_gl_program_binary(uint32_t id, void *buffer, uint32_t size, uint32_t *format);
+void host_gl_program_release(uint32_t id);
+uint32_t host_gl_worker_waiting(void);
+void host_gl_program_warm_up(uint32_t program, int multiview);
 
 /* ---------- VR (host_xr.c) */
 

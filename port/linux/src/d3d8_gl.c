@@ -440,6 +440,9 @@ struct program_entry
 	unsigned long long cache_key;
 	unsigned long map_serial;
 #endif
+	/* its program is being made (the cache's worker): draws with it are
+	left out until it is */
+	BOOL waiting;
 
 	/* the vertex constants c[0..constant_count) the program uses; with
 	consecutive locations, a changed range is uploaded by itself */
@@ -1255,6 +1258,70 @@ void xgpu_shader_work_add(BOOL loaded, unsigned long long start_us)
 		shader_work_count++;
 		shader_work_us += spent;
 	}
+}
+
+/* the draws left out while their programs were made (the cache's worker);
+and with xgpu_draw_timing on (vr.log_performance), the draws' time and the
+slowest one's, with its programs: the vertex program's number and the
+cache's key (a driver that makes something at a first draw shows there) */
+static unsigned long draws_skipped_waiting;
+static BOOL draw_timing;
+static unsigned long long draw_total_ticks, draw_slowest_ticks, draw_slowest_key, draw_current_key;
+static unsigned long draw_slowest_program, draw_current_program;
+static double draw_tick_microseconds;
+
+static unsigned long long draw_ticks(void)
+{
+#if defined(HALO_ANDROID) && defined(__aarch64__)
+	/* (the counter itself: a clock_gettime is a call into the host) */
+	unsigned long long ticks;
+
+	__asm__ __volatile__("isb\n\tmrs %0, cntvct_el0" : "=r"(ticks));
+	return ticks;
+#else
+	return xgpu_shader_work_now_us();
+#endif
+}
+
+void xgpu_draw_timing(int on)
+{
+	draw_timing = on != 0;
+#if defined(HALO_ANDROID) && defined(__aarch64__)
+	{
+		unsigned long long frequency;
+
+		__asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(frequency));
+		draw_tick_microseconds = frequency ? 1e6 / (double)frequency : 0.0;
+	}
+#else
+	draw_tick_microseconds = 1.0;
+#endif
+}
+
+static void draw_timed(unsigned long long start)
+{
+	unsigned long long spent = draw_ticks() - start;
+
+	draw_total_ticks += spent;
+	if (spent > draw_slowest_ticks)
+	{
+		draw_slowest_ticks = spent;
+		draw_slowest_program = draw_current_program;
+		draw_slowest_key = draw_current_key;
+	}
+}
+
+void xgpu_draw_work_take(unsigned long *skipped, float *total_milliseconds, float *slowest_milliseconds,
+	unsigned long *slowest_program, unsigned long long *slowest_key)
+{
+	*skipped = draws_skipped_waiting;
+	*total_milliseconds = (float)(draw_total_ticks * draw_tick_microseconds * 1e-3);
+	*slowest_milliseconds = (float)(draw_slowest_ticks * draw_tick_microseconds * 1e-3);
+	*slowest_program = draw_slowest_program;
+	*slowest_key = draw_slowest_key;
+	draws_skipped_waiting = 0;
+	draw_total_ticks = draw_slowest_ticks = draw_slowest_key = 0;
+	draw_slowest_program = 0;
 }
 
 void xgpu_shader_work_take(unsigned long *count, float *milliseconds, unsigned long *loaded,
@@ -3324,21 +3391,34 @@ static GLuint shader_make(GLenum type, const char *source, const char *what)
 	return xgpu_compile_shader(type, source, what);
 }
 
-/* the program of two shaders (shader_make's): from the program cache,
-else linked (and kept in the cache) */
-static GLuint program_make(GLuint vertex_shader, GLuint fragment_shader, unsigned long long *cache_key)
+/* the last program_get's program is being made (the cache's worker): its
+draw is left out for now */
+static BOOL program_waiting;
+
+/* the program of two shaders (shader_make's): from the program cache (made
+on its worker), else linked here (and kept in the cache); 0 with *waiting
+while the worker makes it */
+static GLuint program_make(GLuint vertex_shader, GLuint fragment_shader, unsigned long long *cache_key, BOOL *waiting)
 {
 #ifdef HALO_ANDROID
 	struct shader_record *vertex = shader_record_find(vertex_shader);
 	struct shader_record *fragment = shader_record_find(fragment_shader);
 
 	*cache_key = 0;
+	*waiting = FALSE;
 	if (vertex && fragment)
 	{
 		unsigned long long key = xgpu_program_key(vertex->hash, fragment->hash);
-		GLuint program = xgpu_program_cache_find(key, vertex->source, fragment->source);
+		GLuint program = 0;
+		int made = xgpu_program_cache_take(key, vertex->source, fragment->source, &program);
 
-		if (!program)
+		if (made == XGPU_PROGRAM_WAITING)
+		{
+			*cache_key = key;
+			*waiting = TRUE;
+			return 0;
+		}
+		if (made == XGPU_PROGRAM_NONE)
 		{
 			if (!shader_record_compile(vertex) || !shader_record_compile(fragment))
 				return 0;
@@ -3355,6 +3435,7 @@ static GLuint program_make(GLuint vertex_shader, GLuint fragment_shader, unsigne
 		return 0;
 #else
 	*cache_key = 0;
+	*waiting = FALSE;
 #endif
 	return xgpu_link_program(vertex_shader, fragment_shader, "shader");
 }
@@ -3450,64 +3531,11 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 	return entry->shader;
 }
 
-static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_shader)
+/* the uniforms' locations of a program just made, and its samplers' units */
+static void program_setup(struct program_entry *entry)
 {
-	static struct program_entry *last;
-	unsigned long hash = (vertex_shader * 2654435761UL) ^ fragment_shader;
-	struct program_entry **bucket = &program_buckets[hash % PROGRAM_BUCKETS];
-	struct program_entry *entry;
 	int stage;
 
-#ifdef HALO_ANDROID
-	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader &&
-		last->map_serial == xgpu_program_map_serial)
-#else
-	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader)
-#endif
-		return last;
-	for (entry = *bucket; entry; entry = entry->next)
-	{
-		if (entry->vertex_shader == vertex_shader && entry->fragment_shader == fragment_shader)
-		{
-			if (!entry->program)
-				return NULL;
-#ifdef HALO_ANDROID
-			/* (each map lists the programs it drew with: xgpu_program_cache.c) */
-			if (entry->map_serial != xgpu_program_map_serial)
-			{
-				entry->map_serial = xgpu_program_map_serial;
-				if (entry->cache_key)
-					xgpu_program_cache_used(entry->cache_key);
-			}
-#endif
-			last = entry;
-			return entry;
-		}
-	}
-	entry = calloc(1, sizeof(*entry));
-	entry->vertex_shader = vertex_shader;
-	entry->fragment_shader = fragment_shader;
-	memset(&entry->uniforms, 0xff, sizeof(entry->uniforms));
-	entry->next = *bucket;
-	*bucket = entry;
-	if (!vertex_shader || !fragment_shader)
-		return NULL;
-
-	{
-		unsigned long long cache_key;
-
-		entry->program = program_make(vertex_shader, fragment_shader, &cache_key);
-#ifdef HALO_ANDROID
-		entry->cache_key = cache_key;
-		entry->map_serial = xgpu_program_map_serial;
-		if (cache_key)
-			xgpu_program_cache_used(cache_key);
-#else
-		(void)cache_key;
-#endif
-	}
-	if (!entry->program)
-		return NULL;
 	state_program(entry->program);
 	entry->constants = glGetUniformLocation(entry->program, "c");
 	entry->constant_count = XGPU_VERTEX_CONSTANT_COUNT;
@@ -3565,6 +3593,82 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 		snprintf(name, sizeof(name), "tex%d", stage);
 		glUniform1i(glGetUniformLocation(entry->program, name), stage);
 	}
+}
+
+/* the entry's program made (program_make), or still being made (*waiting:
+the cache's worker); FALSE with no program */
+static BOOL program_finish(struct program_entry *entry)
+{
+	unsigned long long cache_key;
+	BOOL waiting;
+
+	entry->program = program_make(entry->vertex_shader, entry->fragment_shader, &cache_key, &waiting);
+	entry->waiting = waiting;
+	if (waiting)
+	{
+		program_waiting = TRUE;
+		return FALSE;
+	}
+#ifdef HALO_ANDROID
+	entry->cache_key = cache_key;
+	entry->map_serial = xgpu_program_map_serial;
+	if (cache_key && entry->program)
+		xgpu_program_cache_used(cache_key);
+#else
+	(void)cache_key;
+#endif
+	if (!entry->program)
+		return FALSE;
+	program_setup(entry);
+	return TRUE;
+}
+
+/* the program of two shaders; NULL with program_waiting while the cache's
+worker makes it */
+static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_shader)
+{
+	static struct program_entry *last;
+	unsigned long hash = (vertex_shader * 2654435761UL) ^ fragment_shader;
+	struct program_entry **bucket = &program_buckets[hash % PROGRAM_BUCKETS];
+	struct program_entry *entry;
+
+	program_waiting = FALSE;
+#ifdef HALO_ANDROID
+	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader &&
+		last->map_serial == xgpu_program_map_serial)
+#else
+	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader)
+#endif
+		return last;
+	for (entry = *bucket; entry; entry = entry->next)
+	{
+		if (entry->vertex_shader == vertex_shader && entry->fragment_shader == fragment_shader)
+		{
+			if (entry->waiting && !program_finish(entry))
+				return NULL;
+			if (!entry->program)
+				return NULL;
+#ifdef HALO_ANDROID
+			/* (each map lists the programs it drew with: xgpu_program_cache.c) */
+			if (entry->map_serial != xgpu_program_map_serial)
+			{
+				entry->map_serial = xgpu_program_map_serial;
+				if (entry->cache_key)
+					xgpu_program_cache_used(entry->cache_key);
+			}
+#endif
+			last = entry;
+			return entry;
+		}
+	}
+	entry = calloc(1, sizeof(*entry));
+	entry->vertex_shader = vertex_shader;
+	entry->fragment_shader = fragment_shader;
+	memset(&entry->uniforms, 0xff, sizeof(entry->uniforms));
+	entry->next = *bucket;
+	*bucket = entry;
+	if (!vertex_shader || !fragment_shader || !program_finish(entry))
+		return NULL;
 	last = entry;
 	return entry;
 }
@@ -4436,7 +4540,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	struct nv2a_pixel_shader_key key;
 	struct program_entry *entry;
 	struct draw_uniforms uniforms;
-	BOOL has_depth = FALSE;
+	BOOL has_depth = FALSE, waiting;
 	int stage;
 
 	if (!device.gl_ready || !program || !device.vertex_shader || !program->instructions)
@@ -4507,11 +4611,13 @@ static struct program_entry *prepare_draw(BOOL immediate)
 #endif
 
 		entry = NULL;
+		waiting = FALSE;
 		if (program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
 		{
 			key.per_pixel_lighting = (unsigned char)program->lighting.lights;
 			entry = program_get(vertex_shader_get(program, immediate, multiview_view, TRUE), fragment_shader_get(&key));
-			if (!entry)
+			waiting = !entry && program_waiting;
+			if (!entry && !waiting)
 			{
 				/* drawn as the vertex shader lights it instead (not at all,
 				were it to fail too) */
@@ -4521,8 +4627,18 @@ static struct program_entry *prepare_draw(BOOL immediate)
 				key.per_pixel_lighting = 0;
 			}
 		}
-		if (!entry)
+		if (!entry && !waiting)
+		{
 			entry = program_get(vertex_shader_get(program, immediate, multiview_view, FALSE), fragment_shader_get(&key));
+			waiting = !entry && program_waiting;
+		}
+	}
+	if (!entry && waiting)
+	{
+		/* (its program is being made on the cache's worker: left out for
+		the frames that takes, rather than the frame waiting for it) */
+		draws_skipped_waiting++;
+		return NULL;
 	}
 	if (!entry)
 	{
@@ -4531,6 +4647,10 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		return NULL;
 	}
 	gl_check_errors("state");
+	draw_current_program = program->id;
+#ifdef HALO_ANDROID
+	draw_current_key = entry->cache_key;
+#endif
 	if (immediate)
 		stats.immediate_draws++;
 	else
@@ -5815,7 +5935,7 @@ void WINAPI D3DDevice_SetIndices(D3DIndexBuffer *index_data, UINT base_vertex_in
 	D3D__IndexData = index_data ? (WORD *)index_data->Data : NULL;
 }
 
-void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
+static void vertices_draw(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
 {
 	if (!vertex_count || !prepare_draw(FALSE))
 		return;
@@ -5835,6 +5955,15 @@ void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_v
 		glDrawArrays(primitive_mode(primitive_type), 0, (GLsizei)vertex_count);
 	}
 	gl_check_errors("draw");
+}
+
+void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
+{
+	unsigned long long start = draw_timing ? draw_ticks() : 0;
+
+	vertices_draw(primitive_type, start_vertex, vertex_count);
+	if (draw_timing)
+		draw_timed(start);
 }
 
 #ifdef HALO_WEB
@@ -5957,7 +6086,7 @@ static BOOL index_cache_get(const WORD *indices, unsigned long count, unsigned l
 }
 #endif
 
-void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
+static void indexed_vertices_draw(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
 {
 	unsigned long minimum, maximum, index, count, generation = 0, index_offset = 0;
 	WORD *indices = NULL;
@@ -6024,6 +6153,15 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 	free(indices);
 }
 
+void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
+{
+	unsigned long long start = draw_timing ? draw_ticks() : 0;
+
+	indexed_vertices_draw(primitive_type, vertex_count, index_data);
+	if (draw_timing)
+		draw_timed(start);
+}
+
 /* ---------- immediate mode */
 
 void WINAPI D3DDevice_Begin(D3DPRIMITIVETYPE primitive_type)
@@ -6053,7 +6191,7 @@ static void immediate_emit(void)
 	device.immediate_count++;
 }
 
-void WINAPI D3DDevice_End(void)
+static void immediate_draw_end(void)
 {
 	unsigned long stride = XGPU_VERTEX_ATTRIBUTE_COUNT * 4 * sizeof(float);
 	unsigned long offset, index, count = device.immediate_count;
@@ -6235,6 +6373,15 @@ void WINAPI D3DDevice_End(void)
 		glDrawArrays(primitive_mode(type), (GLint)first_vertex, (GLsizei)count);
 	}
 	gl_check_errors("immediate draw");
+}
+
+void WINAPI D3DDevice_End(void)
+{
+	unsigned long long start = draw_timing ? draw_ticks() : 0;
+
+	immediate_draw_end();
+	if (draw_timing)
+		draw_timed(start);
 }
 
 static void set_attribute(INT reg, float a, float b, float c, float d)

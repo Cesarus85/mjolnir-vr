@@ -92,6 +92,7 @@ static struct
 
 	/* vr.log_performance: sums over the frames since the last report */
 	int log_performance;
+	unsigned long draws_skipped, frames_skipping;
 	unsigned long long report_start_us;
 	unsigned long long frame_start_us;
 	unsigned long long eyes_start_us;
@@ -310,6 +311,7 @@ int d3d8_foveation_supported(void);
 void d3d8_foveation_parameters(int eye, float focal_x, float focal_y, float gain, float area, float minimum_density);
 void d3d8_foveation_eye(int eye);
 static void foveation_update(void);
+void xgpu_draw_timing(int on);
 
 /* a layer copied (host_xr_copy_layer): 2 is a deferred copy, which left GL
 as it drew, for the renderer to set again */
@@ -608,6 +610,8 @@ void halo_vr_initialize(void)
 	vr.crouch_limit = (float)config_real("vr.crouch_limit");
 	vr.rise_limit = 0.25f;
 	vr.log_performance = config_boolean("vr.log_performance");
+	/* (the draws timed for the long frames' lines) */
+	xgpu_draw_timing(vr.log_performance);
 	vr.resolution_scale = (float)config_real("vr.resolution_scale");
 	vr.aim_with_controller = strcmp(config_string("vr.aim_with"), "head") != 0;
 	vr.weapon_offset[0] = (float)config_real("vr.weapon_forward");
@@ -812,6 +816,8 @@ void xgpu_shader_work_take(unsigned long *count, float *milliseconds, unsigned l
 	float *loaded_milliseconds);
 void xgpu_texture_work_take(unsigned long *uploads, unsigned long *kilotexels, unsigned long *decoded,
 	unsigned long *pictures, unsigned long *targets, float *milliseconds);
+void xgpu_draw_work_take(unsigned long *skipped, float *total_milliseconds, float *slowest_milliseconds,
+	unsigned long *slowest_program, unsigned long long *slowest_key);
 
 /* the frame's parts, from the marks halo_vr_phase left (a part not marked
 this frame: none) */
@@ -840,11 +846,16 @@ static void performance_phases(unsigned long long now)
 		/* a frame two of the headset's long, what it spent: the headset
 		shows an old frame (and the Quest turns ASW on a while), seen as a
 		doubled picture when turning */
-		unsigned long shaders, loaded, uploads, kilotexels, decoded, pictures, targets;
-		float shader_ms, loaded_ms, texture_ms;
+		unsigned long shaders, loaded, uploads, kilotexels, decoded, pictures, targets, skipped, slowest_program;
+		unsigned long long slowest_key;
+		float shader_ms, loaded_ms, texture_ms, draws_ms, slowest_ms;
 
 		xgpu_shader_work_take(&shaders, &shader_ms, &loaded, &loaded_ms);
 		xgpu_texture_work_take(&uploads, &kilotexels, &decoded, &pictures, &targets, &texture_ms);
+		xgpu_draw_work_take(&skipped, &draws_ms, &slowest_ms, &slowest_program, &slowest_key);
+		vr.draws_skipped += skipped;
+		if (skipped)
+			vr.frames_skipping++;
 		if (vr.info.refresh_rate > 1.0f && (float)(now - vr.frame_start_us) > 2e6f / vr.info.refresh_rate)
 		{
 			unsigned long long mark = vr.frame_start_us;
@@ -861,10 +872,11 @@ static void performance_phases(unsigned long long now)
 			platform_log("VR: long frame %.1f ms: input %.1f, ticks %.1f, camera %.1f, draw %.1f, present %.1f; "
 				"%lu shaders compiled or linked in %.1f ms, %lu programs from the cache in %.1f ms; "
 				"%lu textures uploaded (%lu thousand texels, %lu decoded from DXT), %lu menu pictures, "
-				"%lu render targets made, in %.1f ms", (now - vr.frame_start_us) * 1e-3f,
+				"%lu render targets made, in %.1f ms; draw calls %.1f ms, the slowest %.1f ms (vertex program %lu, "
+				"program %016llx); %lu draws left out waiting for their programs", (now - vr.frame_start_us) * 1e-3f,
 				ms[HALO_VR_PHASE_INPUT], ms[HALO_VR_PHASE_TICKS], ms[HALO_VR_PHASE_CAMERA], ms[HALO_VR_PHASE_DRAW],
 				(now - mark) * 1e-3f, shaders, shader_ms, loaded, loaded_ms, uploads, kilotexels, decoded, pictures,
-				targets, texture_ms);
+				targets, texture_ms, draws_ms, slowest_ms, slowest_program, slowest_key, skipped);
 		}
 	}
 	memset(vr.phase_end_us, 0, sizeof(vr.phase_end_us));
@@ -896,8 +908,10 @@ static void performance_report(int stereo)
 		float seconds = (float)(now - vr.report_start_us) * 1e-6f;
 
 		platform_log("VR: %.1f fps (%d%% stereo); per frame %.1f ms working (eyes %.1f ms), %.1f ms waiting "
-			"for the headset", frames / seconds, (int)(100.0f * vr.report_stereo_frames / frames),
-			vr.work_us * 1e-3f / frames, vr.eyes_us * 1e-3f / frames, vr.wait_us * 1e-3f / frames);
+			"for the headset; %lu draws in %lu frames left out waiting for their programs", frames / seconds,
+			(int)(100.0f * vr.report_stereo_frames / frames), vr.work_us * 1e-3f / frames, vr.eyes_us * 1e-3f / frames,
+			vr.wait_us * 1e-3f / frames, vr.draws_skipped, vr.frames_skipping);
+		vr.draws_skipped = vr.frames_skipping = 0;
 		{
 			int kind;
 
