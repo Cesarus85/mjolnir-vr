@@ -47,6 +47,11 @@ picture; the copy flips them to GL's bottom-up images.
 #include <openxr/openxr_platform.h>
 
 #define MAXIMUM_SWAPCHAIN_IMAGES 8
+/* XR_META_performance_metrics' counters kept (the Quest 3 has some twenty:
+the app's, the compositor's, the device's and each core's) */
+#define MAXIMUM_METRICS 48
+/* sampled every this many frames */
+#define METRICS_EVERY 3
 
 struct xr_swapchain
 {
@@ -130,9 +135,17 @@ static struct
 	for telling frames shown late from the game's own pace) */
 	int has_metrics;
 	PFN_xrQueryPerformanceMetricsCounterMETA query_metric;
-	XrPath metric_paths[16];
+	XrPath metric_paths[MAXIMUM_METRICS];
 	uint32_t metric_count;
 	struct timespec metrics_logged;
+	/* each counter sampled every few frames since the last line: sum, most
+	and samples (the app's GPU time and the compositor's dropped frames
+	vary from frame to frame) */
+	double metric_sums[MAXIMUM_METRICS];
+	double metric_most[MAXIMUM_METRICS];
+	int metric_samples[MAXIMUM_METRICS];
+	int metric_units[MAXIMUM_METRICS];
+	int metric_frame;
 	/* (SteamVR: the frames' thread kept on the fast cores, xr_fast_cores) */
 	int steamvr;
 	int cores_pinned;
@@ -1225,7 +1238,9 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	xr.has_refresh_rate = has_extension(extensions, extension_count, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
 	if (xr.has_refresh_rate)
 		enabled[enabled_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
-	xr.has_metrics = has_extension(extensions, extension_count, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
+	/* (with vr.log_performance: host_main.c) */
+	xr.has_metrics = has_extension(extensions, extension_count, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME) &&
+		getenv("HALO_XR_LOG_PERFORMANCE") != NULL;
 	if (xr.has_metrics)
 		enabled[enabled_count++] = XR_META_PERFORMANCE_METRICS_EXTENSION_NAME;
 
@@ -1390,12 +1405,26 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		xrGetInstanceProcAddr(xr.instance, "xrSetPerformanceMetricsStateMETA", (PFN_xrVoidFunction *)&set_state);
 		xrGetInstanceProcAddr(xr.instance, "xrQueryPerformanceMetricsCounterMETA",
 			(PFN_xrVoidFunction *)&xr.query_metric);
+		uint32_t available = 0;
+		XrPath *paths = NULL;
+
 		state.enabled = XR_TRUE;
+		/* (asked how many first: the Quest 3 has more than 16, and a smaller
+		array failed the call, so the metrics were off) */
 		xr.has_metrics = enumerate && set_state && xr.query_metric &&
-			XR_SUCCEEDED(enumerate(xr.instance, 16, &xr.metric_count, xr.metric_paths)) &&
+			XR_SUCCEEDED(enumerate(xr.instance, 0, &available, NULL)) && available > 0 &&
+			(paths = calloc(available, sizeof(*paths))) != NULL &&
+			XR_SUCCEEDED(enumerate(xr.instance, available, &available, paths)) &&
 			XR_SUCCEEDED(set_state(xr.session, &state));
-		host_logf(HOST_LOG_INFO, "xr: performance metrics %s (%u counters)", xr.has_metrics ? "on" : "off",
-			xr.has_metrics ? xr.metric_count : 0);
+		xr.metric_count = 0;
+		if (xr.has_metrics)
+		{
+			xr.metric_count = available < MAXIMUM_METRICS ? available : MAXIMUM_METRICS;
+			memcpy(xr.metric_paths, paths, xr.metric_count * sizeof(*paths));
+		}
+		free(paths);
+		host_logf(HOST_LOG_INFO, "xr: performance metrics %s (%u counters of %u)", xr.has_metrics ? "on" : "off",
+			xr.metric_count, available);
 	}
 
 	if (xr.has_performance_settings)
@@ -1974,38 +2003,76 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		if (!getenv("HALO_XR_ANY_CORE"))
 			xr_fast_cores();
 	}
-	/* (every five seconds, the compositor's counters, and the core the
-	frames' thread is on) */
+	/* (the compositor's counters sampled every few frames; every five
+	seconds their means and most, and the core the frames' thread is on) */
 	if (xr.has_metrics)
 	{
 		struct timespec now;
 
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		if (now.tv_sec - xr.metrics_logged.tv_sec >= 5)
+		if (++xr.metric_frame >= METRICS_EVERY)
 		{
-			char line[768] = "";
 			uint32_t counter;
 
-			xr.metrics_logged = now;
-			for (counter = 0; counter < xr.metric_count && counter < 16; counter++)
+			xr.metric_frame = 0;
+			for (counter = 0; counter < xr.metric_count; counter++)
 			{
 				XrPerformanceMetricsCounterMETA value = { XR_TYPE_PERFORMANCE_METRICS_COUNTER_META };
-				char name[XR_MAX_PATH_LENGTH];
-				uint32_t length = 0;
-				char item[96];
+				double number;
 
 				if (!XR_SUCCEEDED(xr.query_metric(xr.session, xr.metric_paths[counter], &value)) ||
-					!XR_SUCCEEDED(xrPathToString(xr.instance, xr.metric_paths[counter], sizeof(name), &length, name)))
+					!(value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META))
 				{
 					continue;
 				}
-				snprintf(item, sizeof(item), " %s=%g", strrchr(name, '/') ? strrchr(name, '/') + 1 : name,
-					(value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) ?
-						(double)value.floatValue : (double)value.uintValue);
+				number = (value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) ?
+					(double)value.floatValue : (double)value.uintValue;
+				xr.metric_sums[counter] += number;
+				if (!xr.metric_samples[counter] || number > xr.metric_most[counter])
+					xr.metric_most[counter] = number;
+				xr.metric_samples[counter]++;
+				xr.metric_units[counter] = (int)value.counterUnit;
+			}
+		}
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		if (now.tv_sec - xr.metrics_logged.tv_sec >= 5)
+		{
+			char line[1024] = "";
+			uint32_t counter;
+
+			xr.metrics_logged = now;
+			for (counter = 0; counter < xr.metric_count; counter++)
+			{
+				char name[XR_MAX_PATH_LENGTH];
+				const char *shown = name;
+				uint32_t length = 0;
+				char item[112];
+
+				if (!xr.metric_samples[counter] ||
+					!XR_SUCCEEDED(xrPathToString(xr.instance, xr.metric_paths[counter], sizeof(name), &length, name)))
+				{
+					xr.metric_samples[counter] = 0;
+					continue;
+				}
+				/* ("/perfmetrics_meta/app/gpu_frametime": "app/gpu_frametime") */
+				if (strrchr(name, '/'))
+				{
+					const char *last = strrchr(name, '/');
+
+					shown = last;
+					while (shown > name && shown[-1] != '/')
+						shown--;
+					if (shown == name)
+						shown = last + 1;
+				}
+				snprintf(item, sizeof(item), " %s=%.3g/%.3g%s", shown, xr.metric_sums[counter] / xr.metric_samples[counter],
+					xr.metric_most[counter], xr.metric_units[counter] == XR_PERFORMANCE_METRICS_COUNTER_UNIT_MILLISECONDS_META ?
+					"ms" : xr.metric_units[counter] == XR_PERFORMANCE_METRICS_COUNTER_UNIT_PERCENTAGE_META ? "%" : "");
 				if (strlen(line) + strlen(item) < sizeof(line))
 					strcat(line, item);
+				xr.metric_sums[counter] = 0.0;
+				xr.metric_samples[counter] = 0;
 			}
-			host_logf(HOST_LOG_INFO, "xr: metrics%s, on core %d", line, sched_getcpu());
+			host_logf(HOST_LOG_INFO, "xr: metrics (mean/most)%s, on core %d", line, sched_getcpu());
 			if (xr.timed_frames)
 			{
 				double frames = (double)xr.timed_frames;
