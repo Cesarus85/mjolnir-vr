@@ -1950,8 +1950,11 @@ middle, as the eyes' views are asymmetric (wider outwards and downwards). In
 the picture's normalized device coordinates, rows from its top (row 0 is
 the top, -1), it lies at x = -(L + R) / (R - L), y = (U + D) / (U - D) for
 the view's edges' tangents. The levels: full detail within sqrt(1 + area)
-/ gain of it (0.69, 0.58, 0.43 of the picture's half width), then halved
-and halved again down to the least density. */
+/ gain of it (0.69, 0.58 of the picture's half width), then halved and
+halved again down to the least density. Off by default: on the Quest 3 the
+eyes take 5.5-6.4 ms of GPU in a 15-bot game, the same with every level
+(2026-10-12), and a stronger level ("high", taken out) drew a grey
+rectangle below the player. */
 
 static const struct
 {
@@ -1962,16 +1965,15 @@ static const struct
 	{ "off", 0.0f, 0.0f, 1.0f },
 	{ "low", 2.5f, 2.0f, 0.5f },
 	{ "medium", 3.0f, 2.0f, 0.25f },
-	{ "high", 4.0f, 2.0f, 0.125f },
 };
 
 #define FOVEATION_LEVEL_COUNT (int)(sizeof(foveation_levels) / sizeof(foveation_levels[0]))
 
-/* vr.foveation, as it changes (the VR options); "medium" if unknown */
+/* vr.foveation, as it changes (the VR options); "off" if unknown */
 static int foveation_level(void)
 {
 	static unsigned long read_at = (unsigned long)-1;
-	static int level = 2;
+	static int level = 0;
 
 	if (read_at != config_changes())
 	{
@@ -1979,7 +1981,7 @@ static int foveation_level(void)
 		int index;
 
 		read_at = config_changes();
-		level = 2;
+		level = 0;
 		for (index = 0; index < FOVEATION_LEVEL_COUNT; index++)
 		{
 			if (name && !strcmp(name, foveation_levels[index].name))

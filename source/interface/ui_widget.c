@@ -7748,8 +7748,8 @@ static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max" 
 static real const vr_resolution_scales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f };
 
 /* vr.foveation's (vr.c: the Quest's GPU only) */
-static char const *const vr_foveation_levels[] = { "off", "low", "medium", "high" };
-static char const *const vr_foveation_names[] = { "Off", "Low", "Medium", "High" };
+static char const *const vr_foveation_levels[] = { "off", "low", "medium" };
+static char const *const vr_foveation_names[] = { "Off", "Low", "Medium" };
 
 static short ui_vr_options_foveation(
 	void)
@@ -7762,7 +7762,7 @@ static short ui_vr_options_foveation(
 		if (foveation && strcmp(foveation, vr_foveation_levels[index]) == 0)
 			return index;
 	}
-	return 2;
+	return 0;
 }
 
 static short ui_vr_options_graphics(

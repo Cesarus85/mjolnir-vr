@@ -117,7 +117,7 @@ restart. The controller buttons page shows the layout as set.
 | `vr.handedness` | `"right"` (default), `"left"` |
 | `vr.mirror_controls` | `true` (default): sticks and buttons mirrored when left-handed; `false`: as right-handed (triggers and grips still follow the hands) |
 | `vr.graphics` | `"low"`, `"medium"`, `"high"` (default), `"max"` |
-| `vr.foveation` | `"off"`, `"low"`, `"medium"` (default), `"high"` (the Quest only; branch `fix/vr-frame-hitches`) |
+| `vr.foveation` | `"off"` (default), `"low"`, `"medium"` (the Quest only; branch `fix/vr-frame-hitches`) |
 | `vr.refresh_rate` | Hz, as offered (Quest 3: 72, 80, 90, 120) |
 | `vr.resolution_scale` | 0.7 to 1.2, on restart |
 
