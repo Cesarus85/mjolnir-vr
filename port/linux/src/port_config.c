@@ -200,8 +200,8 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
-	{ "vr.graphics", _config_string, "\"auto\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
-		"Which of the costlier effects are drawn: \"auto\" all of them while the\n"
+	{ "vr.graphics", _config_string, "\"medium\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
+		"Which of the costlier effects are drawn (\"medium\" by default): \"auto\" all of them while the\n"
 		"GPU keeps up, leaving out one after another (the shield's glow, object\n"
 		"shadows, reflections, specular light, lens flares, bump maps, the rest\n"
 		"of \"low\") while it does not, and bringing them back when it does again\n"

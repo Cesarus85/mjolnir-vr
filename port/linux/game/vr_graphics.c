@@ -5,10 +5,10 @@ The VR graphics presets (vr.graphics, the VR options' "Graphics" row): which
 of the game's costlier effects are drawn, for headsets with little time to
 spare.
 
-- "auto", the default: "high", less what the GPU's time asks to leave out
-  (below);
+- "auto": "high", less what the GPU's time asks to leave out (below);
 - "high": everything;
-- "medium": no object shadows, environment reflections or lens flares;
+- "medium", the default (2026-10-12): no object shadows, environment
+  reflections or lens flares;
 - "low": nor specular light, bump maps, grass and other detail objects,
   the screen's fog layer, contrails, weather or camouflage's second pass;
 - "max": "high", the models lit for each pixel and the shadows drawn at

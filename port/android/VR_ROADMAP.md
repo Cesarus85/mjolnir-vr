@@ -512,6 +512,14 @@ see that nothing is missing or slower.
 
 ## Open points outside the order
 
+- Doubled pictures when turning on the developer's Quest 3 (2026-10-12):
+  with every build tried, back to 2026-10-06's, at 90 and at 72 Hz, even
+  in seconds the compositor reported no stale frame. That Quest runs
+  Horizon OS from the Public Test Channel (PTC; its build 2026-10-08),
+  the likeliest cause. Released with `vr.graphics` "medium" as the
+  default (smooth there). To do: try this and later builds with "high" on
+  a Quest 3 outside PTC (the developer's wife's), and set the default
+  back to "high" or "auto" if it holds.
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
   not merged.

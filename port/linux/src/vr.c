@@ -725,7 +725,8 @@ int halo_vr_graphics(void)
 		graphics = !strcmp(name, "low") ? HALO_VR_GRAPHICS_LOW :
 			!strcmp(name, "medium") ? HALO_VR_GRAPHICS_MEDIUM :
 			!strcmp(name, "max") ? HALO_VR_GRAPHICS_MAX :
-			!strcmp(name, "auto") ? HALO_VR_GRAPHICS_AUTO : HALO_VR_GRAPHICS_HIGH;
+			!strcmp(name, "auto") ? HALO_VR_GRAPHICS_AUTO :
+			!strcmp(name, "high") ? HALO_VR_GRAPHICS_HIGH : HALO_VR_GRAPHICS_MEDIUM;
 	}
 	return graphics;
 }

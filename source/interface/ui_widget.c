@@ -7776,7 +7776,8 @@ static short ui_vr_options_graphics(
 		if (graphics && strcmp(graphics, vr_graphics_presets[index]) == 0)
 			return index;
 	}
-	return 4;
+	/* (the default, vr.c's halo_vr_graphics) */
+	return 1;
 }
 
 /* the refresh rates the headset offers, in order, and which of them
