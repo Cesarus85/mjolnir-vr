@@ -724,7 +724,8 @@ int halo_vr_graphics(void)
 		read_at = config_changes();
 		graphics = !strcmp(name, "low") ? HALO_VR_GRAPHICS_LOW :
 			!strcmp(name, "medium") ? HALO_VR_GRAPHICS_MEDIUM :
-			!strcmp(name, "max") ? HALO_VR_GRAPHICS_MAX : HALO_VR_GRAPHICS_HIGH;
+			!strcmp(name, "max") ? HALO_VR_GRAPHICS_MAX :
+			!strcmp(name, "auto") ? HALO_VR_GRAPHICS_AUTO : HALO_VR_GRAPHICS_HIGH;
 	}
 	return graphics;
 }
@@ -2045,6 +2046,19 @@ static void foveation_update(void)
 int halo_vr_foveation_supported(void)
 {
 	return vr.active && d3d8_foveation_supported();
+}
+
+/* the app's GPU time of a recent frame (ms; 0: the headset does not tell
+it), and the headset's refresh rate (Hz; 0: unknown), for vr.graphics
+"auto" (port/linux/game/vr_graphics.c) */
+float halo_vr_gpu_milliseconds(void)
+{
+	return vr.active ? host_xr_gpu_time() : 0.0f;
+}
+
+float halo_vr_refresh_rate(void)
+{
+	return vr.active ? vr.info.refresh_rate : 0.0f;
 }
 
 /* ---------- both eyes at once (vr.multiview)
@@ -3445,6 +3459,8 @@ int halo_vr_weapon_hand(void) { return 1; }
 int halo_vr_action_input(int action) { return action; }
 int halo_vr_graphics(void) { return HALO_VR_GRAPHICS_HIGH; }
 int halo_vr_foveation_supported(void) { return 0; }
+float halo_vr_gpu_milliseconds(void) { return 0.0f; }
+float halo_vr_refresh_rate(void) { return 0.0f; }
 int halo_vr_refresh_rates(float *rates, int maximum, float *current)
 {
 	(void)rates; (void)maximum; *current = 0.0f;

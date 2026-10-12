@@ -7743,8 +7743,8 @@ static short ui_vr_options_voice_chat(
 }
 /* vr.graphics's (port/linux/game/vr_graphics.c), and vr.resolution_scale's
 (read as the app starts) */
-static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max" };
-static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max" };
+static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max", "auto" };
+static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max", "Auto" };
 static real const vr_resolution_scales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f };
 
 /* vr.foveation's (vr.c: the Quest's GPU only) */
@@ -7776,7 +7776,7 @@ static short ui_vr_options_graphics(
 		if (graphics && strcmp(graphics, vr_graphics_presets[index]) == 0)
 			return index;
 	}
-	return 2;
+	return 4;
 }
 
 /* the refresh rates the headset offers, in order, and which of them
@@ -8708,11 +8708,11 @@ static void ui_vr_options_render(
 	if (page == _vr_options_page_more)
 	{
 		/* (what the graphics rows do) */
-		ui_join_code_draw_text(128, 512, 230, "Graphics: Medium and Low leave effects out (shadows,", FALSE, 0,
-			&dim_color);
-		ui_join_code_draw_text(128, 512, 248, "reflections, lens flares; grass, weather...) for a steadier", FALSE,
+		ui_join_code_draw_text(128, 512, 230, "Graphics: Auto leaves effects out while the GPU falls behind;", FALSE,
 			0, &dim_color);
-		ui_join_code_draw_text(128, 512, 266, "frame; Max lights models for each pixel. The refresh rate", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 248, "Medium and Low always (shadows, reflections, flares; grass...).",
+			FALSE, 0, &dim_color);
+		ui_join_code_draw_text(128, 512, 266, "Max lights models for each pixel. The refresh rate", FALSE, 0,
 			&dim_color);
 		ui_join_code_draw_text(128, 512, 284, "changes at once where the headset lets it (on the Steam", FALSE, 0,
 			&dim_color);

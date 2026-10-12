@@ -76,6 +76,7 @@ host_xr_set_vignette
 host_xr_copy_layer_array
 host_xr_refresh_rates
 host_xr_set_refresh_rate
+host_xr_gpu_time
 host_android_path
 host_gesture_insets
 host_touch_read

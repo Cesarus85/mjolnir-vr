@@ -165,6 +165,9 @@ it lets none be chosen), and the one it runs at (0: unknown); and asking
 for the highest offered at or below wanted (0: the highest) */
 int host_xr_refresh_rates(float *rates, int maximum, float *current);
 void host_xr_set_refresh_rate(float wanted);
+/* the app's GPU time of a recent frame (ms; 0: the runtime does not tell
+it), for vr.graphics "auto" */
+float host_xr_gpu_time(void);
 
 /* ---------- Android */
 

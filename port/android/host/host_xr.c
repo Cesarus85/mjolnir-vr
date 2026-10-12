@@ -134,6 +134,12 @@ static struct
 	/* (XR_META_performance_metrics: the compositor's counts, in the log,
 	for telling frames shown late from the game's own pace) */
 	int has_metrics;
+	/* the counters and the copies' times logged (vr.log_performance) */
+	int log_metrics;
+	/* the app's GPU time of its last frame, ms (app/gpu_frametime: its
+	counter's index, -1 none), read each frame for vr.graphics "auto" */
+	int gpu_metric;
+	float gpu_milliseconds;
 	PFN_xrQueryPerformanceMetricsCounterMETA query_metric;
 	XrPath metric_paths[MAXIMUM_METRICS];
 	uint32_t metric_count;
@@ -1239,8 +1245,11 @@ int host_xr_probe(float resolution_scale, int *eye_width, int *eye_height)
 	if (xr.has_refresh_rate)
 		enabled[enabled_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
 	/* (with vr.log_performance: host_main.c) */
-	xr.has_metrics = has_extension(extensions, extension_count, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME) &&
-		getenv("HALO_XR_LOG_PERFORMANCE") != NULL;
+	/* (the app's GPU time for vr.graphics "auto"; all the counters logged
+with vr.log_performance: host_main.c) */
+	xr.has_metrics = has_extension(extensions, extension_count, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
+	xr.log_metrics = getenv("HALO_XR_LOG_PERFORMANCE") != NULL;
+	xr.gpu_metric = -1;
 	if (xr.has_metrics)
 		enabled[enabled_count++] = XR_META_PERFORMANCE_METRICS_EXTENSION_NAME;
 
@@ -1419,12 +1428,25 @@ int host_xr_initialize(struct halo_xr_info *info, float wanted_refresh_rate)
 		xr.metric_count = 0;
 		if (xr.has_metrics)
 		{
+			uint32_t counter;
+
 			xr.metric_count = available < MAXIMUM_METRICS ? available : MAXIMUM_METRICS;
 			memcpy(xr.metric_paths, paths, xr.metric_count * sizeof(*paths));
+			for (counter = 0; counter < xr.metric_count; counter++)
+			{
+				char name[XR_MAX_PATH_LENGTH];
+				uint32_t length = 0;
+
+				if (XR_SUCCEEDED(xrPathToString(xr.instance, xr.metric_paths[counter], sizeof(name), &length, name)) &&
+					!strcmp(name, "/perfmetrics_meta/app/gpu_frametime"))
+				{
+					xr.gpu_metric = (int)counter;
+				}
+			}
 		}
 		free(paths);
-		host_logf(HOST_LOG_INFO, "xr: performance metrics %s (%u counters of %u)", xr.has_metrics ? "on" : "off",
-			xr.metric_count, available);
+		host_logf(HOST_LOG_INFO, "xr: performance metrics %s (%u counters of %u; the app's GPU time %s)",
+			xr.has_metrics ? "on" : "off", xr.metric_count, available, xr.gpu_metric >= 0 ? "read" : "not offered");
 	}
 
 	if (xr.has_performance_settings)
@@ -1630,10 +1652,10 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 int host_xr_copy_layer_region(int layer, uint32_t texture, int clear_alpha, float left, float top, float right,
 	float bottom)
 {
-	double start = xr.has_metrics ? seconds_now() : 0.0;
+	double start = xr.log_metrics ? seconds_now() : 0.0;
 	int copied = copy_layer_region(layer, texture, clear_alpha, left, top, right, bottom);
 
-	if (xr.has_metrics && layer >= 0 && layer < HALO_XR_LAYER_COUNT)
+	if (xr.log_metrics && layer >= 0 && layer < HALO_XR_LAYER_COUNT)
 		xr.copy_seconds[layer] += seconds_now() - start;
 	return copied;
 }
@@ -1654,7 +1676,7 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 		return xr.deferred ? 2 : 1;
 	wait.timeout = XR_INFINITE_DURATION;
 	{
-		double start = xr.has_metrics ? seconds_now() : 0.0;
+		double start = xr.log_metrics ? seconds_now() : 0.0;
 
 		if (!xr_ok(xrAcquireSwapchainImage(swapchain->handle, &acquire, &swapchain->acquired_index),
 			"xrAcquireSwapchainImage"))
@@ -1663,7 +1685,7 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 		}
 		if (!xr_ok(xrWaitSwapchainImage(swapchain->handle, &wait), "xrWaitSwapchainImage"))
 			return 0;
-		if (xr.has_metrics)
+		if (xr.log_metrics)
 			xr.acquire_seconds += seconds_now() - start;
 	}
 
@@ -1784,7 +1806,7 @@ static int copy_layer_region(int layer, uint32_t texture, int clear_alpha, float
 /* deferred: the images the frame's copies kept, released before it ends */
 static void release_held(void)
 {
-	double start = xr.has_metrics ? seconds_now() : 0.0;
+	double start = xr.log_metrics ? seconds_now() : 0.0;
 	int layer;
 
 	for (layer = 0; layer < HALO_XR_LAYER_COUNT; layer++)
@@ -1797,7 +1819,7 @@ static void release_held(void)
 		swapchain->held = 0;
 		xr_ok(xrReleaseSwapchainImage(swapchain->handle, &release), "xrReleaseSwapchainImage");
 	}
-	if (xr.has_metrics)
+	if (xr.log_metrics)
 		xr.release_seconds += seconds_now() - start;
 }
 
@@ -2003,9 +2025,21 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 		if (!getenv("HALO_XR_ANY_CORE"))
 			xr_fast_cores();
 	}
+	/* (the app's GPU time, each frame) */
+	if (xr.has_metrics && xr.gpu_metric >= 0)
+	{
+		XrPerformanceMetricsCounterMETA value = { XR_TYPE_PERFORMANCE_METRICS_COUNTER_META };
+
+		if (XR_SUCCEEDED(xr.query_metric(xr.session, xr.metric_paths[xr.gpu_metric], &value)) &&
+			(value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META))
+		{
+			xr.gpu_milliseconds = (value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) ?
+				value.floatValue : (float)value.uintValue;
+		}
+	}
 	/* (the compositor's counters sampled every few frames; every five
 	seconds their means and most, and the core the frames' thread is on) */
-	if (xr.has_metrics)
+	if (xr.has_metrics && xr.log_metrics)
 	{
 		struct timespec now;
 
@@ -2102,16 +2136,23 @@ int host_xr_end_frame(const struct halo_xr_submit *submit)
 	end.layerCount = layer_count;
 	end.layers = layers;
 	{
-		double start = xr.has_metrics ? seconds_now() : 0.0;
+		double start = xr.log_metrics ? seconds_now() : 0.0;
 		int ended = xr_ok(xrEndFrame(xr.session, &end), "xrEndFrame");
 
-		if (xr.has_metrics)
+		if (xr.log_metrics)
 		{
 			xr.end_seconds += seconds_now() - start;
 			xr.timed_frames++;
 		}
 		return ended;
 	}
+}
+
+/* the app's GPU time of a recent frame (ms), 0 where the runtime does not
+tell it (XR_META_performance_metrics: the Quest's) */
+float host_xr_gpu_time(void)
+{
+	return xr.gpu_metric >= 0 ? xr.gpu_milliseconds : 0.0f;
 }
 
 void host_xr_set_vignette(float strength)
