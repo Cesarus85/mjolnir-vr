@@ -117,6 +117,7 @@ restart. The controller buttons page shows the layout as set.
 | `vr.handedness` | `"right"` (default), `"left"` |
 | `vr.mirror_controls` | `true` (default): sticks and buttons mirrored when left-handed; `false`: as right-handed (triggers and grips still follow the hands) |
 | `vr.graphics` | `"low"`, `"medium"`, `"high"` (default), `"max"` |
+| `vr.foveation` | `"off"`, `"low"`, `"medium"` (default), `"high"` (the Quest only; branch `fix/vr-frame-hitches`) |
 | `vr.refresh_rate` | Hz, as offered (Quest 3: 72, 80, 90, 120) |
 | `vr.resolution_scale` | 0.7 to 1.2, on restart |
 
@@ -397,6 +398,85 @@ To try in the headset (Quest 3 and Steam Frame), with `vr.body = "full"`
     nothing while the free hand holds the foregrip or the Warthog's wheel;
     "Open mic" talks without the grip; "Off" sends nothing (others still
     heard).
+
+## Frame hitches and GPU time (built: branch `fix/vr-frame-hitches`)
+
+Measured on the Quest 3 (2026-10-12; 90 Hz, multiview, graphics "high",
+full body, a 15-bot game on Blood Gulch): the game's CPU work 5-6 ms a
+frame and never late; the compositor (VrApi) App GPU 5-9 ms, GPU% 0.65-0.83,
+2-8 stale frames most seconds and ASW for seconds at a time (doubled
+pictures when turning); "medium" graphics holds 90 Hz. Apart from that,
+long single frames: 555 ms at the map's start, 848 ms near its end (61
+shaders compiled or linked in 780 ms), 100+ ms in the menus with no shader
+work.
+
+What the branch adds:
+
+| Part | What |
+| --- | --- |
+| Long frames | A frame two of the headset's frames long logs `VR: long frame N ms: input, ticks, camera, draw, present; shaders compiled or linked, programs from the cache; textures uploaded (thousand texels, decoded from DXT), menu pictures, render targets made, in ms` |
+| Foveation | `vr.foveation` "off" / "low" / "medium" (default) / "high", on the VR options' MORE page: GL_QCOM_texture_foveated on the eyes' targets (the multiview layers; one eye at a time, the back buffer only while an eye is drawn), focal point at each lens centre (the views' asymmetry: x = -(L+R)/(R-L), y = (U+D)/(U-D), rows from the top). The HUD, menus and other layers stay at full detail. Off on the Steam Frame (no such extension; the row is dim) |
+| GPU time | XR_META_performance_metrics now on with `vr.log_performance` (it asked for 16 counters, the Quest has more, and failed): `xr: metrics (mean/most) app/gpu_frametime=...ms compositor/dropped_frame_count=...` every five seconds |
+| Shader programs | `display.shader_cache` (default true): linked programs kept in `shader_cache/` in the data folder (binary, driver, sources), loaded with glProgramBinary the next time; each map's list of programs (`shader_cache/maps/`), made ready as the map loads (`shader cache: <map>: N programs listed; N loaded ... in N ms`). A driver update compiles them again from the kept sources (in the background where the driver has GL_KHR_parallel_shader_compile). A bad or missing file only means compiling as before |
+
+Not done, and why:
+- Drawing the eyes straight into the headset's swapchain images, to save
+  the copies (`host_xr_copy_layer`, about 2 x 12 MB read and written a
+  frame): the swapchains are sRGB and the copy decodes the game's gamma
+  values, so drawing into them needs GL_EXT_sRGB_write_control (or the
+  game's blending happens in linear light, changing its look); the
+  comfort vignette is applied by the copy and would need a pass of its
+  own; the swapchains would have to be texture arrays acquired before the
+  eyes are drawn (an `xrWaitSwapchainImage` in the middle of the frame);
+  and the Steam Frame keeps the copy. Worth a branch of its own once
+  foveation's gain is measured.
+- The menus' long frames are not avoided yet: the long frame line now says
+  what they do (most likely the menu pictures, PNGs decoded and uploaded
+  as a screen first shows, the high-res text's font set up, and the maps'
+  DXT textures decoded on the CPU, the Quest's GPU having no S3TC). Next:
+  decode a screen's pictures before it shows, or on a thread.
+- Later, for GPU time: XR_KHR_visibility_mask (the Quest offers it): the
+  eyes' hidden corners masked out in the stencil before the scene.
+
+### Headset test (Quest 3)
+
+Before: `adb logcat -G 16M` (again after any reboot); in `config.toml`
+`vr.log_performance = true`, `vr.refresh_rate = 90`, `vr.graphics = "high"`,
+`vr.multiview = true`, `vr.body = "full"`. Read after each test:
+`adb logcat -d -s halo VrApi > test.txt`.
+
+1. Start the app once and quit (the shader cache fills: the log says
+   `shader cache: .../shader_cache, 0 programs kept` and, on quitting a
+   map, `N new ones kept`). Play a 15-bot game on Blood Gulch to its end
+   (so the end screen's programs are listed too).
+2. Start again, the same game. Expected: `shader cache: ..._bloodgulch: N
+   programs listed; N loaded ... in N ms` as the map loads; no `VR: long
+   frame` with `shaders compiled` in play or at the end (`programs from the
+   cache` instead, a few ms); the map's start shorter than the 555 ms.
+3. Foveation: the log says `OpenGL ES: foveation 1`, `VR: foveation medium
+   ... lens centres at (x, y) and (x, y)` (the left eye's x positive, the
+   right's negative) and `foveation: the eyes' layers foveated`. In the
+   game, look for coarse or shimmering edges at the sides; the centre and
+   the HUD, menus, crosshair and names must be sharp.
+4. GPU time, the same spot and bots, a minute each with Foveation Off,
+   then Medium (VR options, MORE): VrApi's line every second,
+   `FPS=90/90,...,Stale=N,...,App=N.NNms,...,GPU%=0.NN`, and the game's
+   `xr: metrics (mean/most) ... app/gpu_frametime=N/Nms ...
+   compositor/dropped_frame_count=...` every five seconds. Before (off):
+   App 5-9 ms, Stale 2-8, ASW lines with `ASW=1`. Expected with medium:
+   App and GPU% lower (by a tenth to a quarter), fewer stale frames, ASW
+   rarer; High lower still, with coarser edges.
+5. Multiview off (`vr.multiview = false`), Foveation Medium: the eyes still
+   foveated (`foveation: the eyes' back buffer, while an eye is drawn,
+   foveated`), the HUD and menus sharp.
+6. Menus: open screens (map select, game type, settings) and note the
+   `VR: long frame` lines: which of textures, DXT, menu pictures or render
+   targets takes the time.
+
+Steam Frame: foveation is not there (the row dim, `VR: no foveation`); the
+shader cache works where its driver lists program binary formats (`OpenGL
+ES: ... program binary formats N`; 0: `shader cache: off`). The game as
+before, no new hitches.
 
 ## Open points outside the order
 
