@@ -228,6 +228,7 @@ These settings are only for Android:
 | `input.touch_aim_assist` | `true` (the default): the touch controls' swipe aiming gets the aim assist of a controller (the aim slows over a target and follows a moving one). `false`: none, as with a mouse; the bullets' own autoaim stays. |
 | `input.touch_controls` | The touch controls in a game. `"auto"` (the default): shown on a touchscreen while no controller is connected. `"on"`: also shown with a controller. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps in any case. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
+| `display.shader_cache` | `true` (the default): the linked shader programs are kept in `shader_cache` in the data folder (their binaries, the driver that made them and their sources), and each map's list of the programs it drew with; as a map loads, the programs on its list are made ready, so that its first frames do not wait for the driver to compile them. A driver update compiles them again from the kept sources. `false`: each program is compiled the first time it is drawn. The folder may be deleted at any time. |
 | `debug.sample_seconds` | Refer to "Find problems". |
 | `debug.memory_watch` | `true` (the default): the app notices the game's writes to textures and vertices by page protection. `false`: it compares page contents once a frame instead, which is slower. Refer to "Limits". |
 

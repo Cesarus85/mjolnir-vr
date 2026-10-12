@@ -176,6 +176,11 @@ static const struct config_setting config_settings[] =
 		"pixel by the lights the game gives them, without the facets the light\n"
 		"of each vertex shows across curved surfaces; false lights each vertex,\n"
 		"as the Xbox does." },
+	{ "display.shader_cache", _config_boolean, "true", "HALO_SHADER_CACHE", _environment_value, _platform_android,
+		"Keep the compiled shader programs in the shader_cache folder beside this\n"
+		"file, and make ready those a map drew with while it loads: fewer\n"
+		"stalls the first time something is drawn. false compiles each the first\n"
+		"time it is drawn. The folder may be deleted at any time." },
 
 	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
 		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"

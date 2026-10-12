@@ -65,6 +65,11 @@ void halo_vertex_shader_lighting(unsigned long handle);
 /* display.anti_aliasing's pass over a window's 3D view, before the HUD and
 menus (source/render/render.c): the window's bounds on the screen */
 void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
+/* a map loaded (game_initialize_for_new_map): the shader programs it drew
+with last time made ready; and as it goes, its list of them kept
+(port/linux/src/xgpu_program_cache.c, the Android app's) */
+void halo_shader_programs_map_loaded(char const *map_name);
+void halo_shader_programs_map_disposed(void);
 /* the mouse in the menus (source/interface/ui_widget.c) */
 #include "halo_ui_pointer.h"
 

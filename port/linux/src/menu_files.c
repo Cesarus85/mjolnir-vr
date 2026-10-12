@@ -1112,9 +1112,11 @@ unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 	if (!art[index].texture)
 	{
 		unsigned long size = 0;
+		unsigned long long start = xgpu_shader_work_now_us();
 		const unsigned char *png = file_data(art[index].png, &size);
 
 		art[index].texture = png ? hud_hires_png_texture(png, size, &art[index].levels) : 0;
+		xgpu_texture_work_add(XGPU_TEXTURE_WORK_PICTURE, 0, start);
 		if (!art[index].texture)
 		{
 			platform_log("menus: could not draw %s", art[index].png);

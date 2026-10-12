@@ -807,7 +807,11 @@ void halo_vr_timing_end(int part, unsigned long long start)
 	}
 }
 
-void xgpu_shader_work_take(unsigned long *count, float *milliseconds);
+/* d3d8_gl.c, xbox_textures.c: what the frame's drawing waited for */
+void xgpu_shader_work_take(unsigned long *count, float *milliseconds, unsigned long *loaded,
+	float *loaded_milliseconds);
+void xgpu_texture_work_take(unsigned long *uploads, unsigned long *kilotexels, unsigned long *decoded,
+	unsigned long *pictures, unsigned long *targets, float *milliseconds);
 
 /* the frame's parts, from the marks halo_vr_phase left (a part not marked
 this frame: none) */
@@ -836,10 +840,11 @@ static void performance_phases(unsigned long long now)
 		/* a frame two of the headset's long, what it spent: the headset
 		shows an old frame (and the Quest turns ASW on a while), seen as a
 		doubled picture when turning */
-		unsigned long shaders;
-		float shader_ms;
+		unsigned long shaders, loaded, uploads, kilotexels, decoded, pictures, targets;
+		float shader_ms, loaded_ms, texture_ms;
 
-		xgpu_shader_work_take(&shaders, &shader_ms);
+		xgpu_shader_work_take(&shaders, &shader_ms, &loaded, &loaded_ms);
+		xgpu_texture_work_take(&uploads, &kilotexels, &decoded, &pictures, &targets, &texture_ms);
 		if (vr.info.refresh_rate > 1.0f && (float)(now - vr.frame_start_us) > 2e6f / vr.info.refresh_rate)
 		{
 			unsigned long long mark = vr.frame_start_us;
@@ -854,9 +859,12 @@ static void performance_phases(unsigned long long now)
 					mark = end;
 			}
 			platform_log("VR: long frame %.1f ms: input %.1f, ticks %.1f, camera %.1f, draw %.1f, present %.1f; "
-				"%lu shaders compiled or linked in %.1f ms", (now - vr.frame_start_us) * 1e-3f,
+				"%lu shaders compiled or linked in %.1f ms, %lu programs from the cache in %.1f ms; "
+				"%lu textures uploaded (%lu thousand texels, %lu decoded from DXT), %lu menu pictures, "
+				"%lu render targets made, in %.1f ms", (now - vr.frame_start_us) * 1e-3f,
 				ms[HALO_VR_PHASE_INPUT], ms[HALO_VR_PHASE_TICKS], ms[HALO_VR_PHASE_CAMERA], ms[HALO_VR_PHASE_DRAW],
-				(now - mark) * 1e-3f, shaders, shader_ms);
+				(now - mark) * 1e-3f, shaders, shader_ms, loaded, loaded_ms, uploads, kilotexels, decoded, pictures,
+				targets, texture_ms);
 		}
 	}
 	memset(vr.phase_end_us, 0, sizeof(vr.phase_end_us));

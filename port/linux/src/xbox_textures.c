@@ -695,7 +695,56 @@ void halo_custom_edition_texels_forget(void)
 	custom_edition_texel_capacity = 0;
 }
 
+/* the textures uploaded, the menus' pictures decoded and uploaded and the
+render targets made since xgpu_texture_work_take last asked, and in how
+long (vr.c's long frames: a menu screen's first frame uploads its pictures) */
+static struct
+{
+	unsigned long counts[XGPU_TEXTURE_WORK_KINDS];
+	unsigned long texels;
+	unsigned long long microseconds;
+} texture_work;
+
+void xgpu_texture_work_add(int kind, unsigned long texels, unsigned long long start_us)
+{
+	if (kind < 0 || kind >= XGPU_TEXTURE_WORK_KINDS)
+		return;
+	texture_work.counts[kind]++;
+	texture_work.texels += texels;
+	texture_work.microseconds += xgpu_shader_work_now_us() - start_us;
+}
+
+void xgpu_texture_work_take(unsigned long *uploads, unsigned long *kilotexels, unsigned long *decoded,
+	unsigned long *pictures, unsigned long *targets, float *milliseconds)
+{
+	*uploads = texture_work.counts[XGPU_TEXTURE_WORK_UPLOAD] + texture_work.counts[XGPU_TEXTURE_WORK_DECODED];
+	*kilotexels = texture_work.texels / 1000;
+	*decoded = texture_work.counts[XGPU_TEXTURE_WORK_DECODED];
+	*pictures = texture_work.counts[XGPU_TEXTURE_WORK_PICTURE];
+	*targets = texture_work.counts[XGPU_TEXTURE_WORK_TARGET];
+	*milliseconds = texture_work.microseconds * 1e-3f;
+	memset(&texture_work, 0, sizeof(texture_work));
+}
+
+static void upload_texels(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
+	const unsigned char *base, const D3DCOLOR *palette, unsigned char channel_order);
+
 static void upload(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
+	const unsigned char *base, const D3DCOLOR *palette, unsigned char channel_order)
+{
+	unsigned long long start = xgpu_shader_work_now_us();
+	int kind = XGPU_TEXTURE_WORK_UPLOAD;
+
+#ifdef HALO_GLES
+	if (description->compressed && !xgpu_capabilities.s3tc)
+		kind = XGPU_TEXTURE_WORK_DECODED;
+#endif
+	upload_texels(texture, target, description, base, palette, channel_order);
+	xgpu_texture_work_add(kind, description->width * description->height * description->depth *
+		(description->cube_map ? 6 : 1), start);
+}
+
+static void upload_texels(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
 	const unsigned char *base, const D3DCOLOR *palette, unsigned char channel_order)
 {
 	struct format_information information = format_information(description->format);

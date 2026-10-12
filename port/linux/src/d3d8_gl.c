@@ -434,6 +434,12 @@ struct program_entry
 	constants_serial at their last upload */
 	GLint model_lights;
 	unsigned long long model_lights_serial;
+#ifdef HALO_ANDROID
+	/* its key in the program cache (0: none), and the map it was last
+	listed for (xgpu_program_map_serial) */
+	unsigned long long cache_key;
+	unsigned long map_serial;
+#endif
 
 	/* the vertex constants c[0..constant_count) the program uses; with
 	consecutive locations, a changed range is uploaded by itself */
@@ -1222,11 +1228,12 @@ void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 
 /* the shaders compiled and the programs linked since xgpu_shader_work_take
 last asked, and in how long (a frame that compiles one waits for the
-driver: vr.c's long frames say so) */
-static unsigned long shader_work_count;
-static unsigned long long shader_work_us;
+driver: vr.c's long frames say so); and the programs loaded from the cache
+(xgpu_program_cache.c) */
+static unsigned long shader_work_count, program_load_count;
+static unsigned long long shader_work_us, program_load_us;
 
-static unsigned long long shader_work_now_us(void)
+unsigned long long xgpu_shader_work_now_us(void)
 {
 	struct timespec now;
 
@@ -1234,25 +1241,43 @@ static unsigned long long shader_work_now_us(void)
 	return (unsigned long long)now.tv_sec * 1000000ull + (unsigned long long)now.tv_nsec / 1000ull;
 }
 
-void xgpu_shader_work_take(unsigned long *count, float *milliseconds)
+void xgpu_shader_work_add(BOOL loaded, unsigned long long start_us)
+{
+	unsigned long long spent = xgpu_shader_work_now_us() - start_us;
+
+	if (loaded)
+	{
+		program_load_count++;
+		program_load_us += spent;
+	}
+	else
+	{
+		shader_work_count++;
+		shader_work_us += spent;
+	}
+}
+
+void xgpu_shader_work_take(unsigned long *count, float *milliseconds, unsigned long *loaded,
+	float *loaded_milliseconds)
 {
 	*count = shader_work_count;
 	*milliseconds = shader_work_us * 1e-3f;
-	shader_work_count = 0;
-	shader_work_us = 0;
+	*loaded = program_load_count;
+	*loaded_milliseconds = program_load_us * 1e-3f;
+	shader_work_count = program_load_count = 0;
+	shader_work_us = program_load_us = 0;
 }
 
 GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 {
-	unsigned long long start = shader_work_now_us();
+	unsigned long long start = xgpu_shader_work_now_us();
 	GLuint shader = glCreateShader(type);
 	GLint status = 0;
 
 	glShaderSource(shader, 1, &source, NULL);
 	glCompileShader(shader);
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-	shader_work_count++;
-	shader_work_us += shader_work_now_us() - start;
+	xgpu_shader_work_add(FALSE, start);
 	if (!status)
 	{
 		char log[4096];
@@ -1267,22 +1292,29 @@ GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 
 GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const char *what)
 {
-	unsigned long long start = shader_work_now_us();
+	unsigned long long start = xgpu_shader_work_now_us();
 	GLuint program = glCreateProgram();
 	GLint status = 0;
 
+#ifdef HALO_ANDROID
+	/* (its binary is kept: xgpu_program_cache.c) */
+	if (xgpu_capabilities.program_binary_formats > 0)
+		glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+#endif
 	glAttachShader(program, vertex_shader);
 	glAttachShader(program, fragment_shader);
 	glLinkProgram(program);
 	glGetProgramiv(program, GL_LINK_STATUS, &status);
-	shader_work_count++;
-	shader_work_us += shader_work_now_us() - start;
+	xgpu_shader_work_add(FALSE, start);
 	if (!status)
 	{
 		char log[4096];
 
 		glGetProgramInfoLog(program, sizeof(log), NULL, log);
 		platform_log("cannot link the %s program: %s", what, log);
+#ifdef HALO_ANDROID
+		glDeleteProgram(program);
+#endif
 		return 0;
 	}
 	return program;
@@ -1360,6 +1392,7 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 {
 	struct render_target_entry *entry;
 	unsigned long width, height, slot;
+	unsigned long long made_start;
 	long screen;
 	BOOL depth;
 
@@ -1418,6 +1451,7 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 	entry->kind = kind;
 	entry->target.gl_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->target.gl_height = (unsigned long)(height * scale[1] + 0.5f);
+	made_start = xgpu_shader_work_now_us();
 	glGenTextures(1, &entry->target.texture);
 	glBindTexture(GL_TEXTURE_2D, entry->target.texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1433,6 +1467,7 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 	render_targets = entry;
 	entry->next_in_bucket = *render_target_bucket(entry->target.data);
 	*render_target_bucket(entry->target.data) = entry;
+	xgpu_texture_work_add(XGPU_TEXTURE_WORK_TARGET, 0, made_start);
 	return entry;
 }
 
@@ -2170,6 +2205,9 @@ static void gl_initialize(void)
 	}
 	xgpu_gl_state_invalidate();
 	device.gl_ready = TRUE;
+#ifdef HALO_ANDROID
+	xgpu_program_cache_initialize();
+#endif
 	if (anti_aliasing_value < 0)
 		anti_aliasing_read();
 	else
@@ -3202,6 +3240,125 @@ static BOOL words_equal(const void *a, const void *b, unsigned long size)
 	return difference == 0;
 }
 
+#ifdef HALO_ANDROID
+/* With the program cache (xgpu_program_cache.c), a shader is made with its
+source but compiled only when a program of it must be linked: a program
+the cache has needs neither of its shaders compiled. Each such shader's
+record keeps its source (for the cache's file) and its hash. */
+struct shader_record
+{
+	struct shader_record *next;
+	GLuint shader;
+	unsigned long long hash;
+	char *source;
+	const char *what;
+	BOOL compile_tried;
+	BOOL compiled;
+};
+
+#define SHADER_RECORD_BUCKETS 1024
+
+static struct shader_record *shader_records[SHADER_RECORD_BUCKETS];
+
+static struct shader_record *shader_record_find(GLuint shader)
+{
+	struct shader_record *record;
+
+	for (record = shader_records[shader % SHADER_RECORD_BUCKETS]; record; record = record->next)
+	{
+		if (record->shader == shader)
+			return record;
+	}
+	return NULL;
+}
+
+/* compiled now if it was not yet (FALSE: it does not compile) */
+static BOOL shader_record_compile(struct shader_record *record)
+{
+	if (!record->compile_tried)
+	{
+		unsigned long long start = xgpu_shader_work_now_us();
+		GLint status = 0;
+
+		record->compile_tried = TRUE;
+		glCompileShader(record->shader);
+		glGetShaderiv(record->shader, GL_COMPILE_STATUS, &status);
+		xgpu_shader_work_add(FALSE, start);
+		record->compiled = status != 0;
+		if (!record->compiled)
+		{
+			char log[4096];
+
+			glGetShaderInfoLog(record->shader, sizeof(log), NULL, log);
+			platform_log("cannot compile the %s shader:\n%s\n%s", record->what, log, record->source);
+		}
+	}
+	return record->compiled;
+}
+#endif
+
+/* a shader of this source: compiled (xgpu_compile_shader), or with the
+program cache made and compiled when it is linked (shader_record) */
+static GLuint shader_make(GLenum type, const char *source, const char *what)
+{
+#ifdef HALO_ANDROID
+	if (xgpu_program_cache_enabled())
+	{
+		struct shader_record *record = calloc(1, sizeof(*record));
+		size_t length = strlen(source);
+
+		if (record && (record->source = malloc(length + 1)) != NULL)
+		{
+			memcpy(record->source, source, length + 1);
+			record->hash = xgpu_source_hash(source);
+			record->what = what;
+			record->shader = glCreateShader(type);
+			glShaderSource(record->shader, 1, &source, NULL);
+			record->next = shader_records[record->shader % SHADER_RECORD_BUCKETS];
+			shader_records[record->shader % SHADER_RECORD_BUCKETS] = record;
+			return record->shader;
+		}
+		free(record);
+	}
+#endif
+	return xgpu_compile_shader(type, source, what);
+}
+
+/* the program of two shaders (shader_make's): from the program cache,
+else linked (and kept in the cache) */
+static GLuint program_make(GLuint vertex_shader, GLuint fragment_shader, unsigned long long *cache_key)
+{
+#ifdef HALO_ANDROID
+	struct shader_record *vertex = shader_record_find(vertex_shader);
+	struct shader_record *fragment = shader_record_find(fragment_shader);
+
+	*cache_key = 0;
+	if (vertex && fragment)
+	{
+		unsigned long long key = xgpu_program_key(vertex->hash, fragment->hash);
+		GLuint program = xgpu_program_cache_find(key, vertex->source, fragment->source);
+
+		if (!program)
+		{
+			if (!shader_record_compile(vertex) || !shader_record_compile(fragment))
+				return 0;
+			program = xgpu_link_program(vertex_shader, fragment_shader, "shader");
+			if (program)
+				xgpu_program_cache_store(key, program, vertex->source, fragment->source);
+		}
+		if (program)
+			*cache_key = key;
+		return program;
+	}
+	/* (either made without a record: compiled already) */
+	if ((vertex && !shader_record_compile(vertex)) || (fragment && !shader_record_compile(fragment)))
+		return 0;
+#else
+	*cache_key = 0;
+#endif
+	return xgpu_link_program(vertex_shader, fragment_shader, "shader");
+}
+
 /* lit: the shader that hands the lighting's normal and position on
 (vertex_shader_object lit_shader); multiview_view: for both eyes at once */
 static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL multiview_view, BOOL lit)
@@ -3216,7 +3373,7 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 			immediate ? 0 : device.vertex_shader->packed_mask, lit ? &program->lighting : NULL, multiview_view);
 
 		program->shaders_tried |= tried;
-		*shader = xgpu_compile_shader(GL_VERTEX_SHADER, source, "vertex");
+		*shader = shader_make(GL_VERTEX_SHADER, source, "vertex");
 		if (!program->projection_known)
 		{
 			program->projected = strstr(source, "clip_captured = true") != NULL;
@@ -3273,7 +3430,7 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 	entry->hash = hash;
 	entry->key = *key;
 	source = nv2a_pixel_shader_to_glsl(key);
-	entry->shader = xgpu_compile_shader(GL_FRAGMENT_SHADER, source, "pixel");
+	entry->shader = shader_make(GL_FRAGMENT_SHADER, source, "pixel");
 	if (debug_settings.dump_shaders)
 	{
 		char path[512];
@@ -3301,7 +3458,12 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	struct program_entry *entry;
 	int stage;
 
+#ifdef HALO_ANDROID
+	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader &&
+		last->map_serial == xgpu_program_map_serial)
+#else
 	if (last && last->vertex_shader == vertex_shader && last->fragment_shader == fragment_shader)
+#endif
 		return last;
 	for (entry = *bucket; entry; entry = entry->next)
 	{
@@ -3309,6 +3471,15 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 		{
 			if (!entry->program)
 				return NULL;
+#ifdef HALO_ANDROID
+			/* (each map lists the programs it drew with: xgpu_program_cache.c) */
+			if (entry->map_serial != xgpu_program_map_serial)
+			{
+				entry->map_serial = xgpu_program_map_serial;
+				if (entry->cache_key)
+					xgpu_program_cache_used(entry->cache_key);
+			}
+#endif
 			last = entry;
 			return entry;
 		}
@@ -3322,7 +3493,19 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	if (!vertex_shader || !fragment_shader)
 		return NULL;
 
-	entry->program = xgpu_link_program(vertex_shader, fragment_shader, "shader");
+	{
+		unsigned long long cache_key;
+
+		entry->program = program_make(vertex_shader, fragment_shader, &cache_key);
+#ifdef HALO_ANDROID
+		entry->cache_key = cache_key;
+		entry->map_serial = xgpu_program_map_serial;
+		if (cache_key)
+			xgpu_program_cache_used(cache_key);
+#else
+		(void)cache_key;
+#endif
+	}
 	if (!entry->program)
 		return NULL;
 	state_program(entry->program);
@@ -6532,6 +6715,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		xgpu_gl_state_invalidate();
 		memory_watch_begin_frame();
 		xgpu_texture_cache_begin_frame();
+#ifdef HALO_ANDROID
+		xgpu_program_cache_frame();
+#endif
 #ifdef HALO_GLES
 		visibility_frame_end();
 		host_gl_fence_frame((unsigned int)device.buffer_ring);
