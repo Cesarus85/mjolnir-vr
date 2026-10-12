@@ -119,8 +119,9 @@ static struct
 	BOOL used_changed;
 	unsigned long long list_written_us;
 
-	/* for the log: since the map loaded */
+	/* for the log: since the map loaded; binaries the driver refused */
 	unsigned long found_ready, found_file, stored;
+	unsigned long refused;
 } cache;
 
 unsigned long xgpu_program_map_serial = 1;
@@ -239,18 +240,6 @@ static void list_path(char *path, size_t size, const char *map)
 	snprintf(path, size, "%s/maps/%s.txt", cache.folder, map);
 }
 
-static BOOL binary_format_known(unsigned int format)
-{
-	int index;
-
-	for (index = 0; index < cache.binary_format_count; index++)
-	{
-		if ((unsigned int)cache.binary_formats[index] == format)
-			return TRUE;
-	}
-	return FALSE;
-}
-
 /* a program's file, whole, or NULL: header, then the vertex and fragment
 sources and the binary (free() it) */
 static unsigned char *program_file_read(unsigned long long key, struct program_file_header *header)
@@ -363,8 +352,9 @@ static GLuint program_from_binary(unsigned int format, const void *binary, unsig
 	GLuint program;
 	GLint status = 0;
 
-	if (!binary_format_known(format))
-		return 0;
+	/* (the format is not checked against GL_PROGRAM_BINARY_FORMATS: the
+	emulator's GL lists ANGLE's and hands out one of its own, which it takes
+	back; the driver checks the binary itself, and was the one that made it) */
 	program = glCreateProgram();
 	glProgramBinary(program, (GLenum)format, binary, (GLsizei)size);
 	glGetProgramiv(program, GL_LINK_STATUS, &status);
@@ -372,6 +362,18 @@ static GLuint program_from_binary(unsigned int format, const void *binary, unsig
 	{
 		/* (refused: a driver update the hash missed; its error is no one
 		else's) */
+		GLenum error = glGetError();
+
+		cache.refused++;
+		if (cache.refused <= 3)
+		{
+			char log[512];
+
+			log[0] = 0;
+			glGetProgramInfoLog(program, sizeof(log), NULL, log);
+			platform_log("shader cache: the driver refused a program's binary (format 0x%x, %u bytes, GL error 0x%x)%s%s",
+				format, size, (unsigned)error, log[0] ? ": " : "", log);
+		}
 		glDeleteProgram(program);
 		while (glGetError() != GL_NO_ERROR)
 		{
@@ -880,8 +882,9 @@ void xgpu_program_cache_initialize(void)
 	}
 	folder_survey(FALSE);
 	cache.enabled = TRUE;
-	platform_log("shader cache: %s, %lu programs kept (%llu MB), driver %016llx%s", cache.folder, cache.files,
-		cache.bytes >> 20, cache.driver,
+	platform_log("shader cache: %s, %lu programs kept (%llu MB), driver %016llx, binary format 0x%x%s%s", cache.folder,
+		cache.files, cache.bytes >> 20, cache.driver, (unsigned)cache.binary_formats[0],
+		cache.binary_format_count > 1 ? " and others" : "",
 		xgpu_capabilities.parallel_compile ? "; a map's programs compiled in the background" : "");
 }
 
