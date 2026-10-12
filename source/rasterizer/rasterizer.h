@@ -31,14 +31,8 @@ enum
 	RASTERIZER_MAXIMUM_TRIANGLES_PER_TRIANGLE_BUFFER = 24576,
 	RASTERIZER_MAXIMUM_DEBUG_PRIMITIVES = 131072,
 	RASTERIZER_MAXIMUM_DEBUG_VERTICES = 393216,
-	/* port: the Xbox's 384 groups a window (each a model's transparent part,
-	a particle system, a contrail, a light volume, a window's or water's
-	surface) are spent in games of 30 and more players, and whatever is
-	submitted after the last is dropped, the structure's glass and water
-	and the particles first (render_window submits the objects before
-	them). Their indices are shorts, the pending flags a bit vector of
-	this size: 2048 groups take 320 KB. */
-	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS = 2048,
+	/* port: the native builds' larger pool (halo_port_capacity.h) */
+	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS = HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS,
 	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS2 = 32,
 	/* port: the structure's 32768 triangles (render.h) and, past them, as
 	much again as the Xbox's 16384 left a frame for its lights, shadows and
