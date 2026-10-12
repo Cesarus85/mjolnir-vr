@@ -1213,14 +1213,39 @@ void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 
 /* ---------- GL helpers */
 
+/* the shaders compiled and the programs linked since xgpu_shader_work_take
+last asked, and in how long (a frame that compiles one waits for the
+driver: vr.c's long frames say so) */
+static unsigned long shader_work_count;
+static unsigned long long shader_work_us;
+
+static unsigned long long shader_work_now_us(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned long long)now.tv_sec * 1000000ull + (unsigned long long)now.tv_nsec / 1000ull;
+}
+
+void xgpu_shader_work_take(unsigned long *count, float *milliseconds)
+{
+	*count = shader_work_count;
+	*milliseconds = shader_work_us * 1e-3f;
+	shader_work_count = 0;
+	shader_work_us = 0;
+}
+
 GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 {
+	unsigned long long start = shader_work_now_us();
 	GLuint shader = glCreateShader(type);
 	GLint status = 0;
 
 	glShaderSource(shader, 1, &source, NULL);
 	glCompileShader(shader);
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+	shader_work_count++;
+	shader_work_us += shader_work_now_us() - start;
 	if (!status)
 	{
 		char log[4096];
@@ -1235,6 +1260,7 @@ GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 
 GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const char *what)
 {
+	unsigned long long start = shader_work_now_us();
 	GLuint program = glCreateProgram();
 	GLint status = 0;
 
@@ -1242,6 +1268,8 @@ GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const cha
 	glAttachShader(program, fragment_shader);
 	glLinkProgram(program);
 	glGetProgramiv(program, GL_LINK_STATUS, &status);
+	shader_work_count++;
+	shader_work_us += shader_work_now_us() - start;
 	if (!status)
 	{
 		char log[4096];

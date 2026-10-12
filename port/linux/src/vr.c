@@ -801,6 +801,8 @@ void halo_vr_timing_end(int part, unsigned long long start)
 	}
 }
 
+void xgpu_shader_work_take(unsigned long *count, float *milliseconds);
+
 /* the frame's parts, from the marks halo_vr_phase left (a part not marked
 this frame: none) */
 static void performance_phases(unsigned long long now)
@@ -824,6 +826,33 @@ static void performance_phases(unsigned long long now)
 	/* (late: longer than the headset's frame, less a millisecond) */
 	if (vr.info.refresh_rate > 1.0f && (float)(now - vr.frame_start_us + 1000) > 1e6f / vr.info.refresh_rate)
 		vr.phase_late[kind]++;
+	{
+		/* a frame two of the headset's long, what it spent: the headset
+		shows an old frame (and the Quest turns ASW on a while), seen as a
+		doubled picture when turning */
+		unsigned long shaders;
+		float shader_ms;
+
+		xgpu_shader_work_take(&shaders, &shader_ms);
+		if (vr.info.refresh_rate > 1.0f && (float)(now - vr.frame_start_us) > 2e6f / vr.info.refresh_rate)
+		{
+			unsigned long long mark = vr.frame_start_us;
+			float ms[HALO_VR_PHASE_COUNT];
+
+			for (phase = 0; phase < HALO_VR_PHASE_COUNT; phase++)
+			{
+				unsigned long long end = vr.phase_end_us[phase];
+
+				ms[phase] = end >= mark && end <= now ? (end - mark) * 1e-3f : 0.0f;
+				if (end >= mark && end <= now)
+					mark = end;
+			}
+			platform_log("VR: long frame %.1f ms: input %.1f, ticks %.1f, camera %.1f, draw %.1f, present %.1f; "
+				"%lu shaders compiled or linked in %.1f ms", (now - vr.frame_start_us) * 1e-3f,
+				ms[HALO_VR_PHASE_INPUT], ms[HALO_VR_PHASE_TICKS], ms[HALO_VR_PHASE_CAMERA], ms[HALO_VR_PHASE_DRAW],
+				(now - mark) * 1e-3f, shaders, shader_ms);
+		}
+	}
 	memset(vr.phase_end_us, 0, sizeof(vr.phase_end_us));
 	vr.frame_ticks = 0;
 }
