@@ -326,14 +326,25 @@ failed:
 	return NULL;
 }
 
+unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height)
+{
+	return png_decode(png, size, width, height);
+}
+
 unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
 {
-	unsigned long width = 0, height = 0, largest;
+	unsigned long width = 0, height = 0;
 	unsigned char *pixels = png_decode(png, size, &width, &height);
+
+	return pixels ? hud_hires_pixels_texture(pixels, width, height, levels) : 0;
+}
+
+unsigned int hud_hires_pixels_texture(unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long *levels)
+{
+	unsigned long largest;
 	GLuint texture;
 
-	if (!pixels)
-		return 0;
 	*levels = 1;
 	for (largest = width > height ? width : height; largest > 1; largest >>= 1)
 		(*levels)++;
