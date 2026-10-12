@@ -1029,8 +1029,184 @@ static struct
 	unsigned int texture;
 	unsigned long levels;
 	int failed;
+#ifdef HALO_ANDROID
+	/* being decoded on the pictures' thread (art_decode) */
+	int decoding;
+#endif
 } art[MAXIMUM_ART];
 static long art_count;
+
+#ifdef HALO_ANDROID
+/* The menus' pictures decoded on a thread of their own: a screen's first
+frame decoded its PNGs, 15 ms each, 100 ms and more for a screen (in VR a
+frame shown late, the picture doubled). A picture not decoded yet is drawn
+transparent for the frames it takes; the game's thread only uploads it. The
+requests and results carry the art's generation: forgotten art's results
+are dropped. */
+#include <pthread.h>
+
+#define ART_DECODE_QUEUE 64
+
+static struct
+{
+	int started;
+	pthread_mutex_t lock;
+	pthread_cond_t wake;
+	/* asked (the art's index, its PNG and generation), and decoded */
+	struct
+	{
+		long index;
+		unsigned long generation;
+		const unsigned char *png;
+		unsigned long size;
+		unsigned char *pixels;
+		unsigned long width, height;
+		int state; /* 0 free, 1 asked, 2 decoding, 3 decoded */
+	} slots[ART_DECODE_QUEUE];
+	unsigned long generation;
+	/* drawn while a picture is decoded */
+	unsigned int transparent;
+} art_decode;
+
+static void *art_decode_main(void *unused)
+{
+	(void)unused;
+	pthread_mutex_lock(&art_decode.lock);
+	for (;;)
+	{
+		int slot;
+
+		for (slot = 0; slot < ART_DECODE_QUEUE && art_decode.slots[slot].state != 1; slot++)
+		{
+		}
+		if (slot == ART_DECODE_QUEUE)
+		{
+			pthread_cond_wait(&art_decode.wake, &art_decode.lock);
+			continue;
+		}
+		art_decode.slots[slot].state = 2;
+		pthread_mutex_unlock(&art_decode.lock);
+		{
+			unsigned long width = 0, height = 0;
+			unsigned char *pixels = hud_hires_png_pixels(art_decode.slots[slot].png, art_decode.slots[slot].size,
+				&width, &height);
+
+			pthread_mutex_lock(&art_decode.lock);
+			art_decode.slots[slot].pixels = pixels;
+			art_decode.slots[slot].width = width;
+			art_decode.slots[slot].height = height;
+			art_decode.slots[slot].state = 3;
+		}
+	}
+	return NULL;
+}
+
+/* the art's texture if its picture is decoded (uploaded now), else asked
+for and 0 (*waiting: draw it transparent for now) */
+static unsigned int art_decoded_texture(long index, int *waiting)
+{
+	unsigned int texture = 0;
+	int slot, free_slot = -1;
+
+	*waiting = 0;
+	if (!art_decode.started)
+	{
+		pthread_t thread;
+
+		art_decode.started = -1;
+		pthread_mutex_init(&art_decode.lock, NULL);
+		pthread_cond_init(&art_decode.wake, NULL);
+		if (pthread_create(&thread, NULL, art_decode_main, NULL) == 0)
+		{
+			pthread_detach(thread);
+			art_decode.started = 1;
+		}
+	}
+	if (art_decode.started < 0)
+		return 0;
+	pthread_mutex_lock(&art_decode.lock);
+	for (slot = 0; slot < ART_DECODE_QUEUE; slot++)
+	{
+		if (art_decode.slots[slot].state == 3 && art_decode.slots[slot].generation != art_decode.generation)
+		{
+			/* (forgotten art's) */
+			free(art_decode.slots[slot].pixels);
+			art_decode.slots[slot].pixels = NULL;
+			art_decode.slots[slot].state = 0;
+		}
+		if (art_decode.slots[slot].state == 0 && free_slot < 0)
+			free_slot = slot;
+		if (art_decode.slots[slot].state && art_decode.slots[slot].index == index &&
+			art_decode.slots[slot].generation == art_decode.generation)
+		{
+			break;
+		}
+	}
+	if (slot < ART_DECODE_QUEUE)
+	{
+		if (art_decode.slots[slot].state == 3)
+		{
+			unsigned char *pixels = art_decode.slots[slot].pixels;
+			unsigned long width = art_decode.slots[slot].width, height = art_decode.slots[slot].height;
+
+			art_decode.slots[slot].pixels = NULL;
+			art_decode.slots[slot].state = 0;
+			pthread_mutex_unlock(&art_decode.lock);
+			art[index].decoding = 0;
+			if (!pixels)
+				return 0;
+			{
+				unsigned long long start = xgpu_shader_work_now_us();
+
+				texture = hud_hires_pixels_texture(pixels, width, height, &art[index].levels);
+				xgpu_texture_work_add(XGPU_TEXTURE_WORK_PICTURE, width * height, start);
+			}
+			return texture;
+		}
+		pthread_mutex_unlock(&art_decode.lock);
+		*waiting = 1;
+		return 0;
+	}
+	if (free_slot >= 0 && !art[index].decoding)
+	{
+		unsigned long size = 0;
+		const unsigned char *png;
+
+		pthread_mutex_unlock(&art_decode.lock);
+		png = file_data(art[index].png, &size);
+		if (!png)
+			return 0;
+		pthread_mutex_lock(&art_decode.lock);
+		art_decode.slots[free_slot].index = index;
+		art_decode.slots[free_slot].generation = art_decode.generation;
+		art_decode.slots[free_slot].png = png;
+		art_decode.slots[free_slot].size = size;
+		art_decode.slots[free_slot].state = 1;
+		art[index].decoding = 1;
+		pthread_cond_signal(&art_decode.wake);
+	}
+	pthread_mutex_unlock(&art_decode.lock);
+	/* (the queue full: asked again at its next draw) */
+	*waiting = 1;
+	return 0;
+}
+
+static unsigned int art_transparent_texture(void)
+{
+	if (!art_decode.transparent)
+	{
+		static const unsigned char clear[4] = { 0, 0, 0, 0 };
+
+		glGenTextures(1, &art_decode.transparent);
+		glBindTexture(GL_TEXTURE_2D, art_decode.transparent);
+		xgpu_gl_state_invalidate();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, clear);
+		xgpu_gl_state_invalidate();
+	}
+	return art_decode.transparent;
+}
+#endif
 /* the lowest and highest texture the art stands for: every texture the
 renderer binds asks (xbox_textures.c), every frame of a game too, and the
 menus' lie together, made as the map loaded, mostly apart from the map's
@@ -1093,6 +1269,14 @@ void halo_menus_art_forget(void)
 	}
 	art_count = 0;
 	art_lowest = art_highest = 0;
+#ifdef HALO_ANDROID
+	if (art_decode.started > 0)
+	{
+		pthread_mutex_lock(&art_decode.lock);
+		art_decode.generation++;
+		pthread_mutex_unlock(&art_decode.lock);
+	}
+#endif
 }
 
 unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
@@ -1111,10 +1295,25 @@ unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 		return 0;
 	if (!art[index].texture)
 	{
-		unsigned long size = 0;
-		const unsigned char *png = file_data(art[index].png, &size);
+#ifdef HALO_ANDROID
+		int waiting = 0;
 
-		art[index].texture = png ? hud_hires_png_texture(png, size, &art[index].levels) : 0;
+		art[index].texture = art_decoded_texture(index, &waiting);
+		if (waiting)
+		{
+			*levels = 1;
+			return art_transparent_texture();
+		}
+		if (!art[index].texture && art_decode.started < 0)
+#endif
+		{
+			unsigned long size = 0;
+			unsigned long long start = xgpu_shader_work_now_us();
+			const unsigned char *png = file_data(art[index].png, &size);
+
+			art[index].texture = png ? hud_hires_png_texture(png, size, &art[index].levels) : 0;
+			xgpu_texture_work_add(XGPU_TEXTURE_WORK_PICTURE, 0, start);
+		}
 		if (!art[index].texture)
 		{
 			platform_log("menus: could not draw %s", art[index].png);

@@ -4651,9 +4651,6 @@ void display_error_damaged_media(
 	return;
 }
 
-/* port: menu_tags.c's */
-char const *pc_menus_screen(char const *name);
-
 void network_game_reset_to_pregame_ui(
 	void)
 {
@@ -7469,6 +7466,7 @@ enum
 	_vr_option_button_last = _vr_option_button_first + HALO_VR_ACTION_COUNT - 1,
 	_vr_option_buttons_reset,
 	_vr_option_graphics,
+	_vr_option_foveation,
 	_vr_option_refresh_rate,
 	_vr_option_resolution,
 	_vr_option_controls,
@@ -7523,8 +7521,8 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
 		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_buttons_reset, _vr_option_controls,
 		NONE, NONE, NONE },
-	{ _vr_option_graphics, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
-		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE },
+	{ _vr_option_graphics, _vr_option_foveation, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
+		NONE, NONE, NONE, NONE, NONE, NONE, NONE },
 };
 
 /* the page a row is on, and its place there */
@@ -7745,9 +7743,27 @@ static short ui_vr_options_voice_chat(
 }
 /* vr.graphics's (port/linux/game/vr_graphics.c), and vr.resolution_scale's
 (read as the app starts) */
-static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max" };
-static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max" };
+static char const *const vr_graphics_presets[] = { "low", "medium", "high", "max", "auto" };
+static char const *const vr_graphics_names[] = { "Low", "Medium", "High", "Max", "Auto" };
 static real const vr_resolution_scales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f };
+
+/* vr.foveation's (vr.c: the Quest's GPU only) */
+static char const *const vr_foveation_levels[] = { "off", "low", "medium" };
+static char const *const vr_foveation_names[] = { "Off", "Low", "Medium" };
+
+static short ui_vr_options_foveation(
+	void)
+{
+	char const *foveation = config_string("vr.foveation");
+	short index;
+
+	for (index = 0; index < (short)NUMBEROF(vr_foveation_levels); index++)
+	{
+		if (foveation && strcmp(foveation, vr_foveation_levels[index]) == 0)
+			return index;
+	}
+	return 0;
+}
 
 static short ui_vr_options_graphics(
 	void)
@@ -7760,7 +7776,8 @@ static short ui_vr_options_graphics(
 		if (graphics && strcmp(graphics, vr_graphics_presets[index]) == 0)
 			return index;
 	}
-	return 2;
+	/* (the default, vr.c's halo_vr_graphics) */
+	return 1;
 }
 
 /* the refresh rates the headset offers, in order, and which of them
@@ -7902,6 +7919,10 @@ static void ui_vr_options_change(
 	case _vr_option_graphics:
 		config_write("vr.graphics", vr_graphics_presets[(ui_vr_options_graphics() + change +
 			(short)NUMBEROF(vr_graphics_presets)) % (short)NUMBEROF(vr_graphics_presets)]);
+		break;
+	case _vr_option_foveation:
+		config_write("vr.foveation", vr_foveation_levels[(ui_vr_options_foveation() + change +
+			(short)NUMBEROF(vr_foveation_levels)) % (short)NUMBEROF(vr_foveation_levels)]);
 		break;
 	case _vr_option_refresh_rate:
 	{
@@ -8599,6 +8620,12 @@ static void ui_vr_options_render(
 			label = "Graphics";
 			snprintf(value, sizeof(value), "%s", vr_graphics_names[ui_vr_options_graphics()]);
 			break;
+		case _vr_option_foveation:
+			/* (dim where the GPU has none: the Steam Frame's) */
+			label = "Foveation";
+			snprintf(value, sizeof(value), "%s", vr_foveation_names[ui_vr_options_foveation()]);
+			unused = !halo_vr_foveation_supported();
+			break;
 		case _vr_option_refresh_rate:
 		{
 			real rates[16], current;
@@ -8682,15 +8709,17 @@ static void ui_vr_options_render(
 	if (page == _vr_options_page_more)
 	{
 		/* (what the graphics rows do) */
-		ui_join_code_draw_text(128, 512, 230, "Graphics: Medium and Low leave effects out (shadows,", FALSE, 0,
-			&dim_color);
-		ui_join_code_draw_text(128, 512, 248, "reflections, lens flares; grass, weather...) for a steadier", FALSE,
+		ui_join_code_draw_text(128, 512, 230, "Graphics: Auto leaves effects out while the GPU falls behind;", FALSE,
 			0, &dim_color);
-		ui_join_code_draw_text(128, 512, 266, "frame; Max lights models for each pixel. The refresh rate", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 248, "Medium and Low always (shadows, reflections, flares; grass...).",
+			FALSE, 0, &dim_color);
+		ui_join_code_draw_text(128, 512, 266, "Max lights models for each pixel. The refresh rate", FALSE, 0,
 			&dim_color);
 		ui_join_code_draw_text(128, 512, 284, "changes at once where the headset lets it (on the Steam", FALSE, 0,
 			&dim_color);
 		ui_join_code_draw_text(128, 512, 302, "Frame, in SteamOS); the resolution after a restart.", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 320, "Foveation draws the view's edges coarser (Quest only).", FALSE, 0,
 			&dim_color);
 	}
 	ui_join_code_draw_text(126, 514, VR_OPTIONS_FOOTER + 8, "%a-button Change   %b-button Done", TRUE, 0, &text_color);

@@ -296,15 +296,24 @@ const char *halo_vr_input_value(int input);
 int halo_vr_action_input(int action);
 /* the graphics preset (vr.graphics; HALO_VR_GRAPHICS_HIGH outside VR): which
 effects are drawn (port/linux/game/vr_graphics.c), and with "max" the
-models lit for each pixel and larger shadows (d3d8_gl.c) */
+models lit for each pixel and larger shadows (d3d8_gl.c); "auto" is "high"
+less what the GPU's time asks to leave out */
 enum
 {
 	HALO_VR_GRAPHICS_LOW = 0,
 	HALO_VR_GRAPHICS_MEDIUM,
 	HALO_VR_GRAPHICS_HIGH,
 	HALO_VR_GRAPHICS_MAX,
+	HALO_VR_GRAPHICS_AUTO,
 };
 int halo_vr_graphics(void);
+/* the app's GPU time of a recent frame (ms; 0: the headset does not tell
+it, as SteamVR), and the refresh rate (Hz; 0: unknown) */
+float halo_vr_gpu_milliseconds(void);
+float halo_vr_refresh_rate(void);
+/* whether vr.foveation has an effect: the headset's GPU foveates (the
+Quest's; vr.c, d3d8_gl.c) */
+int halo_vr_foveation_supported(void);
 /* the VR options: the refresh rates the headset offers (Hz, at most maximum;
 0 when it lets none be chosen, as SteamVR), and the one it runs at (0:
 unknown; vr.refresh_rate asks for one); and vr.resolution_scale as the app

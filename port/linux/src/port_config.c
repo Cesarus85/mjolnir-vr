@@ -176,6 +176,17 @@ static const struct config_setting config_settings[] =
 		"pixel by the lights the game gives them, without the facets the light\n"
 		"of each vertex shows across curved surfaces; false lights each vertex,\n"
 		"as the Xbox does." },
+	{ "display.shader_cache", _config_boolean, "true", "HALO_SHADER_CACHE", _environment_value, _platform_android,
+		"Keep the compiled shader programs in the shader_cache folder beside this\n"
+		"file, and make ready those a map drew with while it loads: fewer\n"
+		"stalls the first time something is drawn. false compiles each the first\n"
+		"time it is drawn. The folder may be deleted at any time." },
+	{ "display.shader_worker", _config_boolean, "true", "HALO_SHADER_WORKER", _environment_value, _platform_android,
+		"Make the shader programs on a thread of their own (with a GL context\n"
+		"sharing the game's), from the shader cache or compiled: a draw whose\n"
+		"program is not made yet is left out for the frames it takes, and the\n"
+		"frame does not wait. false makes each on the game's thread when it is\n"
+		"first drawn with. Read when the app starts." },
 
 	{ "vr.enabled", _config_boolean, "true", "HALO_VR_ENABLED", _environment_value, _platform_android,
 		"On a VR headset (Quest, Steam Frame), play in VR; false shows the game\n"
@@ -189,13 +200,24 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
-	{ "vr.graphics", _config_string, "\"high\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
-		"Which of the costlier effects are drawn: \"high\" all of them; \"medium\"\n"
+	{ "vr.graphics", _config_string, "\"medium\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
+		"Which of the costlier effects are drawn (\"medium\" by default): \"auto\" all of them while the\n"
+		"GPU keeps up, leaving out one after another (the shield's glow, object\n"
+		"shadows, reflections, specular light, lens flares, bump maps, the rest\n"
+		"of \"low\") while it does not, and bringing them back when it does again\n"
+		"(the Quest; on the Steam Frame, which does not tell the GPU's time, as\n"
+		"\"high\"); \"high\" all of them; \"medium\"\n"
 		"no object shadows, environment reflections or lens flares; \"low\" nor\n"
 		"specular light, bump maps, grass, the screen's fog, contrails, weather\n"
 		"or camouflage's second pass (a client in another's game keeps grass,\n"
 		"lens flares and fog); \"max\" all of them, the models lit for each\n"
 		"pixel and shadows at 512x512." },
+	{ "vr.foveation", _config_string, "\"off\"", "HALO_VR_FOVEATION", _environment_value, _platform_android,
+		"Foveated rendering on the Quest (GL_QCOM_texture_foveated): the eyes'\n"
+		"pictures drawn at full detail around the lenses' centres and coarser\n"
+		"towards their edges, for less GPU time. \"off\", \"low\" or \"medium\"\n"
+		"(coarser edges, nearer the centre). The HUD and menus are not\n"
+		"foveated; a headset without it ignores it." },
 	{ "vr.positional_tracking", _config_boolean, "true", "HALO_VR_POSITIONAL", _environment_value, _platform_android,
 		"Moving your head moves the view (leaning, ducking); false only turns it.\n"
 		"The view recentres when play starts or resumes after a cinematic, and\n"
@@ -620,6 +642,28 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Hosting: the minutes a player kicked by a vote cannot join again (1 to\n"
 		"1440)." },
+	{ "network.map_share", _config_boolean, "true", "HALO_NET_MAP_SHARE", _environment_value, _platform_all,
+		"Hosting: send a player who joins without the game's Custom Edition map\n"
+		"the map (from custom_maps), and the resource maps it needs that the\n"
+		"player lacks (bitmaps.map, sounds.map, loc.map). The game's other\n"
+		"players help (network.map_seed)." },
+	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
+		_platform_all,
+		"Hosting: the most kilobytes a second the host sends of maps (16 to\n"
+		"65536), so that the game's own traffic keeps the rest of the upload." },
+	{ "network.map_seed", _config_boolean, "true", "HALO_NET_MAP_SEED", _environment_value, _platform_all,
+		"Playing in another's game: help send its map to players who join\n"
+		"without it, as a torrent's peers do (the pieces this machine has, at\n"
+		"most network.map_seed_upload)." },
+	{ "network.map_seed_upload", _config_integer, "256", "HALO_NET_MAP_SEED_UPLOAD", _environment_value,
+		_platform_all,
+		"Playing in another's game: the most kilobytes a second this machine\n"
+		"sends of maps to other players (16 to 65536)." },
+	{ "network.map_download", _config_boolean, "true", "HALO_NET_MAP_DOWNLOAD", _environment_value, _platform_all,
+		"Joining a game on a Custom Edition map this machine does not have:\n"
+		"download it (and the resource maps it needs) from the game's players\n"
+		"into custom_maps, if its host shares it (network.map_share); false\n"
+		"leaves the game, saying which map is missing." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"Whether an online co-op game (Create Game > Internet, a SINGLEPLAYER\n"
 		"map) starts as PUBLIC or, false, PRIVATE: Server Setup's LISTING in\n"
@@ -742,6 +786,18 @@ static const struct config_setting config_settings[] =
 		"The headset's layer copies: 1 deferred (no waits for the GL thread or the\n"
 		"GPU in the middle of the frame), 0 each one restored and released at once,\n"
 		"-1 as the runtime needs (deferred on SteamVR). Read when the app starts." },
+	{ "debug.vr_graphics_measure", _config_boolean, "false", "HALO_VR_GRAPHICS_MEASURE", _environment_value,
+		_platform_android,
+		"VR: leave each costlier effect out in turn (a second and a half drawn,\n"
+		"as long left out) and log what the GPU's time says it costs\n"
+		"(\"VR graphics measure\"); vr.graphics is ignored meanwhile." },
+	{ "debug.shader_warm_up", _config_string, "\"worker\"", "HALO_SHADER_WARM_UP", _environment_value,
+		_platform_android,
+		"Each shader program made on the worker (display.shader_worker) is drawn\n"
+		"with once there, into a small target of its own, so that the driver\n"
+		"makes what it makes at a first draw then and not in a frame: \"worker\";\n"
+		"\"load\" draws with a map's programs on the game's thread as the map\n"
+		"loads instead; \"off\" draws with none. Read when the app starts." },
 	{ "debug.vr_options", _config_boolean, "false", "HALO_DEBUG_VR_OPTIONS", _environment_value, _platform_android,
 		"Off the headset (the emulator), show the VR options panel on the main\n"
 		"and pause menus all the same, for checking its pages." },
@@ -1059,22 +1115,36 @@ static char *config_default_text(void)
 		"# it to go back to them. Each setting can also be set for one run with\n"
 		"# the environment variable named with it, which wins over this file.\n");
 #endif
+	/* each section once, where its first setting is, with all of its
+	settings: TOML refuses a section twice, and the whole file would go
+	unread (config_join_sections) */
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
 		const char *dot = strchr(setting->name, '.');
+		size_t length, other;
 		char buffer[64];
 
 		if (!(setting->platforms & CONFIG_PLATFORM) || !dot)
 			continue;
-		if (strncmp(section, setting->name, (size_t)(dot - setting->name)) ||
-			section[dot - setting->name] != 0)
+		length = (size_t)(dot - setting->name);
+		for (other = 0; other < index; other++)
 		{
-			snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
-			snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
-			config_append(&text, buffer);
+			if ((config_settings[other].platforms & CONFIG_PLATFORM) &&
+				!strncmp(config_settings[other].name, setting->name, length + 1))
+				break;
 		}
-		config_append_setting(&text, setting);
+		if (other < index)
+			continue;
+		snprintf(section, sizeof(section), "%.*s", (int)length, setting->name);
+		snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
+		config_append(&text, buffer);
+		for (other = index; other < NUMBER_OF_CONFIG_SETTINGS; other++)
+		{
+			if ((config_settings[other].platforms & CONFIG_PLATFORM) &&
+				!strncmp(config_settings[other].name, setting->name, length + 1))
+				config_append_setting(&text, &config_settings[other]);
+		}
 	}
 	return text.buffer;
 }
@@ -1157,6 +1227,89 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		}
 	}
 	return result;
+}
+
+static int config_line_section(const char *line, const char *end, char *section, size_t size);
+
+/* text from start to end, appended */
+static void config_append_range(struct config_text *text, const char *start, const char *end)
+{
+	char *copy = config_copy(start, (size_t)(end - start));
+
+	if (copy)
+		config_append(text, copy);
+	free(copy);
+}
+
+/* a file with a section twice, which TOML refuses (the defaults of the
+versions from 2026-10-10 had a second [display] after [game]): each
+section's later parts moved to the end of its first, the rest kept as it
+is. Returns the new text, or NULL if no section is there twice */
+static char *config_join_sections(const char *text)
+{
+	enum { PARTS_MAXIMUM = 64 };
+	struct
+	{
+		char name[64];
+		const char *start, *end;
+	} parts[PARTS_MAXIMUM];
+	struct config_text joined = { NULL, 0, 0 };
+	const char *line;
+	const char *first_part = NULL;
+	int count = 0, repeated = 0, index, other;
+
+	/* the parts, each from its section's line to the next one's */
+	for (line = text; *line; )
+	{
+		size_t length = strcspn(line, "\n");
+		char name[64];
+
+		if (config_line_section(line, line + length, name, sizeof(name)))
+		{
+			if (count == PARTS_MAXIMUM)
+				return NULL;
+			if (count)
+				parts[count - 1].end = line;
+			else
+				first_part = line;
+			for (other = 0; other < count; other++)
+				repeated |= !strcmp(parts[other].name, name);
+			strcpy(parts[count].name, name);
+			parts[count].start = line;
+			count++;
+		}
+		line += length;
+		if (*line)
+			line++;
+	}
+	if (!repeated)
+		return NULL;
+	parts[count - 1].end = line;
+
+	config_append_range(&joined, text, first_part);
+	for (index = 0; index < count; index++)
+	{
+		for (other = 0; other < index && strcmp(parts[other].name, parts[index].name); other++)
+			;
+		if (other < index)
+			continue;
+		config_append_range(&joined, parts[index].start, parts[index].end);
+		for (other = index + 1; other < count; other++)
+		{
+			const char *body;
+
+			if (strcmp(parts[other].name, parts[index].name))
+				continue;
+			/* (its settings, without its section's line) */
+			body = memchr(parts[other].start, '\n', (size_t)(parts[other].end - parts[other].start));
+			if (!body)
+				continue;
+			if (joined.length && joined.buffer[joined.length - 1] != '\n')
+				config_append(&joined, "\n");
+			config_append_range(&joined, body + 1, parts[other].end);
+		}
+	}
+	return joined.buffer;
 }
 
 /* ---------- values */
@@ -1322,12 +1475,27 @@ static void config_load(void)
 	text = config_read_file(path, &size);
 	if (text)
 	{
-		toml_result_t result = toml_parse(text, (int)size);
+		char *joined = config_join_sections(text);
+		toml_result_t result;
 
+		if (joined)
+		{
+			free(text);
+			text = joined;
+			size = strlen(text);
+		}
+		result = toml_parse(text, (int)size);
 		if (result.ok)
 		{
 			char *completed;
 
+			if (joined)
+			{
+				if (config_write_file(path, text))
+					platform_log("settings: joined the sections %s had twice", path);
+				else
+					platform_log("settings: cannot write %s", path);
+			}
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
 			config_report_unknown_keys(result.toptab);

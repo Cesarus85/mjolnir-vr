@@ -23,7 +23,7 @@ named where code is taken over.
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
-| Multiplayer | Up to date with OpenCE (network version 26, 2026-10-11): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
+| Multiplayer | Up to date with OpenCE (network version 28, 2026-10-12): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
 | Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
 | Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
@@ -116,7 +116,8 @@ restart. The controller buttons page shows the layout as set.
 | --- | --- |
 | `vr.handedness` | `"right"` (default), `"left"` |
 | `vr.mirror_controls` | `true` (default): sticks and buttons mirrored when left-handed; `false`: as right-handed (triggers and grips still follow the hands) |
-| `vr.graphics` | `"low"`, `"medium"`, `"high"` (default), `"max"` |
+| `vr.graphics` | `"auto"` (default, branch `fix/vr-frame-hitches`), `"low"`, `"medium"`, `"high"`, `"max"` |
+| `vr.foveation` | `"off"` (default), `"low"`, `"medium"` (the Quest only; branch `fix/vr-frame-hitches`) |
 | `vr.refresh_rate` | Hz, as offered (Quest 3: 72, 80, 90, 120) |
 | `vr.resolution_scale` | 0.7 to 1.2, on restart |
 
@@ -398,15 +399,135 @@ To try in the headset (Quest 3 and Steam Frame), with `vr.body = "full"`
     "Open mic" talks without the grip; "Off" sends nothing (others still
     heard).
 
+## Frame hitches and GPU time (built: branch `fix/vr-frame-hitches`)
+
+Measured on the Quest 3 (2026-10-12; 90 Hz, multiview, graphics "high",
+full body, a 15-bot game on Blood Gulch): the game's CPU work 5-6 ms a
+frame; the app's GPU time 5.5-6.4 ms (`xr: metrics`), the same with
+foveation off, low, medium and high: **the GPU is not the bottleneck**.
+The doubled pictures come from single long frames: shader programs compiled
+in a frame (29 new ones in a 794 ms frame 22 s into a match, single ones
+18-64 ms), draws of 254 ms (the first frame in a map) and 74 ms with
+nothing compiled (most likely the driver making a program's variants at
+its first draw), and the menus' PNG pictures (7 in 108 ms).
+
+What the branch has:
+
+| Part | What |
+| --- | --- |
+| Long frames | `VR: long frame N ms: input, ticks, camera, draw, present; shaders compiled or linked, programs from the cache; textures uploaded, menu pictures, render targets; draw calls N ms, the slowest N ms (vertex program, program key); N draws left out waiting for their programs`. The 5 s report counts the draws left out |
+| GPU time | XR_META_performance_metrics on with `vr.log_performance`: `xr: metrics (mean/most) app/gpu_frametime=... compositor/dropped_frame_count=...` |
+| Foveation | `vr.foveation` "off" (default) / "low" / "medium" on the MORE page (GL_QCOM_texture_foveated, the eyes only, lens centres); "high" taken out (it drew a grey rectangle below the player). Kept for later, no gain measured |
+| Shader cache | `display.shader_cache`: programs kept in `shader_cache/` (binary, driver, sources); each map's list (`maps/<map>.txt`) and every map's (`all.txt`) |
+| Worker | `display.shader_worker` (default true): programs made on a thread with a GL context sharing the game's (`gl worker: running`), from the cache's binary or compiled; a draw whose program is not made yet is left out for those frames, the frame never waits. As a map loads, its programs and then every map's are asked for |
+| Warm-up | `debug.shader_warm_up`: "worker" (default: each program drawn with once on the worker into a small target of the eyes' kinds), "load" (the map's programs drawn with on the game's thread as it loads), "off" |
+| Menus | The PC menus' pictures decoded on a thread of their own, drawn transparent for the frames that takes |
+
+Second Quest test (latest build): the worker works, no long frame after the
+map's first frames (245 ms and 72 ms there, each one draw of 67-75 ms with
+vertex program 4). But doubled pictures in spells of seconds with the GPU
+at 9-13 ms a frame (GPU% 0.91-0.94, 4-37 stale frames a second), 5-7 ms in
+between: "high" is too much for 90 Hz in heavy scenes, "medium" holds.
+Hence:
+
+| Part | What |
+| --- | --- |
+| Graphics "auto" | `vr.graphics = "auto"`, the new default (Graphics row: Auto): "high" while the GPU keeps up. Past 4/5 of the frame (8.9 ms at 90 Hz) for a quarter second it leaves out the next steps (shield glow, shadows, reflections, specular light, lens flares, bump maps, the rest of "low"), as many as their learnt costs say; brings one back once GPU time + its cost stays under 7/10 of the frame for 3 s (longer if it had to go again within 10 s). Logs `VR graphics auto: shadows left out (step 2): the GPU 10.2 ms a frame of 11.1`, `... saved 1.9 ms`, `... back`. On the Steam Frame (no GPU time from SteamVR) "auto" is "high" |
+| Measuring | `debug.vr_graphics_measure = true`: each effect left out in turn (1.5 s on, 1.5 s off), `VR graphics measure: shadows 2.10 ms (...)` and means each round |
+
+What the effects cost, from the code (to be measured with the option above):
+object shadows are drawn once a frame with multiview (the scene is drawn
+once), twice one eye at a time; each shadow-casting object (every bot, its
+weapon, vehicles) renders its map, blurs it and projects it onto the level
+beneath: a pass of fill on both eyes per object. Reflections and specular
+light are passes over the level's geometry. The shield's glow
+(`display.shield_glow`, off by default) is a dynamic light per flaring unit
+(at most 8), each lighting the level's surfaces in its reach once more, not
+a pass per object; upstream's shield colour on the arms only changes a
+colour. The whole body adds the player's own model and its shadow.
+
+Not done, and why:
+- Drawing the eyes straight into the swapchain: moot now (GPU not the
+  bottleneck); it needs GL_EXT_sRGB_write_control, the vignette as a pass
+  of its own and array swapchains acquired mid-frame.
+- Decoding all menu pictures ahead: 165 pictures, about 350 MB decoded with
+  their mipmaps.
+- Later: XR_KHR_visibility_mask.
+
+### Headset test, graphics "auto" (Quest 3)
+
+1. VR options, MORE: Graphics **Auto** (a `config.toml` written before
+   still says "high"), Foveation Off; `vr.log_performance = true`.
+2. Log at start: `xr: performance metrics on (... the app's GPU time read)`,
+   `VR: graphics auto`.
+3. 15-bot match on Blood Gulch, a few minutes, also into the busy middle:
+   - `VR graphics auto: ... left out (step N): the GPU X ms` within a
+     quarter to half a second of a heavy spell, `... saved Y ms`, and
+     `... back` a few seconds after it.
+   - VrApi: `Stale=` 0 nearly every second (at most a few in the second a
+     spell begins), no `ASW=1` spells; App GPU under about 9 ms.
+   - Look for effects that pop: shadows going and coming back. If they
+     change more than every ten seconds or so, note the log lines.
+4. Costs: a second match with `debug.vr_graphics_measure = true` (Graphics
+   setting ignored meanwhile; stand somewhere busy, a few minutes):
+   `VR graphics measure: means (ms of GPU a frame): shadows ...;
+   reflections ...`. The steps' order should follow the largest costs.
+5. The first frames of a map (245/72 ms, vertex program 4): try
+   `debug.shader_warm_up = "load"` once and compare those lines.
+
+### Headset test, shader worker (Quest 3)
+
+Before: `adb logcat -G 16M` (again after any reboot); in `config.toml`
+`vr.log_performance = true`, 90 Hz, graphics "high", multiview, full body;
+Foveation Off (VR options, MORE: the config may still say "medium"). After
+each test: `adb logcat -d -s halo VrApi > test.txt`. The shader cache from
+the earlier tests stays.
+
+1. Start: `gl worker: running (ES 3, surfaceless, programs warmed up)` and
+   `shader cache: ... N programs kept (... N listed) ...; programs made on
+   the worker, warmed up there`. As the menus load: `shader cache:
+   levels_ui_ui: N programs listed; N asked of the worker ...; N of other
+   maps to ask for`.
+2. Bot match on Blood Gulch: as it loads, `... bloodgulch: N listed; ...
+   N there already` (made while in the menus). In play no `VR: long frame`
+   with shaders compiled; at most a few `draws left out` (objects appearing
+   a frame or two late), and VrApi `Stale=0` most seconds, no `ASW=1`.
+   Any long frame left: its `draw calls ... the slowest N ms (vertex program
+   N, program K)` says whether a draw (a driver variant) is the cause.
+3. A map not played yet (Damnation): as it loads, `N programs listed` is 0
+   but `N there already` should not matter: its programs mostly come from
+   every map's list (made in the menus). New ones are compiled on the worker
+   (`draws left out` for a moment, no long frame).
+4. If draws of 70-250 ms remain with nothing compiled: `debug.shader_warm_up
+   = "load"` (the log: `shader cache: N programs drawn with once as the map
+   loaded, in N ms`), then compare; and `"off"` for the baseline.
+5. Menus: open new screens; pictures may appear a frame late, no long
+   frames with `menu pictures`.
+6. If anything breaks (missing objects for good, a crash):
+   `display.shader_worker = false` brings the game's-thread compiling back.
+
+Steam Frame: the worker also runs there if its EGL shares contexts (the log
+says `gl worker: running` or why not); no foveation. A short bot game to
+see that nothing is missing or slower.
+
 ## Open points outside the order
 
+- Doubled pictures when turning on the developer's Quest 3 (2026-10-12):
+  with every build tried, back to 2026-10-06's, at 90 and at 72 Hz, even
+  in seconds the compositor reported no stale frame. That Quest runs
+  Horizon OS from the Public Test Channel (PTC; its build 2026-10-08),
+  the likeliest cause. Released with `vr.graphics` "medium" as the
+  default (smooth there). To do: try this and later builds with "high" on
+  a Quest 3 outside PTC (the developer's wife's), and set the default
+  back to "high" or "auto" if it holds.
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
   not merged.
 - Transparent geometry groups: the Xbox's 384 a window overflowed in
   games of 30 and more players (the last submitted, glass, water,
   particles, contrails, vanished). Raised to 2048 (320 KB), in `main`;
-  still to check in a game of 30 and more players; upstream still has 384.
+  still to check in a game of 30 and more players; upstream raised them
+  to 2048 too (2026-10-12).
 
 ## Headset tests (2026-10-06, all three in `main`)
 

@@ -140,6 +140,27 @@ this list to generate the guest's entry points */
 	X(glFramebufferTextureMultiviewOVR) \
 	X(glIsEnabled) \
 	X(glGetQueryObjectuiv)
+/* entry points of extensions, which a driver may lack: loaded where the
+context has the extension, never required (gl_functions.c). On ES 3.0 and
+3.1 these stand in for glDrawElementsBaseVertex */
+#define GL_OPTIONAL_FUNCTIONS(X) \
+	X(glDrawElementsBaseVertexEXT) \
+	X(glDrawElementsBaseVertexOES)
+#ifdef HALO_ANDROID
+/* the app's alone (not the web's, whose WebGL 2 has none of them): the
+program binary cache (xgpu_program_cache.c) and the eyes' foveation
+(d3d8_gl.c); the optional ones, of GL_QCOM_texture_foveated and
+GL_KHR_parallel_shader_compile, as above */
+#define GL_ANDROID_FUNCTIONS(X) \
+	X(glDeleteProgram) \
+	X(glProgramParameteri) \
+	X(glGetProgramBinary) \
+	X(glProgramBinary) \
+	X(glGetTexParameteriv)
+#define GL_ANDROID_OPTIONAL_FUNCTIONS(X) \
+	X(glTextureFoveationParametersQCOM) \
+	X(glMaxShaderCompilerThreadsKHR)
+#endif
 /* ANDROID_GL_FUNCTIONS_END */
 #else
 #define GL_FUNCTIONS(X) \
@@ -262,6 +283,13 @@ this list to generate the guest's entry points */
 
 #define GL_DECLARE_FUNCTION(name) extern __typeof__(&name) halo_##name;
 GL_FUNCTIONS(GL_DECLARE_FUNCTION)
+#ifdef HALO_GLES
+GL_OPTIONAL_FUNCTIONS(GL_DECLARE_FUNCTION)
+#endif
+#ifdef HALO_ANDROID
+GL_ANDROID_FUNCTIONS(GL_DECLARE_FUNCTION)
+GL_ANDROID_OPTIONAL_FUNCTIONS(GL_DECLARE_FUNCTION)
+#endif
 #undef GL_DECLARE_FUNCTION
 
 /* call sites use the ordinary names; gl_functions.c, which defines the
@@ -378,6 +406,13 @@ pointers, sees the declarations without these aliases */
 #define glFramebufferTextureMultiviewOVR halo_glFramebufferTextureMultiviewOVR
 #define glIsEnabled halo_glIsEnabled
 #define glGetQueryObjectuiv halo_glGetQueryObjectuiv
+#ifdef HALO_ANDROID
+#define glDeleteProgram halo_glDeleteProgram
+#define glProgramParameteri halo_glProgramParameteri
+#define glGetProgramBinary halo_glGetProgramBinary
+#define glProgramBinary halo_glProgramBinary
+#define glGetTexParameteriv halo_glGetTexParameteriv
+#endif
 #else
 #define glGetString halo_glGetString
 #define glGetIntegerv halo_glGetIntegerv

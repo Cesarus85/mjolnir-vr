@@ -21,7 +21,7 @@ struct xgpu_capabilities
 	BOOL border_clamp;
 	BOOL anisotropy;
 	BOOL s3tc;
-	/* ES 3.2: glDrawElementsBaseVertex */
+	/* ES 3.2, or the EXT/OES_draw_elements_base_vertex extension: glDrawElementsBaseVertex */
 	BOOL base_vertex;
 	/* ES 3.1 with fragment atomic counters: exact visibility test counts */
 	BOOL atomic_counters;
@@ -29,6 +29,12 @@ struct xgpu_capabilities
 	const char *shading_language;
 	/* GL_OVR_multiview2: both eyes in one draw (VR, d3d8_multiview_begin) */
 	BOOL multiview;
+	/* the app's (HALO_ANDROID): GL_QCOM_texture_foveated, for the eyes'
+	targets (d3d8_foveation_parameters); GL_KHR_parallel_shader_compile,
+	and the program binary formats the driver has (xgpu_program_cache.c) */
+	BOOL foveation;
+	BOOL parallel_compile;
+	int program_binary_formats;
 };
 
 extern struct xgpu_capabilities xgpu_capabilities;
@@ -61,6 +67,61 @@ void xgpu_gl_texture_deleted(unsigned int texture);
 written */
 GLuint xgpu_compile_shader(GLenum type, const char *code, const char *what);
 GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const char *what);
+/* the time a shader's compile, a program's link or its load from the
+cache took, added to the frame's (xgpu_shader_work_take: vr.c's long
+frames) */
+void xgpu_shader_work_add(BOOL loaded, unsigned long long start_us);
+unsigned long long xgpu_shader_work_now_us(void);
+/* the same for a texture's upload (with its texels), one decoded from DXT
+first (GPUs without S3TC), a menu picture's (a PNG decoded) or a render
+target's making (xbox_textures.c: xgpu_texture_work_take) */
+enum
+{
+	XGPU_TEXTURE_WORK_UPLOAD,
+	XGPU_TEXTURE_WORK_DECODED,
+	XGPU_TEXTURE_WORK_PICTURE,
+	XGPU_TEXTURE_WORK_TARGET,
+	XGPU_TEXTURE_WORK_KINDS
+};
+void xgpu_texture_work_add(int kind, unsigned long texels, unsigned long long start_us);
+
+#ifdef HALO_ANDROID
+/* ---------- the program binary cache (xgpu_program_cache.c)
+
+Linked programs kept in the data folder's shader_cache, by their sources'
+hash (xgpu_program_key), with the driver they were linked by; and for each
+map the programs it used, loaded or compiled again as it loads. */
+
+void xgpu_program_cache_initialize(void);
+/* whether programs go through the cache (display.shader_cache, and a driver
+with binary formats) */
+BOOL xgpu_program_cache_enabled(void);
+unsigned long long xgpu_program_key(unsigned long long vertex_hash, unsigned long long fragment_hash);
+unsigned long long xgpu_source_hash(const char *source);
+/* the program of these sources: made (*program), being made (a draw that
+needs it is left out for now), or to make here (XGPU_PROGRAM_NONE) */
+enum
+{
+	XGPU_PROGRAM_NONE,
+	XGPU_PROGRAM_READY,
+	XGPU_PROGRAM_WAITING,
+};
+int xgpu_program_cache_take(unsigned long long key, const char *vertex_source, const char *fragment_source,
+	GLuint *program);
+/* a program just linked from these sources, written to the cache */
+void xgpu_program_cache_store(unsigned long long key, GLuint program, const char *vertex_source,
+	const char *fragment_source);
+/* a program the map drew with (the map's list); asked again of each
+program as xgpu_program_map_serial changes (a new map) */
+void xgpu_program_cache_used(unsigned long long key);
+extern unsigned long xgpu_program_map_serial;
+/* each frame: other maps' programs asked for, the worker's results, the
+lists */
+void xgpu_program_cache_frame(void);
+#endif
+/* the headset's copy, or anything else, left GL as it drew: all set again
+(d3d8_gl.c) */
+void d3d8_host_state_changed(void);
 
 /* ---------- generated source text */
 

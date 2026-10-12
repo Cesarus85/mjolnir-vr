@@ -657,6 +657,10 @@ void game_initialize_for_new_map(
 	game_engine_initialize(&game_variant_global);
 	real_math_reset_precision();
 	rasterizer_initialize_for_new_map();
+	/* port: the shader programs the map drew with last time compiled now,
+	while it loads, not as its first frames draw (port/linux/src/
+	xgpu_program_cache.c) */
+	halo_shader_programs_map_loaded(game_globals->options.map_name);
 	game_state_initialize_for_new_map();
 	game_time_initialize_for_new_map();
 	interface_initialize_for_new_map();
@@ -906,6 +910,8 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+	/* port: the map's list of the shader programs it drew with kept (port/linux/src/xgpu_program_cache.c) */
+	halo_shader_programs_map_disposed();
 	rasterizer_dispose_from_old_map();
 	game_state_dispose_from_old_map();
 	cheats_dispose_from_old_map();

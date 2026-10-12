@@ -444,6 +444,9 @@ static void *game_main(void *unused)
 		if (deferred >= 0.0)
 			setenv("HALO_XR_DEFERRED", deferred != 0.0 ? "1" : "0", 1);
 	}
+	/* (vr.log_performance: the compositor's counters too, host_xr.c) */
+	if (config_boolean_or(path, "vr.log_performance", 0))
+		setenv("HALO_XR_LOG_PERFORMANCE", "1", 1);
 	{
 		int eye_width, eye_height;
 

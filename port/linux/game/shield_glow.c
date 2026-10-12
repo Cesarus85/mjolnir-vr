@@ -44,6 +44,11 @@ int config_boolean(const char *name);
 const char *config_string(const char *name);
 unsigned long config_changes(void);
 
+#ifdef HALO_ANDROID
+/* port/linux/game/vr_graphics.c */
+boolean vr_graphics_allows_shield_glow(void);
+#endif
+
 /* object_lights.c (port) */
 long light_port_glow_definition_get(void);
 boolean light_port_glow_set(long light_index, long object_index, real_rgb_color const *color, real radius);
@@ -104,6 +109,11 @@ static boolean shield_glow_enabled(
 		enabled = config_boolean("display.shield_glow") != 0;
 		shield_glow_scale = intensity && !strcmp(intensity, "light_show") ? 3.f : 1.f;
 	}
+#ifdef HALO_ANDROID
+	/* (VR's "auto" graphics leaves it out first: vr_graphics.c) */
+	if (enabled && !vr_graphics_allows_shield_glow())
+		return FALSE;
+#endif
 	return enabled;
 }
 
