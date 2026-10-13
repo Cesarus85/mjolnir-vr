@@ -127,6 +127,9 @@ saves and game data stay. More about the Steam Frame:
   *Quit the game* is on its last page.
 - In the menus, point with a controller and pull the trigger to click.
 - The controller layout is on the VR options' *Controller buttons* page.
+- **Voice chat** in network games: hold the grip of the hand without the
+  weapon to talk (not while it holds the weapon or the Warthog's wheel).
+  The *BUTTONS* page can put push to talk on another button.
 
 ## Problems and questions
 

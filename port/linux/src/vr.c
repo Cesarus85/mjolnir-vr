@@ -22,11 +22,11 @@ HALO_VR_ACTION_* and HALO_VR_INPUT_*), by number */
 static const char *const vr_action_settings[HALO_VR_ACTION_COUNT] =
 {
 	"vr.button_jump", "vr.button_light", "vr.button_action", "vr.button_weapon", "vr.button_crouch",
-	"vr.button_zoom", "vr.button_melee",
+	"vr.button_zoom", "vr.button_melee", "vr.button_talk",
 };
 static const char *const vr_input_values[HALO_VR_INPUT_COUNT] =
 {
-	"a", "b", "x", "y", "move_stick", "turn_stick", "grip",
+	"a", "b", "x", "y", "move_stick", "turn_stick", "grip", "free_grip",
 };
 
 const char *halo_vr_action_setting(int action)
@@ -230,6 +230,10 @@ static struct
 	int two_hand_latched;    /* the grip is held (on the weapon or not) */
 	int two_hand_valid;
 	float two_hand_reach;    /* metres from the foregrip a closing grip takes the weapon */
+	/* the free hand's grip as a button (free_grip_down): closed since (0
+	open), and whether it took the weapon or the wheel since */
+	unsigned long long free_grip_since_us;
+	int free_grip_taken;
 	/* the grenade in the free hand (grenade_update, vr.grenade_throw_speed):
 	its trigger held, the hand's last positions (LOCAL), and the throw
 	as it let go */
@@ -1352,19 +1356,6 @@ int halo_vr_finger_curls(short local_player_index, int hand, float curls[4])
 		return 0;
 	memcpy(curls, vr.finger_curl[hand], sizeof(vr.finger_curl[hand]));
 	return HALO_VR_FINGERS_CURLED | ((state->buttons & HALO_XR_BUTTON_TOUCH_KNOWN) ? HALO_VR_FINGERS_TOUCH : 0);
-}
-
-/* Voice chat's push to talk in VR (network_voice.c, through
-halo_push_to_talk_held): the free hand's grip, while it holds neither the
-weapon's foregrip nor the Warthog's wheel; the grip has no button of the
-game's of its own. */
-int halo_vr_push_to_talk_held(void)
-{
-	int hand = free_hand();
-
-	if (!vr.active || !vr.frame.focused || !(vr.frame.hands[hand].buttons & HALO_XR_BUTTON_SQUEEZE))
-		return 0;
-	return !vr.two_hand_gripping && !vr.wheel_held[hand];
 }
 
 int halo_vr_melee(void)
@@ -3406,28 +3397,63 @@ holding a Warthog's wheel press nothing. */
 static const int input_hands[HALO_VR_INPUT_COUNT] =
 {
 	HALO_XR_HAND_RIGHT, HALO_XR_HAND_RIGHT, HALO_XR_HAND_LEFT, HALO_XR_HAND_LEFT, HALO_XR_HAND_LEFT,
-	HALO_XR_HAND_RIGHT, HALO_XR_HAND_RIGHT,
+	HALO_XR_HAND_RIGHT, HALO_XR_HAND_RIGHT, HALO_XR_HAND_LEFT,
 };
 static const int input_buttons[HALO_VR_INPUT_COUNT] =
 {
 	HALO_XR_BUTTON_A, HALO_XR_BUTTON_B, HALO_XR_BUTTON_A, HALO_XR_BUTTON_B, HALO_XR_BUTTON_THUMBSTICK,
-	HALO_XR_BUTTON_THUMBSTICK, HALO_XR_BUTTON_SQUEEZE,
+	HALO_XR_BUTTON_THUMBSTICK, HALO_XR_BUTTON_SQUEEZE, HALO_XR_BUTTON_SQUEEZE,
 };
+
+/* The free hand's grip as a button (HALO_VR_INPUT_FREE_GRIP; push to talk
+by default), the hands mirrored: pressed once closed for
+FREE_GRIP_DELAY_US, at halo_vr_two_hand's threshold, unless it took the
+weapon's foregrip or the Warthog's wheel (which both decide sooner) since
+it closed; that press then is theirs until it opens. So a grip reaching
+for the weapon presses nothing, not even for a moment. */
+#define FREE_GRIP_DELAY_US 150000ULL
+
+static int free_grip_down(const struct halo_xr_hand *free)
+{
+	unsigned long long now = now_us();
+
+	if (free->squeeze <= (vr.free_grip_since_us ? 0.35f : 0.6f))
+	{
+		vr.free_grip_since_us = 0;
+		vr.free_grip_taken = 0;
+		return 0;
+	}
+	if (!vr.free_grip_since_us)
+		vr.free_grip_since_us = now;
+	if (vr.two_hand_gripping || vr.wheel_held[free_hand()])
+		vr.free_grip_taken = 1;
+	return !vr.free_grip_taken && now - vr.free_grip_since_us >= FREE_GRIP_DELAY_US;
+}
+
+/* the buttons' presses (HALO_VR_INPUT_*), the hands mirrored */
+static void controls_down(const struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int down[HALO_VR_INPUT_COUNT])
+{
+	int input;
+
+	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
+		down[input] = (hands[input_hands[input]].buttons & input_buttons[input]) != 0;
+	if (vr.wheel_hands)
+		down[HALO_VR_INPUT_GRIP] = 0;
+	down[HALO_VR_INPUT_FREE_GRIP] = free_grip_down(&hands[HALO_XR_HAND_LEFT]);
+}
 
 static void controls_remapped(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
 {
 	int down[HALO_VR_INPUT_COUNT];
 	int input, action;
 
-	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
-		down[input] = (hands[input_hands[input]].buttons & input_buttons[input]) != 0;
-	if (vr.wheel_hands)
-		down[HALO_VR_INPUT_GRIP] = 0;
+	controls_down(hands, down);
 	for (input = 0; input < HALO_VR_INPUT_COUNT; input++)
 		hands[input_hands[input]].buttons &= ~input_buttons[input];
 	for (action = 0; action < HALO_VR_ACTION_COUNT; action++)
 	{
-		if (down[vr.action_inputs[action]])
+		/* (talking is no button of the game's: halo_vr_push_to_talk_held) */
+		if (action != HALO_VR_ACTION_TALK && down[vr.action_inputs[action]])
 			hands[input_hands[action]].buttons |= input_buttons[action];
 	}
 }
@@ -3439,6 +3465,22 @@ static void controls_in_play(struct halo_xr_hand hands[HALO_XR_HAND_COUNT])
 	if (vr.left_handed)
 		controllers_mirrored(hands);
 	controls_remapped(hands);
+}
+
+/* Voice chat's push to talk in VR (network_voice.c, through
+halo_push_to_talk_held): its button (vr.button_talk), in the menus too */
+int halo_vr_push_to_talk_held(void)
+{
+	struct halo_xr_hand hands[HALO_XR_HAND_COUNT];
+	int down[HALO_VR_INPUT_COUNT];
+
+	if (!vr.active || !vr.frame.focused)
+		return 0;
+	memcpy(hands, vr.frame.hands, sizeof(hands));
+	if (vr.left_handed)
+		controllers_mirrored(hands);
+	controls_down(hands, down);
+	return down[vr.action_inputs[HALO_VR_ACTION_TALK]];
 }
 
 /* the controllers, for the gamepad the game reads (xinput_sdl.c) */

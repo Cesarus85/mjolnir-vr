@@ -605,7 +605,7 @@ int halo_push_to_talk_held(void)
 	int slot;
 
 #ifdef HALO_ANDROID
-	/* (port: in VR the free hand's grip too, halo_vr_push_to_talk_held) */
+	/* (port: in VR its button too, vr.button_talk: halo_vr_push_to_talk_held) */
 	if (halo_vr_active() && halo_vr_push_to_talk_held())
 		return 1;
 #endif
