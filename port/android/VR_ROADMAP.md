@@ -25,6 +25,8 @@ named where code is taken over.
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
 | Multiplayer | Up to date with OpenCE (network version 28, 2026-10-12): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
+| Voice chat | Push to talk on any button (`vr.button_talk`, BUTTONS page; the free hand's grip by default, sending nothing while it reaches for the foregrip or the wheel), open mic, off (2026-10-13) |
+| Builds | The Android build's assembly conversion (`tools/android_asm_convert.py`) keeps string data as it is: strings and tables starting with "_" or holding \" lost a "_" (Opus's pulse cache among them: the Steam Frame's crashes in online games while talking), 2026-10-13 |
 | Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
 | Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
 | Arms and hands | Both arms by IK from shoulders that follow the torso, the elbow led by the hand's roll; fingers from trigger, grip and touch; `vr.body` arms / hands / off, `vr.fingers` (2026-10-06) |
@@ -150,11 +152,15 @@ COMFORT (turning, the vignettes), BUTTONS (the actions' buttons,
 
 Buttons remapped (BUTTONS page; `vr.c` `controls_remapped`):
 - Jump, the flashlight (held: switch grenades), action/reload, switch
-  weapon, crouch, zoom and melee each go on one of seven buttons: A, B,
-  X, Y, the move stick's click, the turning stick's, the weapon hand's
-  grip. Moving an action to a button swaps it with the action there, so
-  none is ever left without one.
-- The triggers, the free hand's grip, the menu button, the Steam Frame's
+  weapon, crouch, zoom, melee and push to talk each go on one of eight
+  buttons: A, B, X, Y, the move stick's click, the turning stick's, the
+  weapon hand's grip, the free hand's grip. Moving an action to a button
+  swaps it with the action there, so none is ever left without one.
+- The free hand's grip as a button (`free_grip_down`): pressed once held
+  0.15 s at the foregrip's threshold, and not at all while it holds the
+  weapon's foregrip or the Warthog's wheel (taken in that time, the press
+  is theirs until the grip opens).
+- The triggers, the menu button, the Steam Frame's
   bumpers, D-pad and View button keep theirs; the menus keep the buttons
   as they are.
 - Applied after the left-handed mirroring, on the gamepad's sides: the

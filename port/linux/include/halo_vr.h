@@ -169,7 +169,8 @@ enum
 int halo_vr_body_mode(void);
 /* a hand has just been thrust forward: a melee attack (xinput_sdl.c) */
 int halo_vr_melee(void);
-/* the free hand's grip as voice chat's push to talk (vr.c) */
+/* voice chat's push to talk held: its button (vr.button_talk; the free
+hand's grip by default) */
 int halo_vr_push_to_talk_held(void);
 /* the weight of the melee attack under way, from the swing's speed (0..1;
 0 with none): the game scales melee damage by the player's run instead,
@@ -262,13 +263,13 @@ int halo_vr_controller_layout(void);
 vr.handedness) */
 int halo_vr_weapon_hand(void);
 /* The game's actions on the controllers' buttons (vr.button_*; the VR
-options' BUTTONS page): each action on one of seven buttons, named as
+options' BUTTONS page): each action on one of eight buttons, named as
 right-handed (A and B on the right controller, X and Y, the Quest's, on
 the left; the move stick's click, the turning stick's, the weapon hand's
-grip); left-handed with vr.mirror_controls, their mirror images. The
-actions are numbered by the button each has by default. The triggers, the
-free hand's grip, the menu button and the Steam Frame's bumpers, D-pad and
-View button keep theirs; the menus keep the buttons as they are. */
+grip, the free hand's); left-handed with vr.mirror_controls, their mirror
+images. The actions are numbered by the button each has by default. The
+triggers, the menu button and the Steam Frame's bumpers, D-pad and View
+button keep theirs; the menus keep the buttons as they are. */
 enum
 {
 	HALO_VR_INPUT_A = 0,
@@ -278,6 +279,9 @@ enum
 	HALO_VR_INPUT_MOVE_STICK,
 	HALO_VR_INPUT_TURN_STICK,
 	HALO_VR_INPUT_GRIP,
+	/* (pressed held a moment, if it took neither the weapon's foregrip nor
+	the Warthog's wheel: vr.c's free_grip_down) */
+	HALO_VR_INPUT_FREE_GRIP,
 	HALO_VR_INPUT_COUNT,
 
 	HALO_VR_ACTION_JUMP = HALO_VR_INPUT_A,
@@ -287,6 +291,7 @@ enum
 	HALO_VR_ACTION_CROUCH = HALO_VR_INPUT_MOVE_STICK,
 	HALO_VR_ACTION_ZOOM = HALO_VR_INPUT_TURN_STICK,
 	HALO_VR_ACTION_MELEE = HALO_VR_INPUT_GRIP,
+	HALO_VR_ACTION_TALK = HALO_VR_INPUT_FREE_GRIP, /* voice chat's push to talk */
 	HALO_VR_ACTION_COUNT = HALO_VR_INPUT_COUNT,
 };
 /* an action's setting ("vr.button_jump"), a button's value in it ("a"),

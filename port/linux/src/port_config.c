@@ -252,7 +252,9 @@ static const struct config_setting config_settings[] =
 		"page swaps them): \"a\", \"b\", \"x\", \"y\" (A and B on the right\n"
 		"controller, X and Y the Quest's on the left; the Steam Frame has all\n"
 		"four on the right), \"move_stick\" and \"turn_stick\" (their clicks),\n"
-		"\"grip\" (the weapon hand's), named as right-handed: left-handed with\n"
+		"\"grip\" (the weapon hand's), \"free_grip\" (the free hand's, held a\n"
+		"moment, when it took neither the weapon's foregrip nor the Warthog's\n"
+		"wheel), named as right-handed: left-handed with\n"
 		"mirror_controls, their mirror images. Jump," },
 	{ "vr.button_light", _config_string, "\"b\"", "HALO_VR_BUTTON_LIGHT", _environment_value, _platform_android,
 		"the flashlight (held: switch grenades)," },
@@ -267,8 +269,11 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"zoom" },
 	{ "vr.button_melee", _config_string, "\"grip\"", "HALO_VR_BUTTON_MELEE", _environment_value, _platform_android,
-		"and melee. The triggers, the free hand's grip and the menu button keep\n"
-		"theirs, as do the menus." },
+		"melee" },
+	{ "vr.button_talk", _config_string, "\"free_grip\"", "HALO_VR_BUTTON_TALK", _environment_value,
+		_platform_android,
+		"and voice chat's push to talk (audio.voice_chat). The triggers and the\n"
+		"menu button keep theirs, as do the menus." },
 	{ "vr.laser", _config_boolean, "false", "HALO_VR_LASER", _environment_value, _platform_android,
 		"A laser from the weapon to what it aims at (with aim_with = \"controller\")." },
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,

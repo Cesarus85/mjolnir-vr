@@ -7519,8 +7519,8 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 	{ _vr_option_button_first + HALO_VR_ACTION_JUMP, _vr_option_button_first + HALO_VR_ACTION_LIGHT,
 		_vr_option_button_first + HALO_VR_ACTION_ACTION, _vr_option_button_first + HALO_VR_ACTION_WEAPON,
 		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
-		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_buttons_reset, _vr_option_controls,
-		NONE, NONE, NONE },
+		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_button_first + HALO_VR_ACTION_TALK,
+		_vr_option_buttons_reset, _vr_option_controls, NONE, NONE },
 	{ _vr_option_graphics, _vr_option_foveation, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
 		NONE, NONE, NONE, NONE, NONE, NONE, NONE },
 };
@@ -7582,7 +7582,7 @@ options' rows. On the Quest A and B are on the right, X and Y on the
 left, and mirrored the other way round; on the Steam Frame all four are
 on the right, and mirrored the left D-pad takes them (down, left, right,
 up). The sticks' clicks change sides with them; the grip is the weapon
-hand's. */
+hand's, the free grip the other hand's. */
 static char const *ui_vr_input_name(
 	short input,
 	boolean full,
@@ -7604,7 +7604,8 @@ static char const *ui_vr_input_name(
 		name = full ? (side ? "Right stick click" : "Left stick click") : "Stick click";
 		break;
 	case HALO_VR_INPUT_GRIP:
-		side = (short)(ui_vr_left_handed() ? 0 : 1);
+	case HALO_VR_INPUT_FREE_GRIP:
+		side = (short)((input == HALO_VR_INPUT_FREE_GRIP) != (ui_vr_left_handed() == 0));
 		name = full ? (side ? "Right grip" : "Left grip") : "Grip";
 		break;
 	default:
@@ -7631,10 +7632,11 @@ options' rows name them, and in short (the Steam Frame's stick lines) */
 static char const *const vr_action_names[HALO_VR_ACTION_COUNT] =
 {
 	"Jump", "Light; held: grenades", "Action, reload", "Switch weapon", "Crouch", "Zoom", "Melee",
+	"Push to talk",
 };
 static char const *const vr_action_short_names[HALO_VR_ACTION_COUNT] =
 {
-	"jump", "light", "action", "weapon", "crouch", "zoom", "melee",
+	"jump", "light", "action", "weapon", "crouch", "zoom", "melee", "talk",
 };
 
 /* an action moved to the next button or the one before: the action that
@@ -7723,9 +7725,10 @@ static void ui_vr_options_vignette_text(
 /* vr.body's values, and as the panel shows them */
 static char const *const vr_bodies[] = { "full", "arms", "hands", "off" };
 static char const *const vr_body_names[] = { "Full body", "Arms and hands", "Hands only", "Weapon only" };
-/* audio.voice_chat's (network_voice.c); push to talk is the free hand's grip */
+/* audio.voice_chat's (network_voice.c); push to talk's button is on the
+BUTTONS page (vr.button_talk) */
 static char const *const vr_voice_chats[] = { "push_to_talk", "open_mic", "off" };
-static char const *const vr_voice_chat_names[] = { "Push to talk (grip)", "Open mic", "Off" };
+static char const *const vr_voice_chat_names[] = { "Push to talk", "Open mic", "Off" };
 
 static short ui_vr_options_voice_chat(
 	void)
@@ -8291,6 +8294,23 @@ static void ui_vr_controls_add_action(
 	}
 }
 
+/* the free hand's grip: the weapon in both hands at its foregrip, else the
+action on it (vr.button_talk's push to talk by default) */
+static void ui_vr_controls_add_free_grip(
+	struct ui_vr_controls_column columns[2],
+	short free_column)
+{
+	static char line[32];
+	short action = ui_vr_input_action(HALO_VR_INPUT_FREE_GRIP);
+
+	if (action != HALO_VR_ACTION_TALK)
+		snprintf(line, sizeof(line), "Both hands; else %s", vr_action_short_names[action]);
+	else
+		snprintf(line, sizeof(line), "%s", ui_vr_options_voice_chat() == 0 ? "Both hands; else talk" :
+			"Weapon in both hands");
+	ui_vr_controls_add(&columns[free_column], "Grip", line);
+}
+
 static void ui_vr_controls_column_render(
 	short x,
 	short y,
@@ -8375,8 +8395,7 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add(&columns[gun], "Trigger", "Fire");
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold, throw");
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), TRUE);
-			ui_vr_controls_add(&columns[free_column], "Grip", ui_vr_options_voice_chat() == 0 ?
-				"Both hands; else talk" : "Weapon in both hands");
+			ui_vr_controls_add_free_grip(columns, free_column);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), TRUE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), TRUE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), TRUE);
@@ -8429,8 +8448,7 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_GRIP), FALSE);
 			ui_vr_controls_add(&columns[free_column], "Trigger", "Grenade: hold it,");
 			ui_vr_controls_add(&columns[free_column], "", "let go as you throw");
-			ui_vr_controls_add(&columns[free_column], "Grip", ui_vr_options_voice_chat() == 0 ?
-				"Both hands; else talk" : "Weapon in both hands");
+			ui_vr_controls_add_free_grip(columns, free_column);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_A), FALSE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_B), FALSE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), FALSE);
