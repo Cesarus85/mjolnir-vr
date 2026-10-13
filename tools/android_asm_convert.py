@@ -217,6 +217,12 @@ class Converter:
         if op == ".align":
             self.emit(f"\t.p2align {args}")
             return
+        if op in (".ascii", ".asciz", ".string"):
+            # string data, kept as it is: no symbol names in it (renamed, a
+            # "_" at the start of a word was dropped: a string with \" in it
+            # went wrong, Opus's tables among them)
+            self.emit(f"\t{op} {args}")
+            return
         if op.startswith("."):
             self.emit(f"\t{op} {self.operands(args)}" if args else f"\t{op}")
             return
