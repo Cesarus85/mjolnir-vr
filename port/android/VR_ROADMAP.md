@@ -23,7 +23,7 @@ named where code is taken over.
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
-| Multiplayer | Up to date with OpenCE (network version 28, 2026-10-12): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
+| Multiplayer | Up to date with OpenCE (network version 29, 2026-10-14): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
 | Voice chat | Push to talk on any button (`vr.button_talk`, BUTTONS page; the free hand's grip by default, sending nothing while it reaches for the foregrip or the wheel), open mic, off (2026-10-13) |
 | Builds | The Android build's assembly conversion (`tools/android_asm_convert.py`) keeps string data as it is: strings and tables starting with "_" or holding \" lost a "_" (Opus's pulse cache among them: the Steam Frame's crashes in online games while talking), 2026-10-13 |
