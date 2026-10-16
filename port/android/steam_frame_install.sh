@@ -237,6 +237,10 @@ cp "$BUNDLE/$LAUNCHER" "$GAME_DIR/$LAUNCHER.tmp" && chmod 755 "$GAME_DIR/$LAUNCH
 cp "$BUNDLE/$APK_NAME" "$GAME_DIR/$APK_NAME.tmp" && chmod 666 "$GAME_DIR/$APK_NAME.tmp" &&
     mv -f "$GAME_DIR/$APK_NAME.tmp" "$GAME_DIR/$APK_NAME" && touch "$GAME_DIR/$APK_NAME" ||
     fail "Could not write $GAME_DIR/$APK_NAME (is the storage full?)."
+# (the build's number: the launcher updates from it, steam_frame_launch.sh;
+# an update fetched for an older build is dropped)
+cp "$BUNDLE/build.txt" "$GAME_DIR/build.txt" 2>/dev/null || rm -f "$GAME_DIR/build.txt"
+rm -rf "$GAME_DIR/update"
 
 # --- the game data
 

@@ -116,8 +116,9 @@ No computer and no keyboard needed.
    library and offers to switch back to Gaming Mode.
 6. Start **Ringfall: Mjolnir VR** from your library (under *Non-Steam*).
 
-To update, open the same file in Desktop Mode again; your settings,
-saves and game data stay. More about the Steam Frame:
+The game updates itself: when a new version is out, it is downloaded
+while you play and used from the next start on. Your settings, saves and
+game data stay. More about the Steam Frame:
 [port/android/STEAM_FRAME.md](port/android/STEAM_FRAME.md).
 
 ## Playing

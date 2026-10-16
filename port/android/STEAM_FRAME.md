@@ -16,8 +16,11 @@ On the Frame, in Desktop Mode (Steam menu > Power > Switch to Desktop):
    copies the game data out of it, adds "Ringfall: Mjolnir VR" to the Steam library
    and switches back to Gaming Mode. Start it from the library there.
 
-Opening the same file again updates the game (settings, saves and game data
-stay).
+The game updates itself: while it runs, its launcher looks for a newer
+release, fetches it and puts it in place as the next start begins
+(`steam_frame_launch.sh`; `update.auto = false` in `config.toml` stops it;
+`launcher.log` says what it did). Opening the same file again updates it
+too (settings, saves and game data stay).
 
 The desktop file (`steam_frame_installer.desktop`) downloads the latest
 release's `ringfall-mjolnir-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
