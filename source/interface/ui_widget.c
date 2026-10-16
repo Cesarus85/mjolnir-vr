@@ -7468,6 +7468,7 @@ enum
 	_vr_option_graphics,
 	_vr_option_foveation,
 	_vr_option_refresh_rate,
+	_vr_option_refresh_auto,
 	_vr_option_resolution,
 	_vr_option_controls,
 	_vr_option_quit,
@@ -7521,8 +7522,8 @@ static short const vr_option_pages[NUMBER_OF_VR_OPTION_PAGES][VR_OPTIONS_PER_PAG
 		_vr_option_button_first + HALO_VR_ACTION_CROUCH, _vr_option_button_first + HALO_VR_ACTION_ZOOM,
 		_vr_option_button_first + HALO_VR_ACTION_MELEE, _vr_option_button_first + HALO_VR_ACTION_TALK,
 		_vr_option_buttons_reset, _vr_option_controls, NONE, NONE },
-	{ _vr_option_graphics, _vr_option_foveation, _vr_option_refresh_rate, _vr_option_resolution, _vr_option_quit,
-		NONE, NONE, NONE, NONE, NONE, NONE, NONE },
+	{ _vr_option_graphics, _vr_option_foveation, _vr_option_refresh_rate, _vr_option_refresh_auto,
+		_vr_option_resolution, _vr_option_quit, NONE, NONE, NONE, NONE, NONE, NONE },
 };
 
 /* the page a row is on, and its place there */
@@ -7942,6 +7943,9 @@ static void ui_vr_options_change(
 		}
 		break;
 	}
+	case _vr_option_refresh_auto:
+		config_write_boolean("vr.refresh_rate_auto", !config_boolean("vr.refresh_rate_auto"));
+		break;
 	case _vr_option_resolution:
 		ui_vr_options_step("vr.resolution_scale", vr_resolution_scales, NUMBEROF(vr_resolution_scales), change);
 		break;
@@ -8660,6 +8664,17 @@ static void ui_vr_options_render(
 			unused = count <= 1;
 			break;
 		}
+		case _vr_option_refresh_auto:
+		{
+			/* (dim where the headset offers one rate: SteamVR's) */
+			real rates[16], current;
+			short chosen;
+
+			label = "Lower it when frames are late";
+			snprintf(value, sizeof(value), "%s", config_boolean("vr.refresh_rate_auto") ? "On" : "Off");
+			unused = ui_vr_options_refresh_rates(rates, &chosen, &current) <= 1;
+			break;
+		}
 		case _vr_option_resolution:
 		{
 			real scale = vr_resolution_scales[ui_vr_options_nearest((real)config_real("vr.resolution_scale"),
@@ -8717,12 +8732,11 @@ static void ui_vr_options_render(
 	}
 	if (page == _vr_options_page_buttons)
 	{
-		/* (what the buttons' rows do) */
-		ui_join_code_draw_text(128, 512, 302, "An action moved to a button swaps with the one there;", FALSE, 0,
+		/* (what the buttons' rows do: below the page's ten rows) */
+		ui_join_code_draw_text(128, 512, 320, "An action moved to a button swaps with the one there;", FALSE, 0,
 			&dim_color);
-		ui_join_code_draw_text(128, 512, 320, "left-handed and mirrored, the buttons are mirrored too.", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 338, "mirrored, the buttons are too. The menus keep theirs.", FALSE, 0,
 			&dim_color);
-		ui_join_code_draw_text(128, 512, 338, "The menus keep their buttons.", FALSE, 0, &dim_color);
 	}
 	if (page == _vr_options_page_more)
 	{
@@ -8738,6 +8752,8 @@ static void ui_vr_options_render(
 		ui_join_code_draw_text(128, 512, 302, "Frame, in SteamOS); the resolution after a restart.", FALSE, 0,
 			&dim_color);
 		ui_join_code_draw_text(128, 512, 320, "Foveation draws the view's edges coarser (Quest only).", FALSE, 0,
+			&dim_color);
+		ui_join_code_draw_text(128, 512, 338, "Late frames: 90 Hz steps down to 72 while they come late.", FALSE, 0,
 			&dim_color);
 	}
 	ui_join_code_draw_text(126, 514, VR_OPTIONS_FOOTER + 8, "%a-button Change   %b-button Done", TRUE, 0, &text_color);

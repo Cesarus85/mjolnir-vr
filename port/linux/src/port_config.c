@@ -200,6 +200,12 @@ static const struct config_setting config_settings[] =
 	{ "vr.refresh_rate", _config_real, "90.0", "HALO_VR_REFRESH_RATE", _environment_value, _platform_android,
 		"The display refresh rate to ask the headset for, in Hz (72, 90, 120);\n"
 		"it picks the nearest it has at or below. 0 for the highest." },
+	{ "vr.refresh_rate_auto", _config_boolean, "true", "HALO_VR_REFRESH_RATE_AUTO", _environment_value,
+		_platform_android,
+		"While frames come late at that rate (big online games), step down to the\n"
+		"next the headset has (90 to 72 Hz), and back up once they would keep up\n"
+		"again; the headset shows a late frame twice, a doubled picture when\n"
+		"turning. Only where the headset lets the game choose (not SteamVR)." },
 	{ "vr.graphics", _config_string, "\"medium\"", "HALO_VR_GRAPHICS", _environment_value, _platform_android,
 		"Which of the costlier effects are drawn (\"medium\" by default): \"auto\" all of them while the\n"
 		"GPU keeps up, leaving out one after another (the shield's glow, object\n"

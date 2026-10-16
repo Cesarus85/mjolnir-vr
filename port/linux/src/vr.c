@@ -298,6 +298,15 @@ static struct
 	vr.resolution_scale as the app started with it */
 	float refresh_rate_wanted;
 	float resolution_scale;
+	/* vr.refresh_rate_auto (refresh_governor): the rate asked for now (the
+	one wanted, or lower while frames come late), the rates below and above
+	it, and the window's frames: all, late at this rate, and those that
+	would be late at the one above */
+	int refresh_auto;
+	float refresh_rate_now, refresh_lower, refresh_higher, refresh_period_ms;
+	unsigned long long refresh_window_us, refresh_changed_us;
+	unsigned long refresh_frames, refresh_late, refresh_tight;
+	int refresh_bad_windows, refresh_good_windows;
 } vr;
 
 /* d3d8_gl.c */
@@ -585,12 +594,23 @@ static void vr_read_live_settings(void)
 		/* (the refresh rate changes at once where the runtime lets it) */
 		float refresh_rate = (float)config_real("vr.refresh_rate");
 
-		if (vr.active && refresh_rate != vr.refresh_rate_wanted)
+		int automatic = config_boolean("vr.refresh_rate_auto");
+
+		if (vr.active && (refresh_rate != vr.refresh_rate_wanted ||
+			(!automatic && vr.refresh_rate_now != refresh_rate)))
 		{
 			platform_log("VR: refresh rate %.0f Hz asked for", refresh_rate);
 			host_xr_set_refresh_rate(refresh_rate);
 		}
+		if (refresh_rate != vr.refresh_rate_wanted || automatic != vr.refresh_auto)
+		{
+			/* (the governor starts over from the rate chosen) */
+			vr.refresh_rate_now = refresh_rate;
+			vr.refresh_window_us = 0;
+			vr.refresh_bad_windows = vr.refresh_good_windows = 0;
+		}
 		vr.refresh_rate_wanted = refresh_rate;
+		vr.refresh_auto = automatic;
 	}
 }
 
@@ -887,6 +907,93 @@ static void performance_phases(unsigned long long now)
 	}
 	memset(vr.phase_end_us, 0, sizeof(vr.phase_end_us));
 	vr.frame_ticks = 0;
+}
+
+/* vr.refresh_rate_auto: frames late at the headset's rate (a game's big
+online games: the ticks cost as a client in step with the players) are
+shown twice by the headset, a doubled picture when turning. While more
+than one in sixteen of them come late, two windows of REFRESH_WINDOW_US
+running, the rate steps down to the next the headset offers (90 to 72
+Hz); while hardly any would be late at the next one up (one in a
+hundred), ten windows running, it steps back up, never above
+vr.refresh_rate. Frames of a load (REFRESH_LOAD_MS and more) count for
+neither; a step waits REFRESH_SETTLE_US (down) or REFRESH_RAISE_US (up)
+after the last. */
+#define REFRESH_WINDOW_US 2000000ULL
+#define REFRESH_SETTLE_US 10000000ULL
+#define REFRESH_RAISE_US 30000000ULL
+#define REFRESH_LOAD_MS 50.0f
+
+static void refresh_rates_around(void)
+{
+	float rates[16], current = 0.0f;
+	int count = host_xr_refresh_rates(rates, 16, &current);
+	float ceiling = vr.refresh_rate_wanted > 1.0f ? vr.refresh_rate_wanted + 0.5f : 1e6f;
+	int index;
+
+	vr.refresh_lower = vr.refresh_higher = 0.0f;
+	if (current <= 1.0f)
+		current = vr.refresh_rate_now;
+	vr.refresh_period_ms = current > 1.0f ? 1000.0f / current : 0.0f;
+	for (index = 0; index < count; index++)
+	{
+		if (rates[index] < current - 0.5f && rates[index] > vr.refresh_lower)
+			vr.refresh_lower = rates[index];
+		if (rates[index] > current + 0.5f && rates[index] <= ceiling &&
+			(!vr.refresh_higher || rates[index] < vr.refresh_higher))
+			vr.refresh_higher = rates[index];
+	}
+}
+
+static void refresh_step(float rate, unsigned long long now, const char *why)
+{
+	platform_log("VR: refresh rate %.0f Hz (from %.0f): %s (%lu of %lu frames late, %lu too slow for the rate above)",
+		rate, 1000.0f / vr.refresh_period_ms, why, vr.refresh_late, vr.refresh_frames, vr.refresh_tight);
+	host_xr_set_refresh_rate(rate);
+	vr.refresh_rate_now = rate;
+	vr.refresh_changed_us = now;
+	vr.refresh_bad_windows = vr.refresh_good_windows = 0;
+}
+
+static void refresh_governor(void)
+{
+	unsigned long long now = now_us();
+	float work_ms = (float)(now - vr.frame_start_us) * 1e-3f;
+
+	if (!vr.refresh_auto)
+		return;
+	if (!vr.refresh_window_us)
+	{
+		refresh_rates_around();
+		vr.refresh_window_us = now;
+		vr.refresh_frames = vr.refresh_late = vr.refresh_tight = 0;
+		return;
+	}
+	if (work_ms < REFRESH_LOAD_MS && vr.refresh_period_ms > 0.0f)
+	{
+		vr.refresh_frames++;
+		if (work_ms + 1.0f > vr.refresh_period_ms)
+			vr.refresh_late++;
+		if (vr.refresh_higher > 1.0f && work_ms + 1.0f > 1000.0f / vr.refresh_higher)
+			vr.refresh_tight++;
+	}
+	if (now - vr.refresh_window_us < REFRESH_WINDOW_US)
+		return;
+	if (vr.refresh_frames)
+	{
+		vr.refresh_bad_windows = vr.refresh_late * 16 > vr.refresh_frames ? vr.refresh_bad_windows + 1 : 0;
+		vr.refresh_good_windows = vr.refresh_tight * 100 <= vr.refresh_frames ? vr.refresh_good_windows + 1 : 0;
+		if (vr.refresh_lower > 1.0f && vr.refresh_bad_windows >= 2 && now - vr.refresh_changed_us >= REFRESH_SETTLE_US)
+			refresh_step(vr.refresh_lower, now, "frames come late");
+		else if (vr.refresh_higher > 1.0f && vr.refresh_good_windows >= 10 &&
+			now - vr.refresh_changed_us >= REFRESH_RAISE_US)
+		{
+			refresh_step(vr.refresh_higher, now, "frames would keep up again");
+		}
+	}
+	refresh_rates_around();
+	vr.refresh_window_us = now;
+	vr.refresh_frames = vr.refresh_late = vr.refresh_tight = 0;
 }
 
 static void performance_report(int stereo)
@@ -1886,6 +1993,7 @@ void halo_vr_present(unsigned int back_buffer_texture)
 	vr.last_overlay_mode = vr.overlay_mode;
 	vr.last_frame_stereo = submit.eyes;
 	vr.frame_begun = 0;
+	refresh_governor();
 	if (vr.log_performance)
 		performance_report(submit.eyes);
 }

@@ -518,6 +518,16 @@ see that nothing is missing or slower.
 
 ## Open points outside the order
 
+- Big online games (2026-10-16): doubled pictures on a 32-player server,
+  none in a local game with 48 bots. Not the GPU (60–80 %): the ticks cost
+  3.3–4.6 ms as a client there (1.3–1.9 ms with bots or 16 players), so
+  47–70 of 150 frames with a tick missed 90 Hz's 11.1 ms. Built (branch
+  `feature/vr-refresh-auto`, to try in the headset): `vr.refresh_rate_auto`
+  (VR options MORE, "Lower it when frames are late", on by default) steps
+  90 down to 72 Hz while more than one frame in sixteen comes late, and
+  back up once they would keep up; "VR: refresh rate" in the log. Later:
+  why a client's ticks cost that much per remote player.
+
 - Doubled pictures when turning on the developer's Quest 3 (2026-10-12):
   with every build tried, back to 2026-10-06's, at 90 and at 72 Hz, even
   in seconds the compositor reported no stale frame. That Quest runs
