@@ -524,8 +524,11 @@ see that nothing is missing or slower.
   47–70 of 150 frames with a tick missed 90 Hz's 11.1 ms. Built (branch
   `feature/vr-refresh-auto`, to try in the headset): `vr.refresh_rate_auto`
   (VR options MORE, "Lower it when frames are late", on by default) steps
-  90 down to 72 Hz while more than one frame in sixteen comes late, and
-  back up once they would keep up; "VR: refresh rate" in the log. Later:
+  the rate down a step (90, 80, 72 Hz) while more than one frame in 32
+  comes late, and back up once they would keep up; "VR: refresh rate" in
+  the log. First try: 90 to 80 Hz a few seconds into a 30-player game, no
+  doubled picture seen; 2-5 stale frames a second left at 80, hence one
+  in 32 (was 16). Later:
   why a client's ticks cost that much per remote player.
 
 - Doubled pictures when turning on the developer's Quest 3 (2026-10-12):

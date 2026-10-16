@@ -912,9 +912,9 @@ static void performance_phases(unsigned long long now)
 /* vr.refresh_rate_auto: frames late at the headset's rate (a game's big
 online games: the ticks cost as a client in step with the players) are
 shown twice by the headset, a doubled picture when turning. While more
-than one in sixteen of them come late, two windows of REFRESH_WINDOW_US
-running, the rate steps down to the next the headset offers (90 to 72
-Hz); while hardly any would be late at the next one up (one in a
+than one in 32 of them come late, two windows of REFRESH_WINDOW_US
+running, the rate steps down to the next the headset offers (the Quest
+3's: 90, 80, 72 Hz); while hardly any would be late at the next one up (one in a
 hundred), ten windows running, it steps back up, never above
 vr.refresh_rate. Frames of a load (REFRESH_LOAD_MS and more) count for
 neither; a step waits REFRESH_SETTLE_US (down) or REFRESH_RAISE_US (up)
@@ -981,7 +981,7 @@ static void refresh_governor(void)
 		return;
 	if (vr.refresh_frames)
 	{
-		vr.refresh_bad_windows = vr.refresh_late * 16 > vr.refresh_frames ? vr.refresh_bad_windows + 1 : 0;
+		vr.refresh_bad_windows = vr.refresh_late * 32 > vr.refresh_frames ? vr.refresh_bad_windows + 1 : 0;
 		vr.refresh_good_windows = vr.refresh_tight * 100 <= vr.refresh_frames ? vr.refresh_good_windows + 1 : 0;
 		if (vr.refresh_lower > 1.0f && vr.refresh_bad_windows >= 2 && now - vr.refresh_changed_us >= REFRESH_SETTLE_US)
 			refresh_step(vr.refresh_lower, now, "frames come late");

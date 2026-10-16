@@ -8655,7 +8655,10 @@ static void ui_vr_options_render(
 			short count = ui_vr_options_refresh_rates(rates, &chosen, &current);
 
 			label = "Refresh rate";
-			if (count > 0)
+			/* (lowered while frames come late: vr.refresh_rate_auto) */
+			if (count > 0 && current > 1.0f && current < rates[chosen] - 0.5f)
+				snprintf(value, sizeof(value), "%.0f Hz (now %.0f)", rates[chosen], current);
+			else if (count > 0)
 				snprintf(value, sizeof(value), "%.0f Hz", rates[chosen]);
 			else if (current > 1.0f)
 				snprintf(value, sizeof(value), "%.0f Hz (system)", current);
@@ -8753,7 +8756,7 @@ static void ui_vr_options_render(
 			&dim_color);
 		ui_join_code_draw_text(128, 512, 320, "Foveation draws the view's edges coarser (Quest only).", FALSE, 0,
 			&dim_color);
-		ui_join_code_draw_text(128, 512, 338, "Late frames: 90 Hz steps down to 72 while they come late.", FALSE, 0,
+		ui_join_code_draw_text(128, 512, 338, "Late frames: the rate steps down (90, 80, 72) while they last.", FALSE, 0,
 			&dim_color);
 	}
 	ui_join_code_draw_text(126, 514, VR_OPTIONS_FOOTER + 8, "%a-button Change   %b-button Done", TRUE, 0, &text_color);
