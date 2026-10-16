@@ -7,13 +7,17 @@ The Steam Frame's installer as release assets (port/android/STEAM_FRAME.md):
 writes into the output folder
 - ringfall-mjolnir-vr-steam-frame.zip: the installer (port/android/steam_frame_install.sh,
   as install.sh), the APK (RingfallMjolnirVR.apk), the launcher
-  (steam_frame_launch.sh, as ringfall-mjolnir-vr.sh), the disc image reader (steam_frame_xiso.py, with
+  (steam_frame_launch.sh, as ringfall-mjolnir-vr.sh, which updates the game
+  from the repository named), the build's number (build.txt: the workflow's
+  run number, HALO_BUILD_NUMBER or GITHUB_RUN_NUMBER; 0, which never
+  updates, without one), the disc image reader (steam_frame_xiso.py, with
   extract-xiso's license) and the library pictures (grid/);
 - Install-Ringfall-Mjolnir-VR.desktop (port/android/steam_frame_installer.desktop): what
   the player downloads and opens in Desktop Mode; it fetches the latest
   release's zip from the repository named.
 """
 
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -38,13 +42,22 @@ def main():
     ]
     files += [(picture, "grid/" + picture.name, 0o644)
         for picture in sorted((ANDROID / "steam_frame_grid").glob("*.png"))]
+    build = os.environ.get("HALO_BUILD_NUMBER") or os.environ.get("GITHUB_RUN_NUMBER") or "0"
+    if not build.isdigit():
+        build = "0"
     bundle = output / "ringfall-mjolnir-vr-steam-frame.zip"
     with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
         for path, name, mode in files:
             info = zipfile.ZipInfo.from_file(path, name)
             info.external_attr = (0o100000 | mode) << 16
             info.compress_type = zipfile.ZIP_STORED if name.endswith((".apk", ".png")) else zipfile.ZIP_DEFLATED
-            archive.writestr(info, path.read_bytes())
+            data = path.read_bytes()
+            if name == "ringfall-mjolnir-vr.sh":
+                data = data.replace(b"@REPOSITORY@", repository.encode())
+            archive.writestr(info, data)
+        info = zipfile.ZipInfo("build.txt", date_time=(2026, 1, 1, 0, 0, 0))
+        info.external_attr = (0o100000 | 0o644) << 16
+        archive.writestr(info, build + "\n")
     print(f"{bundle.relative_to(Path.cwd()) if bundle.is_relative_to(Path.cwd()) else bundle}")
 
     desktop = (ANDROID / "steam_frame_installer.desktop").read_text().replace("@REPOSITORY@", repository)

@@ -70,6 +70,75 @@ run()
     child=0
 }
 
+# Updates (update.auto in config.toml; the game's own updater, the Quest's,
+# does nothing here: Lepton installs the APK in this folder each start).
+# While the game runs, the latest release is looked for; a newer one's
+# bundle is fetched into update/, checked, and put in place as the next
+# start begins, before Lepton runs the APK (it installs the newer one).
+# A build that knows no number of its own (build.txt: a local one) never
+# looks. Nothing changes without the internet, or when anything fails.
+REPOSITORY="@REPOSITORY@"
+UPDATE="$DATA/update"
+BUILD_FILE="$DATA/build.txt"
+SELF="$DATA/ringfall-mjolnir-vr.sh"
+
+update_apply()
+{
+    local new="$UPDATE/bundle" build
+    [ -f "$UPDATE/ready" ] || { rm -rf "$UPDATE"; return 0; }
+    build=$(cat "$new/build.txt" 2>/dev/null)
+    # (the launcher renamed over this one: bash goes on reading its own copy)
+    if cp "$new/ringfall-mjolnir-vr.sh" "$SELF.tmp" && chmod 755 "$SELF.tmp" &&
+        cp "$new/RingfallMjolnirVR.apk" "$APK.tmp" && chmod 666 "$APK.tmp" &&
+        mv -f "$SELF.tmp" "$SELF" && mv -f "$APK.tmp" "$APK" && touch "$APK" &&
+        cp "$new/build.txt" "$BUILD_FILE"
+    then
+        log "update: build $build put in place"
+    else
+        log "update: build $build could not be put in place"
+        rm -f "$SELF.tmp" "$APK.tmp"
+    fi
+    rm -rf "$UPDATE"
+}
+
+update_wanted()
+{
+    # (update.auto = false in config.toml's [update]: never)
+    ! awk '/^\[/ { section = $0 } section == "[update]" && /^[ \t]*auto[ \t]*=/ { print $3 }' \
+        "$DATA/config.toml" 2>/dev/null | grep -q false
+}
+
+update_check()
+{
+    local installed latest
+    installed=$(cat "$BUILD_FILE" 2>/dev/null)
+    [[ "$installed" =~ ^[0-9]+$ ]] && (( installed > 0 )) || return 0
+    update_wanted || return 0
+    latest=$(curl -fsSL --max-time 20 -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$REPOSITORY/releases/latest" |
+        python3 -I -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].rpartition("-")[2])' 2>/dev/null)
+    [[ "$latest" =~ ^[0-9]+$ ]] && (( latest > installed )) || return 0
+    log "update: build $latest found (this is $installed), fetching it"
+    rm -rf "$UPDATE" && mkdir -p "$UPDATE" || return 0
+    if curl -fsSL --retry 2 --max-time 900 -o "$UPDATE/bundle.zip" \
+            "https://github.com/$REPOSITORY/releases/download/build-$latest/ringfall-mjolnir-vr-steam-frame.zip" &&
+        python3 -I -m zipfile -e "$UPDATE/bundle.zip" "$UPDATE/bundle" &&
+        [ "$(cat "$UPDATE/bundle/build.txt" 2>/dev/null)" = "$latest" ] &&
+        [ -s "$UPDATE/bundle/RingfallMjolnirVR.apk" ] && [ -s "$UPDATE/bundle/ringfall-mjolnir-vr.sh" ]
+    then
+        rm -f "$UPDATE/bundle.zip"
+        touch "$UPDATE/ready"
+        log "update: build $latest fetched, put in place at the next start"
+    else
+        log "update: build $latest could not be fetched"
+        rm -rf "$UPDATE"
+    fi
+}
+
+update_apply
+update_check </dev/null >/dev/null 2>&1 &
+updater=$!
+
 # (a new APK is only installed on its first start, not started; and a start
 # right after a game that was ended hard can fail in SteamVR, which then
 # needs a moment: again, up to three times, while it ends within 30 s)
@@ -83,4 +152,7 @@ for attempt in 1 2 3; do
     sleep 5
 done
 rm -f "$QUIT"
+# (a fetch still under way is given up: the next start looks again)
+pkill -P "$updater" 2>/dev/null
+kill "$updater" 2>/dev/null
 log "end"

@@ -36,7 +36,8 @@ import java.util.zip.ZipInputStream;
  * the latest release when it starts, on a thread of its own, and if it is
  * newer asks the player whether to update:
  *
- * - Yes: the release's app (halo-android-release.zip or -debug.zip) is
+ * - Yes: the release's app (ringfall-mjolnir-vr-android-release.zip or
+ *   -debug.zip) is
  *   downloaded and handed to Android's package installer, which replaces the
  *   game (closing it) and offers to open the new version.
  * - No: nothing, until the next start.
@@ -45,6 +46,9 @@ import java.util.zip.ZipInputStream;
  *
  * Every build of main is signed with the same key (the workflow's), which an
  * app must keep for Android to install a new version over it.
+ *
+ * Not on the Steam Frame: Lepton installs the APK in the game's folder there
+ * at every start, so its launcher updates that (steam_frame_launch.sh).
  */
 final class Updater {
     /* the VR port's own releases: the original's, made without VR, must
@@ -63,7 +67,8 @@ final class Updater {
     static void start(Activity activity) {
         File config = configFile(activity);
 
-        if (BuildConfig.HALO_BUILD_NUMBER <= 0 || config == null || !autoUpdate(config))
+        if (BuildConfig.HALO_BUILD_NUMBER <= 0 || config == null || !autoUpdate(config) ||
+                new File(LauncherActivity.SHARED_DATA_ROOT).isDirectory())
             return;
         new Thread(() -> {
             int latest = latestRelease();

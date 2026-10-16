@@ -35,7 +35,7 @@ import java.nio.channels.FileChannel;
  */
 public class LauncherActivity extends Activity {
     private static final int PICK_IMAGE = 1;
-    private static final String SHARED_DATA_ROOT = "/home/steamos/Documents/RingfallMjolnirVR";
+    static final String SHARED_DATA_ROOT = "/home/steamos/Documents/RingfallMjolnirVR";
 
     private File dataRoot;
     private TextView status;
