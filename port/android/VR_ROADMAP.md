@@ -42,6 +42,7 @@ named where code is taken over.
 | 3c | Weapons held physically, holsters at shoulder and hip (the buttons stay) | |
 | 3d | Other VR players shown with their heads, hands and bodies (today their bodies move as flat players' do: only their aim and throws come from their hands) | |
 | 4 | Later: disc image import in the launcher; moving by swinging the arms (in place of the stick, never faster than it: online too), and a sprint by swinging them harder (faster than the game allows: offline only) | import **done** (in `main` 2026-10-06): the app's import (tried on the Quest 3: all 24 maps; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`; tried on the Frame: the old folder renamed, the shortcut added by Steam), a release signing key (CI and local builds the same). Arm swinging and its offline sprint still open |
+| 5 | Later: multiview again (both eyes in one pass, half the drawing's CPU cost): find why its eyes do not fuse in big online games on the Quest 3 (and now and then on the Steam Frame), then turn it back on | open: off by default since 2026-10-16 (`debug.multiview`); findings in the open points |
 | R | Release as **Ringfall: Mjolnir VR** (no "Halo" in the product's name): app name, id `io.github.cesarus85.ringfall`, icon and library pictures (`tools/ringfall_art.py`), Frame folder and installer, release assets, README; the repository renamed | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good) |
 
 ## Step 2, first part (done)
@@ -535,8 +536,9 @@ see that nothing is missing or slower.
 - Big online games (2026-10-16): doubled pictures on a 32-player server,
   none in a local game with 48 bots. Not the GPU (60–80 %): the ticks cost
   3.3–4.6 ms as a client there (1.3–1.9 ms with bots or 16 players), so
-  47–70 of 150 frames with a tick missed 90 Hz's 11.1 ms. Built (branch
-  `feature/vr-refresh-auto`, to try in the headset): `vr.refresh_rate_auto`
+  47–70 of 150 frames with a tick missed 90 Hz's 11.1 ms (the doubling
+  itself was multiview's, above). In `main` 2026-10-16 (Quest 3 good):
+  `vr.refresh_rate_auto`
   (VR options MORE, "Lower it when frames are late", on by default) steps
   the rate down a step (90, 80, 72 Hz) while more than one frame in 32
   comes late, and back up once they would keep up; "VR: refresh rate" in
@@ -553,6 +555,8 @@ see that nothing is missing or slower.
   default (smooth there). To do: try this and later builds with "high" on
   a Quest 3 outside PTC (the developer's wife's), and set the default
   back to "high" or "auto" if it holds.
+  Resolved 2026-10-16: multiview (above), not the Horizon OS PTC.
+
 - Multiview on the Steam Frame: why the eyes do not fuse there (suspected
   Mesa zink/Turnip); tools in branch `frame/doubled-images` (86335828),
   not merged.
