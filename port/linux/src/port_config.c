@@ -233,9 +233,6 @@ static const struct config_setting config_settings[] =
 		"away from the player's body (walls are not checked)." },
 	{ "vr.crouch_limit", _config_real, "0.9", "HALO_VR_CROUCH_LIMIT", _environment_value, _platform_android,
 		"How far, in metres, the view follows your head down." },
-	{ "vr.multiview", _config_boolean, "true", "HALO_VR_MULTIVIEW", _environment_value, _platform_android,
-		"Draw both eyes in one pass (GL_OVR_multiview2), from between them: about\n"
-		"half the drawing's cost on the processor. false: one eye after the other." },
 	{ "vr.log_performance", _config_boolean, "false", "HALO_VR_LOG_PERFORMANCE", _environment_value, _platform_android,
 		"Log the frame rate and where the frame time goes every five seconds\n"
 		"(adb logcat -s halo)." },
@@ -786,10 +783,12 @@ static const struct config_setting config_settings[] =
 		"machines of twice it), to test the netcode as over the internet; 0 none." },
 	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,
 		"Percent of datagrams received that are dropped, for the same; 0 none." },
-	{ "debug.multiview_steamvr", _config_boolean, "false", "HALO_MULTIVIEW_STEAMVR", _environment_value,
-		_platform_android,
-		"On SteamVR (the Steam Frame) the eyes are drawn one by one, whatever\n"
-		"vr.multiview says: true draws them at once there too, for testing." },
+	{ "debug.multiview", _config_boolean, "false", "HALO_MULTIVIEW", _environment_value, _platform_android,
+		"Draw both eyes in one pass (GL_OVR_multiview2), from between them: about\n"
+		"half the drawing's cost on the processor, but the eyes' pictures did not\n"
+		"always fuse (doubled as the head turned: on the Steam Frame now and then,\n"
+		"on the Quest 3 in big online games). Off, one eye after the other; on,\n"
+		"for finding why." },
 	{ "debug.gl_thread", _config_integer, "-1", "HALO_GL_THREAD", _environment_value, _platform_android,
 		"Mesa's GL thread (its drivers: the Steam Frame's): 1 on, 0 off, -1 as the\n"
 		"driver chooses. Read when the app starts." },

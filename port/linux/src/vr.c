@@ -138,7 +138,7 @@ static struct
 	float seat_frame_yaw;
 	int seat_frame_valid;
 	float seat_turn;
-	int multiview;              /* vr.multiview: both eyes in one draw */
+	int multiview;              /* debug.multiview: both eyes in one draw */
 	int multiview_logged;
 	int multiview_logged_views;
 	/* vr.foveation's level last logged (+1; 0: none yet) */
@@ -645,7 +645,7 @@ void halo_vr_initialize(void)
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
 	vr.grenade_throw_speed = (float)config_real("vr.grenade_throw_speed");
-	vr.multiview = config_boolean("vr.multiview");
+	vr.multiview = config_boolean("debug.multiview");
 	vr.vehicle_first_person = config_boolean("vr.vehicle_first_person");
 	vr.vehicle_spawn = config_boolean("debug.vehicle_spawn");
 	vr.turret_handles = config_boolean("vr.turret_handles");
@@ -678,16 +678,13 @@ void halo_vr_initialize(void)
 	vr.active = 1;
 	platform_log("VR: %s, eyes %dx%d at %.0f Hz", vr.info.system_name, vr.info.eye_width, vr.info.eye_height,
 		vr.info.refresh_rate);
-	/* SteamVR (the Steam Frame): each eye drawn apart. With both drawn at
-	once the eyes' pictures did not fuse, now and then: each alone was
-	sharp, the two together doubled as the head turned (2026-10-05), and
-	one by one costs it no more (its time goes to the driver either way).
-	debug.multiview_steamvr draws them at once there again, for finding why */
-	if (vr.multiview && strstr(vr.info.system_name, "SteamVR") && !config_boolean("debug.multiview_steamvr"))
-	{
-		vr.multiview = 0;
-		platform_log("VR: SteamVR: the eyes drawn one by one (debug.multiview_steamvr)");
-	}
+	/* Each eye drawn apart (debug.multiview draws both at once). At once,
+	the eyes' pictures did not always fuse: on the Steam Frame now and then
+	(each alone sharp, the two together doubled as the head turned,
+	2026-10-05; one by one costs it no more there), and on the Quest 3 in
+	big online games (doubled from the start as the head turned, none with
+	48 bots; one by one, none online either, 2026-10-16) */
+	platform_log("VR: the eyes drawn %s (debug.multiview)", vr.multiview ? "at once" : "one by one");
 }
 
 int halo_vr_active(void)
@@ -2161,7 +2158,7 @@ float halo_vr_refresh_rate(void)
 	return vr.active ? vr.info.refresh_rate : 0.0f;
 }
 
-/* ---------- both eyes at once (vr.multiview)
+/* ---------- both eyes at once (debug.multiview)
 
 The scene is drawn once, from a camera between the eyes whose view takes in
 both eyes' (with a margin, for what is near: the eyes stand apart), into two

@@ -50,7 +50,7 @@ void halo_vr_eye_camera(int eye, const float game_position[3],
 /* copies the back buffer, just drawn for an eye, to that eye's image */
 void halo_vr_capture_eye(int eye);
 
-/* Both eyes in one draw (vr.multiview, where GL_OVR_multiview2 is): whether
+/* Both eyes in one draw (debug.multiview, where GL_OVR_multiview2 is): whether
 this frame draws so; the camera between the eyes whose view takes in both
 (as halo_vr_eye_camera), which also starts drawing into both eyes' layers;
 and after the draw, the layers taken for the eyes' images. */

@@ -17,7 +17,7 @@ named where code is taken over.
 | Area | What |
 | --- | --- |
 | Headsets | Quest 3; Steam Frame (Lepton): its controllers' layout, a Steam library tile that installs, starts, updates and quits the game, data kept in `~/Documents/RingfallMjolnirVR` |
-| Rendering | Both eyes in one pass (multiview) on the Quest; one by one on SteamVR, where multiview's eyes did not fuse; lens flares at their depth in stereo; HUD, menus, scope, crosshair and names as layers of their own |
+| Rendering | The eyes drawn one by one (both at once, multiview, only with `debug.multiview`: its eyes did not always fuse, see the open points); lens flares at their depth in stereo; HUD, menus, scope, crosshair and names as layers of their own |
 | Aiming | The weapon in the hand, its shots from the muzzle, laser and crosshair options |
 | Body | Physical crouch (`vr.crouch_limit`) beside the crouch button, leaning (`vr.lean_limit`), melee by swinging, grenades thrown with the left hand, two-handed weapons |
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
@@ -518,6 +518,20 @@ see that nothing is missing or slower.
 
 ## Open points outside the order
 
+- Multiview's doubled pictures (2026-10-16): on the developer's Quest 3,
+  doubled and shifted pictures from the start of big online games (26-35
+  players) as the head turned, nauseating; none in a local game with 48
+  bots; none online either with the eyes drawn one by one. Not the frame
+  rate: one by one, online at 72 Hz, the compositor repeated as many
+  frames (about 4 a second) and nothing was seen. Not the facing jumps
+  (respawns only) nor the camera (it moves every frame). Before: the
+  Steam Frame's (2026-10-05), each eye alone sharp. So the eyes are drawn
+  one by one by default now (`debug.multiview` for both at once). To do:
+  find what the shared pass draws wrongly online, e.g. by saving both
+  eyes' pictures in a big online game and comparing what is doubled
+  (sprites and effects projected by the game itself, `mv_depth`; programs
+  made on the shader worker; the sky rows), then turn it back on: it
+  halves the drawing's CPU cost.
 - Big online games (2026-10-16): doubled pictures on a 32-player server,
   none in a local game with 48 bots. Not the GPU (60–80 %): the ticks cost
   3.3–4.6 ms as a client there (1.3–1.9 ms with bots or 16 players), so
