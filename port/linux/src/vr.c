@@ -224,6 +224,7 @@ static struct
 	int aim_with_controller;
 	int laser;
 	float weapon_adjust[3];  /* forward, right, down, metres: vr.weapon_hand_*, the hand moved on the weapon */
+	float weapon_shift[3];   /* forward, right, up, metres: the weapon moved from the old fixed place (the scope) */
 	float muzzle_distance;
 	/* the free hand on the weapon (halo_vr_two_hand) */
 	int two_hand_gripping;
@@ -2888,6 +2889,10 @@ int halo_vr_weapon_camera(short local_player_index, long graph_index, float posi
 		position[axis] = vr.game_camera[axis] + hand[axis] +
 			forward[axis] * from_hand[0] + right[axis] * from_hand[1] + up[axis] * from_hand[2];
 	}
+	/* (the scope's disc, placed for the old fixed place, moves with it) */
+	vr.weapon_shift[0] = from_hand[0] * METRES_PER_WORLD_UNIT + WEAPON_FIXED_FORWARD;
+	vr.weapon_shift[1] = from_hand[1] * METRES_PER_WORLD_UNIT + WEAPON_FIXED_RIGHT;
+	vr.weapon_shift[2] = from_hand[2] * METRES_PER_WORLD_UNIT - WEAPON_FIXED_DOWN;
 	return 1;
 }
 
@@ -3453,10 +3458,14 @@ int halo_vr_scope(short local_player_index, float magnification, float position[
 	game_to_local(forward, local_forward);
 	game_to_local(up, local_up);
 	game_to_local(right, local_right);
+	/* (placed for the weapons at the old fixed place in the hand: moved as
+	the weapon is from it, halo_vr_weapon_camera; sideways by the barrel,
+	below) */
 	for (axis = 0; axis < 3; axis++)
 	{
-		vr.scope_pose.position[axis] = hand->aim.position[axis] + local_up[axis] * (SCOPE_ABOVE_HAND + scope_raise) +
-			local_forward[axis] * SCOPE_AHEAD_OF_HAND;
+		vr.scope_pose.position[axis] = hand->aim.position[axis] +
+			local_up[axis] * (SCOPE_ABOVE_HAND + scope_raise + vr.weapon_shift[2]) +
+			local_forward[axis] * (SCOPE_AHEAD_OF_HAND + vr.weapon_shift[0]);
 	}
 	if (barrel_known())
 	{
