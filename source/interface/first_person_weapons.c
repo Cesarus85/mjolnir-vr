@@ -1823,6 +1823,22 @@ static void first_person_weapon_vr_arms(
 			vr_arm_nodes.barrel_logged_graph_index = graph_index;
 		}
 	}
+	if (ready && vr_arm_nodes.wrist[1] != NONE)
+	{
+		/* where this weapon's animations hold its hand, from the camera
+		(forward, right, up): the camera is put by it, so that the hand
+		lands on the real one (vr.c, halo_vr_weapon_camera) */
+		real_point3d const *wrist = &node_matrices[vr_arm_nodes.wrist[1]].position;
+		real_vector3d from_camera, camera_right;
+		float held[3];
+
+		vector_from_points3d(&weapon_camera->position, wrist, &from_camera);
+		cross_product3d(&weapon_camera->forward, &weapon_camera->up, &camera_right);
+		held[0] = dot_product3d(&from_camera, &weapon_camera->forward);
+		held[1] = dot_product3d(&from_camera, &camera_right);
+		held[2] = dot_product3d(&from_camera, &weapon_camera->up);
+		halo_vr_weapon_wrist(graph_index, held);
+	}
 	if (!ready && !melee)
 		vr_laser_follows_barrel(local_player_index, node_matrices, weapon_camera);
 	if (!halo_vr_body_frame(local_player_index, head, neck, body_forward) ||
@@ -2109,7 +2125,12 @@ static void first_person_weapon_build_node_matrices(
 			}
 		}
 	}
-	if (halo_vr_weapon_camera(local_player_index, weapon_position, weapon_forward, weapon_up))
+	if (halo_vr_weapon_camera(local_player_index,
+		first_person_weapon->weapon_index!=NONE ?
+			weapon_definition_get(weapon_get(first_person_weapon->weapon_index)->definition_index)->
+				weapon.interface_definition.first_person_animations.index :
+			NONE,
+		weapon_position, weapon_forward, weapon_up))
 	{
 		weapon_camera= render.camera;
 		weapon_camera.position.x= weapon_position[0];

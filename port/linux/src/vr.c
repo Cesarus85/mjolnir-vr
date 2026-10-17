@@ -223,7 +223,7 @@ static struct
 	float motion_tracker_down;
 	int aim_with_controller;
 	int laser;
-	float weapon_offset[3];  /* forward, right, down, metres: the weapon model's camera from the hand */
+	float weapon_adjust[3];  /* forward, right, down, metres: vr.weapon_hand_*, the hand moved on the weapon */
 	float muzzle_distance;
 	/* the free hand on the weapon (halo_vr_two_hand) */
 	int two_hand_gripping;
@@ -638,9 +638,9 @@ void halo_vr_initialize(void)
 	xgpu_draw_timing(vr.log_performance);
 	vr.resolution_scale = (float)config_real("vr.resolution_scale");
 	vr.aim_with_controller = strcmp(config_string("vr.aim_with"), "head") != 0;
-	vr.weapon_offset[0] = (float)config_real("vr.weapon_forward");
-	vr.weapon_offset[1] = (float)config_real("vr.weapon_right");
-	vr.weapon_offset[2] = (float)config_real("vr.weapon_down");
+	vr.weapon_adjust[0] = (float)config_real("vr.weapon_hand_forward");
+	vr.weapon_adjust[1] = (float)config_real("vr.weapon_hand_right");
+	vr.weapon_adjust[2] = (float)config_real("vr.weapon_hand_down");
 	vr.muzzle_distance = 0.3f;
 	vr.two_hand_reach = (float)config_real("vr.two_hand_reach");
 	vr.melee_swing_speed = (float)config_real("vr.melee_swing_speed");
@@ -2770,9 +2770,80 @@ int halo_vr_weapon_origin(short local_player_index, float origin[3])
 	return 1;
 }
 
-int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
+/* The weapon's hand in its first-person model (halo_vr_weapon_wrist): each
+weapon's animations hold the hand elsewhere from the model's camera, the
+pistol's some 25 cm further forward than the assault rifle's, so a camera
+at one fixed place from the hand (as before: WEAPON_FIXED_*) held the
+pistol's hand 15 cm before the real one and the assault rifle's 8 cm aside.
+The wrist as the weapon is held ready, eased, is kept for each weapon (a
+few at once, the last ones held), and the camera put where it lands as the
+free hand's does: WRIST_BEHIND_GRIP behind the controller's grip, along
+its aim. */
+#define WEAPON_WRISTS 8
+#define WRIST_BEHIND_GRIP 0.07f
+#define WEAPON_FIXED_FORWARD 0.18f
+#define WEAPON_FIXED_RIGHT 0.10f
+#define WEAPON_FIXED_DOWN 0.14f
+
+static struct
 {
-	float right[3], hand[3];
+	long graph_index;
+	float wrist[3];
+	unsigned long used;
+} weapon_wrists[WEAPON_WRISTS];
+static unsigned long weapon_wrists_used;
+
+static float *weapon_wrist_for(long graph_index, int make)
+{
+	int index, oldest = 0;
+
+	for (index = 0; index < WEAPON_WRISTS; index++)
+	{
+		if (weapon_wrists[index].used && weapon_wrists[index].graph_index == graph_index)
+		{
+			weapon_wrists[index].used = ++weapon_wrists_used;
+			return weapon_wrists[index].wrist;
+		}
+		if (weapon_wrists[index].used < weapon_wrists[oldest].used)
+			oldest = index;
+	}
+	if (!make)
+		return NULL;
+	weapon_wrists[oldest].graph_index = graph_index;
+	weapon_wrists[oldest].used = 0;
+	return NULL;
+}
+
+void halo_vr_weapon_wrist(long graph_index, const float wrist[3])
+{
+	float *kept = weapon_wrist_for(graph_index, 1);
+	int index, axis;
+
+	if (kept)
+	{
+		for (axis = 0; axis < 3; axis++)
+			kept[axis] += (wrist[axis] - kept[axis]) * 0.1f;
+		return;
+	}
+	for (index = 0; index < WEAPON_WRISTS; index++)
+	{
+		if (weapon_wrists[index].graph_index == graph_index && !weapon_wrists[index].used)
+		{
+			memcpy(weapon_wrists[index].wrist, wrist, sizeof(weapon_wrists[index].wrist));
+			weapon_wrists[index].used = ++weapon_wrists_used;
+			platform_log("VR: weapon hand found %.0f cm forward, %.0f right, %.0f up of its model's camera",
+				wrist[0] * METRES_PER_WORLD_UNIT * 100.0f, wrist[1] * METRES_PER_WORLD_UNIT * 100.0f,
+				wrist[2] * METRES_PER_WORLD_UNIT * 100.0f);
+			return;
+		}
+	}
+}
+
+int halo_vr_weapon_camera(short local_player_index, long graph_index, float position[3], float forward[3],
+	float up[3])
+{
+	float right[3], hand[3], from_hand[3];
+	const float *wrist;
 	int axis;
 
 	if (!weapon_hand_tracked(local_player_index))
@@ -2794,12 +2865,28 @@ int halo_vr_weapon_camera(short local_player_index, float position[3], float for
 		}
 	}
 	/* the first-person model hangs from a camera: put that camera where the
-	model's grip lands in the hand */
+	model's hand lands on the real one (the camera from the hand: forward,
+	right, up, world units), moved as vr.weapon_hand_* says */
+	wrist = graph_index != -1 ? weapon_wrist_for(graph_index, 0) : NULL;
+	if (wrist)
+	{
+		from_hand[0] = -WRIST_BEHIND_GRIP / METRES_PER_WORLD_UNIT - wrist[0];
+		from_hand[1] = -wrist[1];
+		from_hand[2] = -wrist[2];
+	}
+	else
+	{
+		from_hand[0] = -WEAPON_FIXED_FORWARD / METRES_PER_WORLD_UNIT;
+		from_hand[1] = -WEAPON_FIXED_RIGHT / METRES_PER_WORLD_UNIT;
+		from_hand[2] = WEAPON_FIXED_DOWN / METRES_PER_WORLD_UNIT;
+	}
+	from_hand[0] -= vr.weapon_adjust[0] / METRES_PER_WORLD_UNIT;
+	from_hand[1] -= vr.weapon_adjust[1] / METRES_PER_WORLD_UNIT;
+	from_hand[2] += vr.weapon_adjust[2] / METRES_PER_WORLD_UNIT;
 	for (axis = 0; axis < 3; axis++)
 	{
-		position[axis] = vr.game_camera[axis] + hand[axis] -
-			(forward[axis] * vr.weapon_offset[0] + right[axis] * vr.weapon_offset[1] -
-			up[axis] * vr.weapon_offset[2]) / METRES_PER_WORLD_UNIT;
+		position[axis] = vr.game_camera[axis] + hand[axis] +
+			forward[axis] * from_hand[0] + right[axis] * from_hand[1] + up[axis] * from_hand[2];
 	}
 	return 1;
 }
@@ -3653,9 +3740,11 @@ void halo_vr_present(unsigned int back_buffer_texture) { (void)back_buffer_textu
 int halo_vr_eye_size(int *width, int *height) { (void)width; (void)height; return 0; }
 int halo_vr_aim_vector(short local_player_index, float vector[3]) { (void)local_player_index; (void)vector; return 0; }
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]) { (void)local_player_index; (void)offset; return 0; }
-int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3])
+void halo_vr_weapon_wrist(long graph_index, const float wrist[3]) { (void)graph_index; (void)wrist; }
+int halo_vr_weapon_camera(short local_player_index, long graph_index, float position[3], float forward[3],
+	float up[3])
 {
-	(void)local_player_index; (void)position; (void)forward; (void)up;
+	(void)local_player_index; (void)graph_index; (void)position; (void)forward; (void)up;
 	return 0;
 }
 int halo_vr_weapon_origin(short local_player_index, float origin[3])

@@ -286,14 +286,17 @@ static const struct config_setting config_settings[] =
 	{ "vr.crosshair", _config_boolean, "true", "HALO_VR_CROSSHAIR", _environment_value, _platform_android,
 		"The weapon's crosshair where it aims, at the distance of what it aims at\n"
 		"(with aim_with = \"controller\"); false leaves it out." },
-	{ "vr.weapon_forward", _config_real, "0.18", "HALO_VR_WEAPON_FORWARD", _environment_value, _platform_android,
-		"Where the weapon lies in your hand: how far the first-person model's\n"
-		"camera is behind your hand, in metres (weapon_right: to its left,\n"
-		"weapon_down: above it)." },
-	{ "vr.weapon_right", _config_real, "0.10", "HALO_VR_WEAPON_RIGHT", _environment_value, _platform_android,
-		"See weapon_forward." },
-	{ "vr.weapon_down", _config_real, "0.14", "HALO_VR_WEAPON_DOWN", _environment_value, _platform_android,
-		"See weapon_forward." },
+	{ "vr.weapon_hand_forward", _config_real, "0.0", "HALO_VR_WEAPON_HAND_FORWARD", _environment_value,
+		_platform_android,
+		"The weapon in your hand: each one's model is held so that its hand is\n"
+		"where yours is, as the free hand's; this moves your hand on it, in\n"
+		"metres (weapon_hand_right: to its right, weapon_hand_down: down)." },
+	{ "vr.weapon_hand_right", _config_real, "0.0", "HALO_VR_WEAPON_HAND_RIGHT", _environment_value,
+		_platform_android,
+		"See weapon_hand_forward." },
+	{ "vr.weapon_hand_down", _config_real, "0.0", "HALO_VR_WEAPON_HAND_DOWN", _environment_value,
+		_platform_android,
+		"See weapon_hand_forward." },
 	{ "vr.two_hand_reach", _config_real, "0.2", "HALO_VR_TWO_HAND_REACH", _environment_value, _platform_android,
 		"How near, in metres, the free hand must be to the weapon's foregrip for\n"
 		"its grip button to take hold of it with both hands." },
