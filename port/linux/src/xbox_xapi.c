@@ -42,9 +42,39 @@ DWORD WINAPI XLaunchNewImageA(LPCSTR image_path, PLAUNCH_DATA launch_data)
 	exit(EXIT_SUCCESS);
 }
 
+/* port: a European disc in two languages has a maps folder for each, and
+the Android and Steam Frame disc image setups (XisoExtractor.java,
+steam_frame_xiso.py) write the language of the one they took into
+maps/language.txt: the Xbox's language, unless game.language says another */
+static const char *maps_language(void)
+{
+	static char language[4];
+	static BOOL read;
+
+	if (!read)
+	{
+		char path[MAX_PATH];
+		FILE *file;
+
+		read = TRUE;
+		snprintf(path, sizeof(path), "%s/maps/language.txt", platform_data_root());
+		if ((file = fopen(path, "r")) != NULL)
+		{
+			if (!fgets(language, sizeof(language), file))
+				language[0] = '\0';
+			language[2] = '\0';
+			fclose(file);
+		}
+	}
+	return language;
+}
+
 DWORD WINAPI XGetLanguage(void)
 {
 	const char *language = config_string("game.language");
+
+	if (!*language)
+		language = maps_language();
 
 	if (*language)
 	{

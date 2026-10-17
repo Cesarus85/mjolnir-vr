@@ -9,6 +9,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Copies the maps folder out of an Xbox disc image (an "xiso", or a whole
@@ -28,6 +29,12 @@ import java.util.List;
  *
  * The files are written to maps.partial first and moved into maps once they
  * all are, so an interrupted extraction never leaves maps/ui.map behind.
+ *
+ * A European disc in two languages (Spanish and Italian) has no maps folder
+ * but one for each, maps_es and maps_it: the device's language's is taken,
+ * else English's, else the first, and its language written to
+ * maps/language.txt, which the game asks the Xbox for (game.language unset,
+ * port/linux/src/xbox_xapi.c): the menus in it too.
  *
  * Some parts of this code are copyright in@fishtank.com. This product
  * includes software developed by in &lt;in@fishtank.com&gt;.
@@ -225,6 +232,28 @@ final class XisoExtractor {
             if (entry.name.equalsIgnoreCase("maps"))
                 maps = entry;
         }
+        String language = null;
+        if (maps == null) {
+            String wanted = Locale.getDefault().getLanguage();
+            Entry english = null, first = null;
+
+            for (Entry entry : directories) {
+                String code = mapsLanguage(entry.name);
+
+                if (code == null)
+                    continue;
+                if (code.equals(wanted))
+                    maps = entry;
+                if (code.equals("en"))
+                    english = entry;
+                if (first == null)
+                    first = entry;
+            }
+            if (maps == null)
+                maps = english != null ? english : first;
+            if (maps != null)
+                language = mapsLanguage(maps.name);
+        }
         if (maps == null)
             throw new ExtractException("The disc image has no maps folder: it is not a Halo disc.");
 
@@ -286,5 +315,22 @@ final class XisoExtractor {
                 throw new ExtractException("Could not move " + file.name + " into " + finished + ".");
         }
         partial.delete();
+        File languageFile = new File(finished, "language.txt");
+        languageFile.delete();
+        if (language != null) {
+            try (FileOutputStream out = new FileOutputStream(languageFile)) {
+                out.write((language + "\n").getBytes(StandardCharsets.US_ASCII));
+            } catch (IOException e) {
+                throw new ExtractException("Could not write " + languageFile + " (is the storage full?).");
+            }
+        }
+    }
+
+    /** a language's maps folder's language ("maps_it": "it"), else null */
+    static String mapsLanguage(String name) {
+        if (name.length() != 7 || !name.regionMatches(true, 0, "maps_", 0, 5))
+            return null;
+        String code = name.substring(5).toLowerCase(Locale.ROOT);
+        return Character.isLetter(code.charAt(0)) && Character.isLetter(code.charAt(1)) ? code : null;
     }
 }
