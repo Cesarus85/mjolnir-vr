@@ -18,7 +18,7 @@ named where code is taken over.
 | --- | --- |
 | Headsets | Quest 3; Steam Frame (Lepton): its controllers' layout, a Steam library tile that installs, starts, updates and quits the game, data kept in `~/Documents/RingfallMjolnirVR` |
 | Rendering | The eyes drawn one by one (both at once, multiview, only with `debug.multiview`: its eyes did not always fuse, see the open points); lens flares at their depth in stereo; HUD, menus, scope, crosshair and names as layers of their own |
-| Aiming | The weapon in the hand, its shots from the muzzle, laser and crosshair options |
+| Aiming | The weapon in the hand, its shots from the muzzle, laser and crosshair options; each weapon held so that its model's hand lands on the real one, as the free hand's (it learns where each weapon's animations hold the hand; the pistol's had been 15 cm before the real hand, the assault rifle's 8 cm aside), the scope's disc moved with it; `vr.weapon_hand_*` to adjust (2026-10-17) |
 | Body | Physical crouch (`vr.crouch_limit`) beside the crouch button, leaning (`vr.lean_limit`), melee by swinging, grenades thrown with the left hand, two-handed weapons |
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |

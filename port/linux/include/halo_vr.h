@@ -103,7 +103,15 @@ int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]);
   (as the drawn frame had it): shots start there too, not from an offset to
   the unit's own eye point, which need not be the drawn camera's */
 int halo_vr_weapon_origin(short local_player_index, float origin[3]);
-int halo_vr_weapon_camera(short local_player_index, float position[3], float forward[3], float up[3]);
+/* The first-person model's camera: where the model's weapon hand lands on
+the weapon hand's controller, as the free hand does (graph_index: the
+weapon's first-person animations, whose hand halo_vr_weapon_wrist says
+where it is, in the camera's axes: forward, right, up, world units, from
+the weapon held ready; any other, the weapon as one held at the old fixed
+place) */
+int halo_vr_weapon_camera(short local_player_index, long graph_index, float position[3], float forward[3],
+	float up[3]);
+void halo_vr_weapon_wrist(long graph_index, const float wrist[3]);
 int halo_vr_laser(short local_player_index, float start[3], float direction[3]);
 /* Model space: the first-person model (first_person_weapons.c) is always
 posed as the right hand's. Left-handed, it is posed in a mirror image of
