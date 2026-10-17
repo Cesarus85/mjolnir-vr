@@ -138,6 +138,13 @@ def walk(table, offset, depth, directories, out, visited):
         walk(table, right, depth + 1, directories, out, visited)
 
 
+def maps_language(name):
+    """a language's maps folder's language ("maps_it": "it"), else None"""
+    if len(name) == 7 and name[:5].lower() == "maps_" and name[5:].isalpha():
+        return name[5:].lower()
+    return None
+
+
 def extract(image_path, destination):
     with open(image_path, "rb") as image:
         partition, root_sector, root_size = find_volume(image)
@@ -148,6 +155,24 @@ def extract(image_path, destination):
         directories = []
         walk(table, 0, 0, True, directories, [0])
         maps = [entry for entry in directories if entry[0].lower() == "maps"]
+        # (a European disc in two languages, Spanish and Italian, has a maps
+        # folder for each, maps_es and maps_it: the one for the language
+        # asked for (RINGFALL_LANGUAGE, else the system's), else English's,
+        # else the first; its language goes into maps/language.txt, which the
+        # game takes as game.language's when that is unset)
+        language = None
+        if not maps:
+            languages = [(maps_language(entry[0]), entry) for entry in directories if maps_language(entry[0])]
+            wanted = (os.environ.get("RINGFALL_LANGUAGE") or os.environ.get("LC_ALL") or
+                os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "")[:2].lower()
+            for preferred in (wanted, "en"):
+                chosen = [pair for pair in languages if pair[0] == preferred]
+                if chosen:
+                    break
+            chosen = chosen or languages[:1]
+            if chosen:
+                language, entry = chosen[0]
+                maps = [entry]
         if not maps:
             raise ExtractError("The disc image has no maps folder: it is not a Halo disc.")
 
@@ -197,6 +222,12 @@ def extract(image_path, destination):
         for name, _, _ in files:
             os.replace(os.path.join(partial, name), os.path.join(finished, name))
         os.rmdir(partial)
+        language_file = os.path.join(finished, "language.txt")
+        if os.path.exists(language_file):
+            os.remove(language_file)
+        if language:
+            with open(language_file, "w") as out:
+                out.write(language + "\n")
     except OSError as error:
         raise ExtractError("Could not move the maps into %s (%s)." % (finished, error.strerror))
 

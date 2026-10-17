@@ -27,6 +27,7 @@ named where code is taken over.
 | Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
 | Voice chat | Push to talk on any button (`vr.button_talk`, BUTTONS page; the free hand's grip by default, sending nothing while it reaches for the foregrip or the wheel), open mic, off (2026-10-13) |
 | Builds | The Android build's assembly conversion (`tools/android_asm_convert.py`) keeps string data as it is: strings and tables starting with "_" or holding \" lost a "_" (Opus's pulse cache among them: the Steam Frame's crashes in online games while talking), 2026-10-13 |
+| Languages | The European disc in Spanish and Italian (a maps folder for each, `maps_es` and `maps_it`, none called `maps`) imported on the Quest and the Steam Frame: the headset's language's, its language the game's and the menus' (`maps/language.txt`, unless `game.language` is set), 2026-10-17; not yet tried with that disc |
 | Controls | Left-handed mode (`vr.handedness`): the weapon in the left hand, the arms and grips mirrored, sticks and buttons mirrored on both controllers (`vr.mirror_controls`), the assault rifle's counter read the right way round (2026-10-06) |
 | Graphics | Presets low / medium / high / max (`vr.graphics`), refresh rate and resolution in the VR options, all kept over a restart (2026-10-06) |
 | Arms and hands | Both arms by IK from shoulders that follow the torso, the elbow led by the hand's roll; fingers from trigger, grip and touch; `vr.body` arms / hands / off, `vr.fingers` (2026-10-06) |

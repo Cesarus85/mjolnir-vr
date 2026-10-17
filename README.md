@@ -68,7 +68,8 @@ of the game.
 - A **Meta Quest 3 / 3S** or a **Steam Frame**.
 - A **disc image** (`.iso` or `.xiso`) of **Halo: Combat Evolved for the
   original Xbox**, made from **a disc you own**. Any region and version
-  works.
+  works. The game plays in the disc's language; on the European disc in
+  Spanish and Italian it takes your headset's language (else the first).
 
 This project does not include, link to or help find game files. Please
 do not ask for or share disc images in issues or discussions; such posts
