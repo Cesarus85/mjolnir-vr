@@ -35,7 +35,7 @@ problems.
 
 The game updates itself. At start-up it looks for a newer release, and asks
 if you want to install it. Refer to "Updates" in
-[port/linux/README.md](../port/linux/README.md#updates). The web site offers
+[port/linux/README.md](port/linux/README.md#updates). The web site offers
 each new build when it is out.
 
 Each build of the `main` branch that passes on all four platforms is a new
@@ -43,9 +43,13 @@ release, and the web site then plays it. The [Releases](https://github.com/OpenC
 page keeps the last five releases. If the latest build has a problem, get
 an older build from that page.
 
+### Arch-based Linux Distributions
+
+The above Linux binary release is available on the [AUR](https://aur.archlinux.org/packages/opence-bin).
+
 ## Game data
 
-The port does not include the game data. Make an Xbox disc image from your own copy
+The port does not include the game data. Download an Xbox disc image
 (`.xiso` or `.iso`) of Halo: Combat Evolved. All versions of the game
 operate. The maps of the European (PAL) version were made for a slower
 console. The port changes them to play as the North American (NTSC) maps do,
@@ -57,10 +61,19 @@ so players of the two versions can play together.
 
 On Linux and Windows, the game puts `maps/` next to the executable. On
 Android, copy the disc image to the phone first. The app puts `maps/` in its
-data folder. Refer to [port/android/README.md](../port/android/README.md). On
+data folder. Refer to [port/android/README.md](port/android/README.md). On
 the web, the page copies `maps/` out of the disc image into the browser's
 storage for the site; nothing is uploaded. Refer to
-[port/web/README.md](../port/web/README.md).
+[port/web/README.md](port/web/README.md).
+
+## Mods
+
+Mods are folders of Halo PC tag files, as the Halo Editing Kit and Invader
+write them, in `mods/` next to `maps/`: texture, sound, text and model packs
+that play over the maps' on your machine only, in any game. Each has a
+`mod.toml`. Every mod in the folder is on; the main menu's Mods turns them
+off and on and sets the order they load in.
+Refer to [docs/mods.md](docs/mods.md).
 
 ## Platforms
 
@@ -68,10 +81,10 @@ Each platform has its own instructions:
 
 | Platform | Instructions |
 | --- | --- |
-| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](../port/linux/README.md) |
-| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](../port/windows/README.md) |
-| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](../port/android/README.md) |
-| Web (WebAssembly, WebGL 2, SDL3; desktop Chrome, Edge and Firefox) | [port/web/README.md](../port/web/README.md) |
+| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](port/linux/README.md) |
+| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](port/windows/README.md) |
+| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](port/android/README.md) |
+| Web (WebAssembly, WebGL 2, SDL3; desktop Chrome, Edge and Firefox) | [port/web/README.md](port/web/README.md) |
 
 The Linux README also gives the controls, the settings and the multiplayer
 functions. These are almost the same on all platforms.
@@ -84,19 +97,19 @@ The game can play system link games on a local network and on the internet:
 - Linux, Windows and Android machines and browsers can play in the same
   game. On a local network, the native builds play system link; browsers
   play each other in rooms, over WebRTC
-  ([port/web/README.md](../port/web/README.md)).
+  ([port/web/README.md](port/web/README.md)).
 - An invite link, or the server browser, lets a machine join a game on the
   internet, browsers too: a native build takes a browser's WebRTC
-  ([port/linux/README.md](../port/linux/README.md), "Browsers"). No server of
+  ([port/linux/README.md](port/linux/README.md), "Browsers"). No server of
   this project is necessary.
 - The netcode is new. Each machine moves its own player at once,
   and the host makes the decisions for the game. Refer to
-  [port/linux/NETCODE.md](../port/linux/NETCODE.md).
+  [port/linux/NETCODE.md](port/linux/NETCODE.md).
 
 ## Build the game
 
 You do not need the Xbox SDK. The port supplies the SDK declarations that
-the game uses. Refer to [port/include/xdk](../port/include/xdk/README.md).
+the game uses. Refer to [port/include/xdk](port/include/xdk/README.md).
 
 To build the game:
 
@@ -127,7 +140,7 @@ Give these options to `configure.py`:
 | --- | --- |
 | (none) | A debug build. A failed assertion stops the game. |
 | `--release` | A release build. The game does not examine assertions, as in the retail game. |
-| `--portable` | The Linux and Windows builds operate on all x86-64 processors. The Linux build also operates on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](../port/linux/README.md#portable-build). Use this option for builds that you give to other persons. |
+| `--portable` | The Linux and Windows builds operate on all x86-64 processors. The Linux build also operates on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](port/linux/README.md#portable-build). Use this option for builds that you give to other persons. |
 | `--lto=thin`, `--lto=off` | Less link-time optimization. The link is faster. |
 | `--pgo=off` | No profile-guided optimization. |
 | `--pgo=train` | Records a new optimization profile. Refer to "Optimization profiles". |
@@ -187,7 +200,7 @@ file.
 `debug.profile_memory` sets the memory of a recording in MB (default 256,
 from 4 to 1024). A recording has no length limit:
 the game writes a part each time the memory is full. Refer to "Settings" in
-[port/linux/README.md](../port/linux/README.md).
+[port/linux/README.md](port/linux/README.md).
 
 On Android, the files are in `/sdcard/Android/data/com.halo.decomp/files/profiles/`.
 Enter `adb pull` to copy the recording parts to a computer.
