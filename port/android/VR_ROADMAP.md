@@ -21,6 +21,7 @@ named where code is taken over.
 | Aiming | The weapon in the hand, its shots from the muzzle, laser and crosshair options; each weapon held so that its model's hand lands on the real one, as the free hand's (it learns where each weapon's animations hold the hand; the pistol's had been 15 cm before the real hand, the assault rifle's 8 cm aside), the scope's disc moved with it; `vr.weapon_hand_*` to adjust (2026-10-17) |
 | Body | Physical crouch (`vr.crouch_limit`) beside the crouch button, leaning (`vr.lean_limit`), melee by swinging, grenades thrown with the left hand, two-handed weapons |
 | Vehicles | The Warthog's wheel turned with the hands, right trigger throttle, left brake; first-person seats; turrets with handles |
+| Scores | The menu button held shows the scores on the Quest (a press pauses, as it is let go); the Steam Frame's View button as before; the text chat's lines where the desktop has them (2026-10-18) |
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
 | Multiplayer | Up to date with OpenCE (network version 29, 2026-10-14): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
