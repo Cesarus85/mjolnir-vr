@@ -25,7 +25,7 @@ named where code is taken over.
 | Comfort | Snap or smooth turning, a comfort vignette in vehicles, VR options in the main and pause menus (Y), a page of every controller button |
 | Menus | The PC version's menus in VR (`vr.menus`), clicked with a laser; text typed on the on-screen keyboard |
 | Multiplayer | Up to date with OpenCE (network version 29, 2026-10-14): cross-play, its server browser, co-op campaign, password lobbies; join codes and the VR online list |
-| Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person |
+| Bots | Bots in multiplayer: on foot (paths, items, objectives), in vehicles and at turrets; they make room for a joining person, on the LAN too (a lobby they fill is advertised open, 2026-10-18) |
 | Voice chat | Push to talk on any button (`vr.button_talk`, BUTTONS page; the free hand's grip by default, sending nothing while it reaches for the foregrip or the wheel), open mic, off (2026-10-13) |
 | Builds | The Android build's assembly conversion (`tools/android_asm_convert.py`) keeps string data as it is: strings and tables starting with "_" or holding \" lost a "_" (Opus's pulse cache among them: the Steam Frame's crashes in online games while talking), 2026-10-13 |
 | Languages | The European disc in Spanish and Italian (a maps folder for each, `maps_es` and `maps_it`, none called `maps`) imported on the Quest and the Steam Frame: the headset's language's, its language the game's and the menus' (`maps/language.txt`, unless `game.language` is set), 2026-10-17; not yet tried with that disc |
