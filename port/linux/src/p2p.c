@@ -2646,6 +2646,7 @@ void p2p_join_code_clear_status(void)
 	pthread_mutex_lock(&p2p_lock);
 	p2p_code_clear_status();
 	pthread_mutex_unlock(&p2p_lock);
+}
 
 int p2p_join_listing(const struct p2p_listing *listing)
 {

@@ -215,7 +215,8 @@ int halo_chat_taps(float *x, float *y)
 int halo_chat_touch_layout(void)
 {
 #if defined(HALO_ANDROID)
-	return TRUE;
+	/* (port: not in VR, which has no touch controls in the way) */
+	return !halo_vr_active();
 #elif defined(HALO_WEB)
 	int used;
 
