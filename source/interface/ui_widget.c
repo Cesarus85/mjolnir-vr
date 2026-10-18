@@ -8458,6 +8458,7 @@ static void ui_vr_controls_render(
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_X), FALSE);
 			ui_vr_controls_add_action(columns, ui_vr_input_action(HALO_VR_INPUT_Y), FALSE);
 			ui_vr_controls_add(&columns[0], "Menu", "Pause");
+			ui_vr_controls_add(&columns[0], "Menu held", "Scores");
 			ui_vr_controls_note(320, wrist_note);
 			ui_vr_controls_note(340, "Scope: zoom, and look through the disc above the weapon.");
 			ui_vr_controls_note(360, "Hold the Meta button to recentre the view.");
