@@ -1190,7 +1190,43 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	if (abs(value) > abs(pad->sThumbLX)) pad->sThumbLX = value;
 	value = vr_stick(left->thumbstick[1]);
 	if (abs(value) > abs(pad->sThumbLY)) pad->sThumbLY = value;
-	if (left->buttons & HALO_XR_BUTTON_MENU) pad->wButtons |= XINPUT_GAMEPAD_START;
+	{
+		/* the menu button: a press pauses, as Start; held, the scores show
+		while it is, as Back (the Quest's controllers have no button of
+		their own for it). In the menus it is Start at once */
+		static Uint64 menu_pressed_at, menu_pulse_until;
+		static int menu_held_handled;
+		Uint64 now = SDL_GetTicks();
+		int down = (left->buttons & HALO_XR_BUTTON_MENU) != 0;
+
+		if (menus)
+		{
+			if (down)
+				pad->wButtons |= XINPUT_GAMEPAD_START;
+			menu_pressed_at = 0;
+		}
+		else if (down)
+		{
+			if (!menu_pressed_at)
+			{
+				menu_pressed_at = now;
+				menu_held_handled = 0;
+			}
+			else if (now - menu_pressed_at >= 400)
+			{
+				pad->wButtons |= XINPUT_GAMEPAD_BACK;
+				menu_held_handled = 1;
+			}
+		}
+		else if (menu_pressed_at)
+		{
+			if (!menu_held_handled)
+				menu_pulse_until = now + 100;
+			menu_pressed_at = 0;
+		}
+		if (now < menu_pulse_until)
+			pad->wButtons |= XINPUT_GAMEPAD_START;
+	}
 	/* (the Steam Frame's controllers: the left one's View button and D-pad) */
 	if (left->buttons & HALO_XR_BUTTON_VIEW) pad->wButtons |= XINPUT_GAMEPAD_BACK;
 	if (left->buttons & HALO_XR_BUTTON_DPAD_UP) pad->wButtons |= XINPUT_GAMEPAD_DPAD_UP;
