@@ -717,7 +717,7 @@ desktop none is ever marked, the writes live behind the Android guard) */
 static boolean network_game_server_bot_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 #ifdef HALO_ANDROID
 static short network_game_server_bot_machine_count(struct network_game_server *server);
-static boolean network_game_server_room_for_person(struct network_game_server *server);
+boolean network_game_server_room_for_person(struct network_game_server *server);
 static void network_game_server_bot_makes_room(struct network_game_server *server);
 #endif
 
@@ -4951,7 +4951,9 @@ static short network_game_server_bot_count(
 
 /* whether a person can join: a free place, or in the lobby a bot's, which
 leaves for them (network_game_server_bot_makes_room) */
-static boolean network_game_server_room_for_person(
+/* (as the server browser lists the game, its LAN advertisement and the
+join's check: network_server_message_handler.c) */
+boolean network_game_server_room_for_person(
 	struct network_game_server *server)
 {
 	struct network_player *last;

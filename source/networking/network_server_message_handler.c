@@ -245,6 +245,7 @@ symbols in this file:
 */
 
 
+
 /* ---------- headers */
 
 #include "cseries.h"
@@ -274,6 +275,13 @@ void network_voice_handle_message(long machine_index, word const *message, word 
 boolean map_share_handles_message(word const *message, word size);
 void map_share_handle_message(long machine_index, word const *message, word size, boolean from_stream);
 void network_distributed_handle_stream_message(long machine_index, word const *message, word size);
+
+
+#ifdef HALO_ANDROID
+/* a slot for a person, a bot's in a lobby counting (it makes room as they
+join: network_server_manager.c) */
+boolean network_game_server_room_for_person(struct network_game_server *server);
+#endif
 
 /* ---------- constants */
 
@@ -1769,7 +1777,12 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			once it is over, nor in progress when no player can join it) */
 			if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame
 				? network_game_server_accepts_late_joins(server)
+#ifdef HALO_ANDROID
+				/* (a lobby the bots fill is open: one makes room) */
+				: network_game_server_game_is_open(server) && network_game_server_room_for_person(server))
+#else
 				: network_game_server_game_is_open(server) && network_game_has_free_player_slot(game))
+#endif
 			{
 				advertisement.flags |= FLAG(_game_advertisement_open_bit);
 			}
@@ -1923,7 +1936,12 @@ static boolean network_game_server_handle_message_client_join_game_request(
 			fill it) is full: a machine that joined could add none, and held
 			the countdown for ever */
 			boolean full = network_game_server_get_state(server, NULL) == _network_game_server_state_pregame &&
+#ifdef HALO_ANDROID
+				/* (a bot's slot is a person's: it makes room) */
+				!network_game_server_room_for_person(server);
+#else
 				!network_game_has_free_player_slot(network_game_server_get_game(server));
+#endif
 
 			/* port: its hardware id, as it tells it: hex only (anything else
 			left out), no more than its field; the host logs it, and refuses
