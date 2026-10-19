@@ -170,8 +170,9 @@ Ringfall: Mjolnir VR stands on the work of others:
 - **[HaloCE-VR](https://github.com/astromaddie/HaloCE-VR)** by astromaddie
   (CC0): the Steam Frame work, whose findings (such as quieting Mesa's
   trace markers) are used here.
-- **[extract-xiso](https://github.com/XboxDev/extract-xiso)**: the disc
-  image readers follow its format handling.
+- **[xboxdevwiki](https://xboxdevwiki.net/XDVDFS)**: its description of
+  the Xbox's disc file system, which the disc image readers are written
+  from.
 - The libraries and fonts in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Thank you all.
@@ -198,6 +199,26 @@ distributed. You need your own, legally purchased copy of the game. If
 you enjoy this mod, please support the creators of the original by buying
 their games.
 
-This project's own code is released under [CC0 1.0](LICENSE.md), as the
-decompilation it builds on. Third-party code and fonts keep their own
-licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+### Licence
+
+Ringfall: Mjolnir VR is free software: you can give it to others and change
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, version 3 of the License or (at your option)
+any later version (`AGPL-3.0-or-later`), as OpenCE, which it builds on, is.
+It comes with no warranty. The full text is in [LICENSE](LICENSE).
+
+- **From build 312 on.** The AGPL applies from the commit that took in
+  OpenCE's change of licence (19 October 2026), and to each release built
+  from it or a later one. Earlier releases, and the source at every earlier
+  commit, were released under [CC0 1.0](LICENSES/CC0-1.0.txt) and stay
+  that way.
+- **Hosts and servers.** If you change the game and let other persons play
+  with your version over a network (for example, as the host of an
+  internet game), the AGPL asks you to offer them the source of your
+  version. The game as released has its source here, and each release's
+  source is its tag (`build-<n>`).
+- **Third-party code and fonts** keep their own licences: see
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- **Halo is not covered.** The licence covers the work of this project's
+  and OpenCE's authors. It gives no rights in Halo, its maps or anything
+  else that Microsoft owns.

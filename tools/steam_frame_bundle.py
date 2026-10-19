@@ -10,8 +10,8 @@ writes into the output folder
   (steam_frame_launch.sh, as ringfall-mjolnir-vr.sh, which updates the game
   from the repository named), the build's number (build.txt: the workflow's
   run number, HALO_BUILD_NUMBER or GITHUB_RUN_NUMBER; 0, which never
-  updates, without one), the disc image reader (steam_frame_xiso.py, with
-  extract-xiso's license) and the library pictures (grid/);
+  updates, without one), the disc image reader (steam_frame_xiso.py) and
+  the library pictures (grid/);
 - Install-Ringfall-Mjolnir-VR.desktop (port/android/steam_frame_installer.desktop): what
   the player downloads and opens in Desktop Mode; it fetches the latest
   release's zip from the repository named.
@@ -37,7 +37,6 @@ def main():
         (ANDROID / "steam_frame_install.sh", "install.sh", 0o755),
         (ANDROID / "steam_frame_launch.sh", "ringfall-mjolnir-vr.sh", 0o755),
         (ANDROID / "steam_frame_xiso.py", "steam_frame_xiso.py", 0o755),
-        (ROOT / "port/third_party/extract-xiso/LICENSE.TXT", "extract-xiso-LICENSE.txt", 0o644),
         (apk, "RingfallMjolnirVR.apk", 0o644),
     ]
     files += [(picture, "grid/" + picture.name, 0o644)
