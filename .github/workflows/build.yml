@@ -371,7 +371,6 @@ jobs:
         with:
           sparse-checkout: |
             port/android
-            port/third_party/extract-xiso
             tools
 
       - uses: actions/download-artifact@v4

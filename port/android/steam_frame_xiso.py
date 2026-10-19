@@ -1,66 +1,50 @@
 #!/usr/bin/env python3
 """
-Copies the maps folder out of an Xbox disc image (an "xiso", or a whole
-disc's ".iso") on the Steam Frame's SteamOS side, for its installer
-(steam_frame_install.sh). It reads the image as the app's own import does
+Copies the maps folder out of the player's Xbox disc image of Halo (an
+"xiso", or a whole disc's ".iso") on the Steam Frame's SteamOS side, for
+its installer (steam_frame_install.sh), as the app's own import does
 (app/src/main/java/com/halo/decomp/XisoExtractor.java, which this follows;
 the desktop games' is port/linux/src/xiso.c).
 
     steam_frame_xiso.py <image> <destination>
 
-writes <destination>/maps (through maps.partial, so an interrupted copy
-never leaves maps/ui.map behind) and prints its progress for zenity
---progress: a percentage on a line of its own, and "# <text>" lines. On
-failure it prints "error: <reason the player can act on>" to stderr and
-exits 1.
+writes <destination>/maps (through maps.partial, ui.map moved in last, so
+an interrupted copy never leaves maps/ui.map behind) and prints its
+progress for zenity --progress: a percentage on a line of its own, and
+"# <text>" lines. On failure it prints "error: <reason the player can act
+on>" to stderr and exits 1.
 
-The image's file system is XDVDFS, read as extract-xiso does
-(https://github.com/XboxDev/extract-xiso, extract-xiso.c, whose format
-handling this follows; its license is below and in
-port/third_party/extract-xiso/LICENSE.TXT): 2048-byte sectors; a volume
-descriptor at 0x10000 that starts and ends with "MICROSOFT*XBOX*MEDIA" and
-gives the root directory's sector and size; and directories whose entries
-form a binary tree (each entry: left and right subtree offsets in 4-byte
-units, the start sector, the size, attributes, the name's length and the
-name). Images made from a whole disc put the game partition further in, at
-one of the offsets below.
+Written from a description of the Xbox's disc file system, XDVDFS
+(xboxdevwiki's XDVDFS page, https://xboxdevwiki.net/XDVDFS), as
+XisoExtractor.java is:
 
-Some parts of this code are copyright in@fishtank.com. This product
-includes software developed by in <in@fishtank.com>.
+- Sectors are 2048 bytes and integers little-endian. Sector numbers count
+  from the start of the game partition: an image of the partition alone has
+  it at 0, an image of a whole disc further in (PARTITION_STARTS, tried in
+  that order).
+- The volume descriptor is the partition's sector 32 (at 0x10000). It holds
+  "MICROSOFT*XBOX*MEDIA" at its start and again at 0x7EC, and the root
+  directory table's start sector (u32 at 0x14) and size in bytes (u32 at
+  0x18).
+- A directory table is a binary tree of entries whose root is the entry at
+  offset 0. An entry is a left and a right subtree link (u16 each, in 4-byte
+  units from the table's start, 0 for none), the start sector and the size
+  of the file or of the subdirectory's table (u32 each), the attributes (u8,
+  0x10 for a directory), the name's length (u8) and the name. Unused bytes
+  are 0xFF, so a left link of 0xFFFF is padding, not an entry.
+- A file is one contiguous run of bytes from the start of its sector.
 
-Copyright (c) 2003 in <in@fishtank.com>
-All rights reserved.
+The image is the player's file and nothing read from it is trusted: only
+the root's table and the maps folder's are read, each whole and at most
+4 MB; a table's walk visits each offset once, goes at most 64 links deep
+and looks at most 4096 entries; and a file is written only under a plain
+name that no file before it had (ignoring case).
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions
-are met:
-
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the distribution.
-
-3. All advertising materials mentioning features or use of this software
-   must display the following acknowledgement:
-
-   This product includes software developed by in <in@fishtank.com>.
-
-4. Neither the name of "in" nor the email address "in@fishtank.com"
-   may be used to endorse or promote products derived from this software
-   without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED `AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES
-INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
-AUTHOR OR ANY CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
-OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+A European disc in two languages (Spanish and Italian) has no maps folder
+but one for each, maps_es and maps_it: the one for the language asked for
+(RINGFALL_LANGUAGE, else the system's) is taken, else English's, else the
+first, and its language written to maps/language.txt, which the game takes
+as the Xbox's language while game.language is unset.
 """
 
 import os
@@ -68,74 +52,100 @@ import struct
 import sys
 
 SECTOR_SIZE = 2048
-VOLUME_DESCRIPTOR_OFFSET = 0x10000
-ENTRY_HEADER_SIZE = 14
+DESCRIPTOR_OFFSET = 0x10000
+MAGIC = b"MICROSOFT*XBOX*MEDIA"
+SECOND_MAGIC_OFFSET = 0x7EC
+ENTRY_FIXED_SIZE = 14
 ATTRIBUTE_DIRECTORY = 0x10
+PADDING_LINK = 0xFFFF
+# where the game partition may start: an image of the partition alone, a
+# whole XGD2, XGD3 and XGD1 (the original Xbox's) disc
+PARTITION_STARTS = (0x00000000, 0x0FD90000, 0x02080000, 0x18300000)
 # directory tables are a few sectors; anything much larger is not one
-MAXIMUM_DIRECTORY_SIZE = 4 << 20
-MAXIMUM_FILES = 256
-COPY_BUFFER_SIZE = 1 << 20
-VOLUME_MAGIC = b"MICROSOFT*XBOX*MEDIA"
-# where the game partition starts: a plain image, and whole-disc images
-# (extract-xiso's GLOBAL, XGD3 and XGD1 offsets)
-PARTITION_OFFSETS = (0, 0x0FD90000, 0x02080000, 0x18300000)
+MAXIMUM_TABLE_SIZE = 4 << 20
+MAXIMUM_DEPTH = 64
+MAXIMUM_VISITS = 4096
+MAXIMUM_ENTRIES = 256
+COPY_CHUNK = 1 << 20
+PARTIAL_DIRECTORY = "maps.partial"
 
 
 class ExtractError(Exception):
     """a reason the player can act on"""
 
 
-def read_at(image, offset, size):
-    image.seek(offset)
+def read_exactly(image, position, size):
+    """size bytes of the image from position; None if it ends first"""
+    image.seek(position)
     data = image.read(size)
-    if len(data) != size:
-        raise ExtractError("Could not read the disc image (is it complete?).")
-    return data
+    return data if len(data) == size else None
 
 
-def find_volume(image):
-    """the game partition's offset, and the root directory's sector and size"""
-    for offset in PARTITION_OFFSETS:
-        try:
-            descriptor = read_at(image, offset + VOLUME_DESCRIPTOR_OFFSET, SECTOR_SIZE)
-        except ExtractError:
+def find_partition(image, image_size):
+    """the game partition's start, and the root table's sector and size"""
+    for start in PARTITION_STARTS:
+        if start + DESCRIPTOR_OFFSET + SECTOR_SIZE > image_size:
             continue
-        if descriptor[:20] != VOLUME_MAGIC or descriptor[0x7EC:0x7EC + 20] != VOLUME_MAGIC:
+        descriptor = read_exactly(image, start + DESCRIPTOR_OFFSET, SECTOR_SIZE)
+        if (descriptor is None or descriptor[:len(MAGIC)] != MAGIC or
+                descriptor[SECOND_MAGIC_OFFSET:SECOND_MAGIC_OFFSET + len(MAGIC)] != MAGIC):
             continue
-        sector, size = struct.unpack_from("<II", descriptor, 20)
-        return offset, sector, size
+        sector, size = struct.unpack_from("<II", descriptor, 0x14)
+        return start, sector, size
     raise ExtractError("This is not an Xbox disc image.")
 
 
-def read_directory(image, partition, sector, size, what):
-    if size <= 0 or size > MAXIMUM_DIRECTORY_SIZE:
-        raise ExtractError(what)
-    return read_at(image, partition + sector * SECTOR_SIZE, size)
+def read_table(image, partition, sector, size, damaged):
+    if size == 0 or size > MAXIMUM_TABLE_SIZE:
+        raise ExtractError(damaged)
+    table = read_exactly(image, partition + sector * SECTOR_SIZE, size)
+    if table is None:
+        raise ExtractError("Could not read the disc image (is it complete?).")
+    return table
 
 
-def walk(table, offset, depth, directories, out, visited):
-    """collects the entries (name, sector, size) of the subtree at offset
-    (4-byte units), files or directories as asked"""
-    at = offset * 4
-    # a malformed table must not loop or run off its end
-    visited[0] += 1
-    if depth > 64 or visited[0] > 4096 or at + ENTRY_HEADER_SIZE > len(table):
-        return
-    left, right, sector, size, attributes, name_length = struct.unpack_from("<HHIIBB", table, at)
-    # 0xFFFF: padding, an empty directory
-    if left == 0xFFFF:
-        return
-    if left:
-        walk(table, left, depth + 1, directories, out, visited)
-    is_directory = bool(attributes & ATTRIBUTE_DIRECTORY)
-    if (at + ENTRY_HEADER_SIZE + name_length <= len(table) and name_length > 0
-            and is_directory == directories and len(out) < MAXIMUM_FILES):
-        name = table[at + ENTRY_HEADER_SIZE:at + ENTRY_HEADER_SIZE + name_length].decode("latin-1")
-        # (as extract-xiso refuses them: no name may leave the folder)
-        if name not in (".", "..") and "/" not in name and "\\" not in name:
-            out.append((name, sector, size))
-    if right:
-        walk(table, right, depth + 1, directories, out, visited)
+def is_plain_name(name):
+    """no path, no . or .., and only printable ASCII that every file system
+    takes as a plain name"""
+    if not name or name in (".", ".."):
+        return False
+    return all(0x20 <= ord(character) <= 0x7E and character not in '/\\:*?"<>|' for character in name)
+
+
+def walk_table(table, directories):
+    """the folders (or the files) of a table with plain names, as (name,
+    sector, size), in the tree's order: each entry's left subtree, the entry,
+    its right subtree; a link to padding, past the table or back to an entry
+    already visited ends that branch"""
+    entries, visited = [], set()
+    visits = [0]
+
+    def walk(offset, depth):
+        if depth > MAXIMUM_DEPTH or visits[0] >= MAXIMUM_VISITS:
+            return
+        if offset >= len(table) or len(table) - offset < ENTRY_FIXED_SIZE:
+            return
+        left, right = struct.unpack_from("<HH", table, offset)
+        if left == PADDING_LINK or offset // 4 in visited:
+            return
+        visited.add(offset // 4)
+        visits[0] += 1
+        if left:
+            walk(left * 4, depth + 1)
+        name_length = table[offset + 13]
+        if name_length and name_length <= len(table) - offset - ENTRY_FIXED_SIZE:
+            is_directory = bool(table[offset + 12] & ATTRIBUTE_DIRECTORY)
+            name = table[offset + ENTRY_FIXED_SIZE:offset + ENTRY_FIXED_SIZE + name_length].decode("latin-1")
+            # (the destination's file system may ignore case)
+            if (is_directory == directories and len(entries) < MAXIMUM_ENTRIES and is_plain_name(name) and
+                    all(entry[0].lower() != name.lower() for entry in entries)):
+                sector, size = struct.unpack_from("<II", table, offset + 4)
+                entries.append((name, sector, size))
+        if right:
+            walk(right * 4, depth + 1)
+
+    walk(0, 0)
+    return entries
 
 
 def maps_language(name):
@@ -145,65 +155,67 @@ def maps_language(name):
     return None
 
 
+def choose_maps(folders):
+    """the maps folder, and its language (None for a plain "maps")"""
+    for folder in folders:
+        if folder[0].lower() == "maps":
+            return folder, None
+    languages = [(maps_language(folder[0]), folder) for folder in folders if maps_language(folder[0])]
+    wanted = (os.environ.get("RINGFALL_LANGUAGE") or os.environ.get("LC_ALL") or
+        os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "")[:2].lower()
+    for preferred in (wanted, "en"):
+        for language, folder in languages:
+            if language == preferred:
+                return folder, language
+    if languages:
+        return languages[0][1], languages[0][0]
+    raise ExtractError("The disc image has no maps folder: it is not a Halo disc.")
+
+
 def extract(image_path, destination):
     with open(image_path, "rb") as image:
-        partition, root_sector, root_size = find_volume(image)
+        image_size = os.fstat(image.fileno()).st_size
+        partition, root_sector, root_size = find_partition(image, image_size)
 
         # the root's maps folder
-        table = read_directory(image, partition, root_sector, root_size,
-            "The disc image's file system is damaged.")
-        directories = []
-        walk(table, 0, 0, True, directories, [0])
-        maps = [entry for entry in directories if entry[0].lower() == "maps"]
-        # (a European disc in two languages, Spanish and Italian, has a maps
-        # folder for each, maps_es and maps_it: the one for the language
-        # asked for (RINGFALL_LANGUAGE, else the system's), else English's,
-        # else the first; its language goes into maps/language.txt, which the
-        # game takes as game.language's when that is unset)
-        language = None
-        if not maps:
-            languages = [(maps_language(entry[0]), entry) for entry in directories if maps_language(entry[0])]
-            wanted = (os.environ.get("RINGFALL_LANGUAGE") or os.environ.get("LC_ALL") or
-                os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "")[:2].lower()
-            for preferred in (wanted, "en"):
-                chosen = [pair for pair in languages if pair[0] == preferred]
-                if chosen:
-                    break
-            chosen = chosen or languages[:1]
-            if chosen:
-                language, entry = chosen[0]
-                maps = [entry]
-        if not maps:
-            raise ExtractError("The disc image has no maps folder: it is not a Halo disc.")
+        root = read_table(image, partition, root_sector, root_size, "The disc image's file system is damaged.")
+        (_, maps_sector, maps_size), language = choose_maps(walk_table(root, True))
 
         # its files
-        table = read_directory(image, partition, maps[-1][1], maps[-1][2],
-            "The disc image's maps folder is damaged.")
-        files = []
-        walk(table, 0, 0, False, files, [0])
-        if not any(name.lower() == "ui.map" for name, _, _ in files):
+        table = read_table(image, partition, maps_sector, maps_size, "The disc image's maps folder is damaged.")
+        files = walk_table(table, False)
+        user_interface = next((file for file in files if file[0].lower() == "ui.map"), None)
+        if user_interface is None:
             raise ExtractError("The disc image's maps folder has no ui.map: it is not a Halo disc.")
+        # (an image that ends before a file does is refused before anything
+        # is written; an empty file's sector need not be anywhere)
+        for name, sector, size in files:
+            if size and partition + sector * SECTOR_SIZE + size > image_size:
+                raise ExtractError("Could not read %s from the disc image (is it complete?)." % name)
         total = sum(size for _, _, size in files) or 1
 
-        partial = os.path.join(destination, "maps.partial")
-        finished = os.path.join(destination, "maps")
+        # the copy, to maps.partial (emptied of what an earlier attempt left)
+        partial = os.path.join(destination, PARTIAL_DIRECTORY)
         try:
             os.makedirs(partial, exist_ok=True)
+            for leftover in os.listdir(partial):
+                os.remove(os.path.join(partial, leftover))
         except OSError:
             raise ExtractError("Could not create %s." % partial)
-        done = 0
-        shown = -1
+        done, shown = 0, -1
         for name, sector, size in files:
             path = os.path.join(partial, name)
-            offset = partition + sector * SECTOR_SIZE
-            remaining = size
+            position, remaining = partition + sector * SECTOR_SIZE, size
             print("# Copying maps/%s" % name, flush=True)
             try:
                 with open(path, "wb") as out:
                     while remaining > 0:
-                        count = min(remaining, COPY_BUFFER_SIZE)
-                        out.write(read_at(image, offset, count))
-                        offset += count
+                        count = min(remaining, COPY_CHUNK)
+                        data = read_exactly(image, position, count)
+                        if data is None:
+                            raise ExtractError("Could not read %s from the disc image (is it complete?)." % name)
+                        out.write(data)
+                        position += count
                         remaining -= count
                         done += count
                         # (zenity closes at 100: that is left to the caller)
@@ -211,23 +223,24 @@ def extract(image_path, destination):
                         if percent != shown:
                             print(percent, flush=True)
                             shown = percent
-            except ExtractError:
-                raise ExtractError("Could not read %s from the disc image (is it complete?)." % name)
             except OSError:
                 raise ExtractError("Could not write %s (is the storage full?)." % path)
 
-    # (the maps folder may be there, empty)
+    # then into maps (which may be there, empty), the language before and
+    # ui.map (the sign that the data is there) last
+    finished = os.path.join(destination, "maps")
     try:
         os.makedirs(finished, exist_ok=True)
-        for name, _, _ in files:
-            os.replace(os.path.join(partial, name), os.path.join(finished, name))
-        os.rmdir(partial)
         language_file = os.path.join(finished, "language.txt")
         if os.path.exists(language_file):
             os.remove(language_file)
         if language:
             with open(language_file, "w") as out:
                 out.write(language + "\n")
+        order = [file for file in files if file is not user_interface] + [user_interface]
+        for name, _, _ in order:
+            os.replace(os.path.join(partial, name), os.path.join(finished, name))
+        os.rmdir(partial)
     except OSError as error:
         raise ExtractError("Could not move the maps into %s (%s)." % (finished, error.strerror))
 
