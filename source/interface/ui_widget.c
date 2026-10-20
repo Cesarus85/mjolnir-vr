@@ -682,6 +682,9 @@ struct widget_instance;
 #ifdef HALO_ANDROID
 #include "halo_vr.h"
 #endif
+/* port: port/linux/game/menu_functions.c: a text's colour in place of its
+own (the server browser's pings) */
+boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color);
 
 /* ---------- constants */
 
@@ -3293,6 +3296,9 @@ static void event_handler_dispatch(
 	struct ui_widget_event_handler_reference *handler,
 	boolean *calling_widget_deleted)
 {
+	/* port: the widget's tag, named when its function fails (which may have
+	deleted the widget) */
+	long definition_tag_index = widget->definition_tag_index;
 	boolean widget_deleted = FALSE;
 	boolean success = TRUE;
 	boolean function_failed = FALSE;
@@ -3315,7 +3321,8 @@ static void event_handler_dispatch(
 			handler->function,
 			&widget_deleted))
 	{
-		error(_error_silent, "event handler function failed");
+		error(_error_silent, "event handler function %d of %s failed", handler->function,
+			tag_get_name(definition_tag_index));
 		function_failed = TRUE;
 	}
 	else
@@ -3812,7 +3819,10 @@ static void widget_instance_initialize(
 	if (widget->pause_game_time == TRUE)
 	{
 		widget_globals.pause_game_time_count++;
-		if (!game_time_get_paused())
+		/* port: not at the main menu, where the clock only runs the menu's
+		scene, which stopped behind the screen and started again from its
+		beginning as it closed */
+		if (!game_time_get_paused() && !we_are_at_the_main_menu)
 			game_time_set_paused(TRUE);
 		if (!widget_globals.sound_paused && !we_are_at_the_main_menu)
 		{
@@ -4573,7 +4583,8 @@ void display_error(
 							widget_globals.pause_game_time_count>=0,
 							"widget pause counter is out of whack");
 						widget_globals.pause_game_time_count++;
-						if (!game_time_get_paused())
+						/* port: not at the main menu (above) */
+						if (!game_time_get_paused() && !we_are_at_the_main_menu)
 							game_time_set_paused(TRUE);
 						if (!widget_globals.sound_paused && !we_are_at_the_main_menu)
 						{
@@ -5335,6 +5346,8 @@ static void widget_instance_render_text_box(
 			color_alpha = color.alpha;
 		}
 	}
+	/* port: a colour of the port's for the text (its alpha the box's) */
+	pc_menu_text_color(widget, &color);
 	color.alpha = alpha_modifier * color_alpha;
 	if (TEST_FLAG(definition->text_box_flags, _text_box_flashing_text_bit))
 	{
@@ -5691,6 +5704,10 @@ static boolean ui_mouse_click_pending = FALSE;
 then doesn't scroll on at its end, which the pointer, moving, would make it
 do every frame (menu_functions.c) */
 static boolean ui_mouse_focused_last = FALSE;
+/* port: whether the pointer passing over a widget moved the focus last, not
+a click (or the d-pad): the server browser's game stays chosen
+(menu_functions.c) */
+static boolean ui_mouse_hovered_last = FALSE;
 static short ui_mouse_hover_x, ui_mouse_hover_y;
 static short ui_mouse_click_x, ui_mouse_click_y;
 /* whether the latest pointer read was the touchscreen: the taller legend
@@ -6479,6 +6496,14 @@ boolean ui_widget_port_pointer_focused(
 	void)
 {
 	return ui_mouse_focused_last;
+}
+
+/* port: whether the pointer passing over a widget, not a click or the
+d-pad, moved the menus' focus last (menu_functions.c's server browser) */
+boolean ui_widget_port_hover_focused(
+	void)
+{
+	return ui_mouse_hovered_last;
 }
 
 /* the d-pad buttons that step a widget back and forward */
@@ -8965,8 +8990,10 @@ static void ui_widgets_process_mouse(
 				ui_mouse_list_directions(widget, &back, &forward);
 			/* a sideways PC widget (typically a screen's button bar) steps
 			sideways only, and the d-pad's up and down pass over it to a widget
-			above it on the focus's way, so a touch drag leaves it the same way */
-			if (touch && widget && back == _widget_event_dpad_left && pc_menu_tag(widget->definition_tag_index) &&
+			above it on the focus's way, so a touch drag or the wheel leaves it
+			the same way (the wheel, past a list's last row onto the bar, went
+			back and forth between its buttons) */
+			if (widget && back == _widget_event_dpad_left && pc_menu_tag(widget->definition_tag_index) &&
 				ui_mouse_wheel_room(ui_mouse_menu(), _widget_event_dpad_up, FALSE) != NONE)
 			{
 				back = _widget_event_dpad_up;
@@ -9004,7 +9031,11 @@ static void ui_widgets_process_mouse(
 					/* (a selection list's row is chosen by a click, not
 					by passing over it on the way to its buttons) */
 					if (!ui_mouse_selection_row(target->widget))
+					{
 						ui_mouse_give_focus(target->widget);
+						/* port: (ui_mouse_hovered_last) */
+						ui_mouse_hovered_last = TRUE;
+					}
 					break;
 				case _ui_mouse_target_list_slot:
 					ui_mouse_step_list_to_slot(target->widget);
@@ -9021,6 +9052,8 @@ static void ui_widgets_process_mouse(
 		if (!ui_mouse_press_count && ui_mouse_click_pending)
 		{
 			ui_mouse_click_pending = FALSE;
+			/* port: (ui_mouse_hovered_last) */
+			ui_mouse_hovered_last = FALSE;
 			target = ui_mouse_target_at(ui_mouse_click_x, ui_mouse_click_y);
 			if (ui_debug_targets_enabled())
 				ui_debug_log_click(ui_mouse_click_x, ui_mouse_click_y, target, ui_debug_frame - ui_debug_click_frame);
@@ -9863,6 +9896,8 @@ static void widget_instance_process_one_event_recursive(
 		event->data.button.index <= _widget_event_dpad_right)
 	{
 		ui_mouse_focused_last = FALSE;
+		/* port: (ui_mouse_hovered_last) */
+		ui_mouse_hovered_last = FALSE;
 	}
 	if (event->type == _event_type_button &&
 		event->data.button.value > 1 &&
