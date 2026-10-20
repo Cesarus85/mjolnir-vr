@@ -67,6 +67,9 @@ nearest person on its team.
 #include "game/player_queues_new.h"
 #include "objects/objects.h"
 #include "physics/collisions.h"
+#include "physics/bsp3d.h"
+#include "physics/collision_bsp.h"
+#include "physics/collision_bsp_definitions.h"
 #include "ai/path.h"
 #include "units/bipeds.h"
 #include "items/items.h"
@@ -127,6 +130,12 @@ enum
 struct bot
 {
 	long player_index;
+	/* the ladder it climbs (bot_ladders: its index and one, 0 none), how
+	long it has, how long past its top, and when it may take one again */
+	short ladder_plus_one;
+	short ladder_ticks;
+	short ladder_top_ticks;
+	long ladder_again_time;
 	long target_unit_index;
 	short target_seen_ticks;
 	real yaw;
@@ -240,6 +249,10 @@ static struct
 {
 	boolean map_logged;
 	boolean vehicles_logged;
+	/* the level's ladders (bot_ladders_find), found as the game began */
+	boolean ladders_found;
+	short ladder_count;
+	long climbs;
 	struct bot bots[MAXIMUM_BOTS];
 	long seed;
 	long logged_time;
@@ -2332,6 +2345,192 @@ static void bot_walk_to(
 	action->throttle.j = -dx * (real)sin(yaw) + dy * (real)cos(yaw);
 }
 
+/* ---------- ladders
+
+The level's ladders (Damnation's): surfaces it marks climbable, which a
+biped walking into, facing them, climbs (bipeds.c), and which the game's
+pathfinding does not take. A bot whose way is not found, or that is stuck,
+with the foot of one going up near it, climbs it: walks to the foot, turns
+to it and walks into it, and past its top a little; then it finds its way
+anew. Each ladder: the climbable surfaces of a near place and facing,
+merged. */
+
+#define BOT_LADDERS 64
+/* collision_surface flags' climbable bit (collision_bsp.c) */
+#define BOT_SURFACE_CLIMBABLE 0x04
+/* how near its foot a bot takes a ladder (world units), and how long it
+tries before giving up on it (ticks), and on ladders a while */
+#define BOT_LADDER_RANGE 5.0f
+#define BOT_LADDER_TIMEOUT_TICKS 300
+#define BOT_LADDER_AGAIN_TICKS 450
+
+static struct bot_ladder
+{
+	/* the climbable surfaces' bounds, and the way into them (flat, unit) */
+	real_point3d low, high;
+	real into_x, into_y;
+} bot_ladders[BOT_LADDERS];
+
+static void bot_ladders_find(void)
+{
+	struct collision_bsp *bsp = global_collision_bsp_get();
+	long surface_index;
+
+	bots.ladders_found = TRUE;
+	bots.ladder_count = 0;
+	if (!bsp)
+		return;
+	for (surface_index = 0; surface_index < bsp->surfaces.count; surface_index++)
+	{
+		struct collision_surface const *surface = TAG_BLOCK_GET_ELEMENT(&bsp->surfaces, surface_index,
+			struct collision_surface);
+		real_point3d points[MAXIMUM_VERTICES_PER_COLLISION_SURFACE];
+		real_point3d low, high;
+		real_plane3d plane;
+		real flat;
+		short count, point, ladder;
+
+		if (!(surface->flags & BOT_SURFACE_CLIMBABLE))
+			continue;
+		bsp3d_get_plane_from_designator(&bsp->bsp3d, surface->plane_designator, &plane);
+		/* (upright: a ladder's face, not its rungs' tops) */
+		flat = (real)sqrt(plane.n.i * plane.n.i + plane.n.j * plane.n.j);
+		if (flat < 0.7f)
+			continue;
+		count = collision_surface_polygon(bsp, surface_index, points);
+		if (count < 3)
+			continue;
+		low = high = points[0];
+		for (point = 1; point < count; point++)
+		{
+			low.x = MIN(low.x, points[point].x);
+			low.y = MIN(low.y, points[point].y);
+			low.z = MIN(low.z, points[point].z);
+			high.x = MAX(high.x, points[point].x);
+			high.y = MAX(high.y, points[point].y);
+			high.z = MAX(high.z, points[point].z);
+		}
+		/* (one of a ladder found already, near and facing alike: merged) */
+		for (ladder = 0; ladder < bots.ladder_count; ladder++)
+		{
+			struct bot_ladder *found = &bot_ladders[ladder];
+
+			if (low.x < found->high.x + 0.5f && high.x > found->low.x - 0.5f &&
+				low.y < found->high.y + 0.5f && high.y > found->low.y - 0.5f &&
+				low.z < found->high.z + 0.5f && high.z > found->low.z - 0.5f &&
+				found->into_x * -plane.n.i / flat + found->into_y * -plane.n.j / flat > 0.8f)
+			{
+				found->low.x = MIN(found->low.x, low.x);
+				found->low.y = MIN(found->low.y, low.y);
+				found->low.z = MIN(found->low.z, low.z);
+				found->high.x = MAX(found->high.x, high.x);
+				found->high.y = MAX(found->high.y, high.y);
+				found->high.z = MAX(found->high.z, high.z);
+				break;
+			}
+		}
+		if (ladder < bots.ladder_count || bots.ladder_count >= BOT_LADDERS)
+			continue;
+		bot_ladders[bots.ladder_count].low = low;
+		bot_ladders[bots.ladder_count].high = high;
+		bot_ladders[bots.ladder_count].into_x = -plane.n.i / flat;
+		bot_ladders[bots.ladder_count].into_y = -plane.n.j / flat;
+		bots.ladder_count++;
+	}
+	if (bots.ladder_count)
+		platform_log("bots: %d ladders on this map", bots.ladder_count);
+}
+
+/* a ladder's foot, before it on the floor its bottom is at */
+static void bot_ladder_foot(
+	struct bot_ladder const *ladder,
+	real_point3d *foot)
+{
+	foot->x = (ladder->low.x + ladder->high.x) * 0.5f - ladder->into_x * 0.4f;
+	foot->y = (ladder->low.y + ladder->high.y) * 0.5f - ladder->into_y * 0.4f;
+	foot->z = ladder->low.z;
+}
+
+/* the nearest ladder going up from where the bot stands, its foot in reach;
+NONE */
+static short bot_ladder_near(
+	real_point3d const *position)
+{
+	short ladder, best = NONE;
+	real best_distance = BOT_LADDER_RANGE;
+
+	if (!bots.ladders_found)
+		bot_ladders_find();
+	for (ladder = 0; ladder < bots.ladder_count; ladder++)
+	{
+		real_point3d foot;
+		real distance;
+
+		bot_ladder_foot(&bot_ladders[ladder], &foot);
+		/* (its foot about the floor the bot is on, its top well above) */
+		if (fabsf(foot.z - position->z) > 1.0f || bot_ladders[ladder].high.z < position->z + 0.8f)
+			continue;
+		distance = (real)sqrt((foot.x - position->x) * (foot.x - position->x) +
+			(foot.y - position->y) * (foot.y - position->y));
+		if (distance < best_distance)
+		{
+			best_distance = distance;
+			best = ladder;
+		}
+	}
+	return best;
+}
+
+/* climbing: the way it walks and faces this tick; FALSE once it is up (or
+gives up), its way to be found anew */
+static boolean bot_climb(
+	struct bot *bot,
+	real_point3d const *position,
+	struct player_action *action,
+	real *wanted_yaw)
+{
+	struct bot_ladder const *ladder = &bot_ladders[bot->ladder_plus_one - 1];
+	real_point3d foot;
+	real dx, dy, distance;
+
+	bot_ladder_foot(ladder, &foot);
+	dx = foot.x - position->x;
+	dy = foot.y - position->y;
+	distance = (real)sqrt(dx * dx + dy * dy);
+	if (++bot->ladder_ticks > BOT_LADDER_TIMEOUT_TICKS)
+	{
+		bot->ladder_again_time = game_time_get() + BOT_LADDER_AGAIN_TICKS;
+		return FALSE;
+	}
+	/* (up: on past the top a moment, onto the floor there) */
+	if (position->z > ladder->high.z - 0.25f || bot->ladder_top_ticks > 0)
+	{
+		if (++bot->ladder_top_ticks > 20)
+		{
+			bots.climbs++;
+			bot->ladder_again_time = game_time_get() + 90;
+			return FALSE;
+		}
+		*wanted_yaw = (real)atan2(ladder->into_y, ladder->into_x);
+		action->throttle.i = 1.0f;
+		action->throttle.j = 0.0f;
+		return TRUE;
+	}
+	/* (to its foot, then into it, facing it) */
+	if (distance > 0.35f && position->z < ladder->low.z + 0.4f)
+	{
+		*wanted_yaw = (real)atan2(dy, dx);
+		bot_walk_to(action, bot->yaw, position, &foot);
+		return TRUE;
+	}
+	*wanted_yaw = (real)atan2(ladder->into_y, ladder->into_x);
+	action->throttle.i = (real)cos(bot->yaw - *wanted_yaw);
+	action->throttle.j = 0.0f;
+	if (action->throttle.i < 0.3f)
+		action->throttle.i = 0.3f;
+	return TRUE;
+}
+
 static void bot_think(
 	struct bot *bot,
 	struct player_datum *player,
@@ -2751,6 +2950,33 @@ static void bot_think(
 			bot->has_goal = TRUE;
 			bot->goal_time = game_time_get();
 		}
+		/* (no way found, or stuck, by a ladder going up: up it) */
+		if (!bot->ladder_plus_one && (bot->path_failures >= 2 || bot->stuck_ticks >= 6) &&
+			(game_time_get() >= bot->ladder_again_time || game_time_get() < bot->ladder_again_time - 1000))
+		{
+			short ladder = bot_ladder_near(&position);
+
+			if (ladder != NONE)
+			{
+				bot->ladder_plus_one = (short)(ladder + 1);
+				bot->ladder_ticks = 0;
+				bot->ladder_top_ticks = 0;
+			}
+		}
+		if (bot->ladder_plus_one)
+		{
+			if (bot_climb(bot, &position, action, &wanted_yaw))
+			{
+				bot->stuck_ticks = 0;
+				bot->sidestep_ticks = 0;
+			}
+			else
+			{
+				bot->ladder_plus_one = 0;
+				bot->path_failures = 0;
+				bot->path_time = game_time_get() - PATH_REFRESH_TICKS;
+			}
+		}
 		if (bot->stuck_ticks > 20)
 		{
 			/* (stuck: somewhere else) */
@@ -2954,6 +3180,8 @@ void bots_new_game(
 
 	bots.map_logged = FALSE;
 	bots.vehicles_logged = FALSE;
+	bots.ladders_found = FALSE;
+	bots.ladder_count = 0;
 	for (index = 0; index < MAXIMUM_BOTS; index++)
 		bots.bots[index].player_index = NONE;
 	bots.seed = 12345;
@@ -3025,12 +3253,12 @@ void bots_tick(
 			}
 		}
 		bots.logged_time = game_time_get();
-		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld, gave up %ld (no start %ld, no goal %ld, no way %ld); vehicles: in %ld, out %ld",
-			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.gave_up, bots.fail_start, bots.fail_goal, bots.fail_search,
+		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld, gave up %ld (no start %ld, no goal %ld, no way %ld); ladders climbed %ld; vehicles: in %ld, out %ld",
+			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.gave_up, bots.fail_start, bots.fail_goal, bots.fail_search, bots.climbs,
 			bots.vehicle_entries, bots.vehicle_exits);
 		bots.vehicle_entries = bots.vehicle_exits = 0;
 		bots.fail_start = bots.fail_goal = bots.fail_search = 0;
-		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = bots.stucks = bots.long_stucks = bots.gave_up = 0;
+		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = bots.stucks = bots.long_stucks = bots.gave_up = bots.climbs = 0;
 		for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
 		{
 			struct player_datum *player = distributed_player(index);
