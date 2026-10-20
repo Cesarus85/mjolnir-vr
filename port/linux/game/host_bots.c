@@ -133,6 +133,9 @@ struct bot
 	/* the ladder it climbs (bot_ladders: its index and one, 0 none), how
 	long it has, how long past its top, and when it may take one again */
 	short ladder_plus_one;
+	/* its path ends short of its goal (no way all the way: the search's
+	nearest) */
+	boolean path_partial;
 	short ladder_ticks;
 	short ladder_top_ticks;
 	long ladder_again_time;
@@ -253,6 +256,7 @@ static struct
 	boolean ladders_found;
 	short ladder_count;
 	long climbs;
+	long partial_paths;
 	struct bot bots[MAXIMUM_BOTS];
 	long seed;
 	long logged_time;
@@ -510,7 +514,9 @@ static boolean bot_find_path(
 	/* (the goal's surface: under it, as a biped would stand there) */
 	{
 		struct collision_result collision;
-		real_vector3d down = { 0.0f, 0.0f, -3.0f };
+		/* (as far down as OpenCE's bots look, bots.c: a goal over a drop
+		was none) */
+		real_vector3d down = { 0.0f, 0.0f, -6.0f };
 		real_point3d above = goal;
 
 		above.z += 0.5f;
@@ -533,8 +539,17 @@ static boolean bot_find_path(
 	bot_path_debug.path_traverse_result = 0;
 	bot_path_debug.path_build_result = 0;
 	path_state_new(&input, &bot_path_state, &bot_path_debug);
-	path_state_destination(&bot_path_state, &goal, goal_surface, BOT_GOAL_RADIUS);
-	if (path_state_find(&bot_path_state) && !path_state_build_path(&bot_path_state, &bot->path) &&
+	/* (to as near the goal as the search reaches, as OpenCE's bots do,
+	bots.c: a long way across a large level is more surfaces than a search
+	holds, and a goal up where no walkable surface leads, as up a ladder,
+	is reached nearer; the bot searches again from there) */
+	path_state_destination(&bot_path_state, &goal, goal_surface, 1000.0f);
+	path_state_find(&bot_path_state);
+	bot->path_partial = bot_path_state.node_count > 0 &&
+		path_node_from_hash_table(&bot_path_state, goal_surface) == NONE;
+	if (bot->path_partial)
+		bots.partial_paths++;
+	if (bot_path_state.node_count > 0 && !path_state_build_path(&bot_path_state, &bot->path) &&
 		bot_path_debug.path_build_result == _path_build_result_obstacle_avoidance_failed &&
 		bot_path_debug.smoothed_step_count > 0)
 	{
@@ -2360,7 +2375,7 @@ merged. */
 #define BOT_SURFACE_CLIMBABLE 0x04
 /* how near its foot a bot takes a ladder (world units), and how long it
 tries before giving up on it (ticks), and on ladders a while */
-#define BOT_LADDER_RANGE 5.0f
+#define BOT_LADDER_RANGE 8.0f
 #define BOT_LADDER_TIMEOUT_TICKS 300
 #define BOT_LADDER_AGAIN_TICKS 450
 
@@ -2951,7 +2966,9 @@ static void bot_think(
 			bot->goal_time = game_time_get();
 		}
 		/* (no way found, or stuck, by a ladder going up: up it) */
-		if (!bot->ladder_plus_one && (bot->path_failures >= 2 || bot->stuck_ticks >= 6) &&
+		if (!bot->ladder_plus_one &&
+			(bot->path_failures >= 2 || bot->stuck_ticks >= 6 ||
+				(bot->path_partial && bot->has_goal && bot->goal.z > position.z + 0.8f)) &&
 			(game_time_get() >= bot->ladder_again_time || game_time_get() < bot->ladder_again_time - 1000))
 		{
 			short ladder = bot_ladder_near(&position);
@@ -3253,12 +3270,12 @@ void bots_tick(
 			}
 		}
 		bots.logged_time = game_time_get();
-		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld, gave up %ld (no start %ld, no goal %ld, no way %ld); ladders climbed %ld; vehicles: in %ld, out %ld",
-			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.gave_up, bots.fail_start, bots.fail_goal, bots.fail_search, bots.climbs,
+		platform_log("bots: driving %d; paths found %ld, not %ld; weapon swaps asked %ld; grenades %ld; changes %ld; stuck %ld, long %ld, gave up %ld (no start %ld, no goal %ld, no way %ld); ladders climbed %ld; partial paths %ld; vehicles: in %ld, out %ld",
+			(int)count, bots.paths_found, bots.paths_failed, bots.pickups, bots.grenades, bots.switches, bots.stucks, bots.long_stucks, bots.gave_up, bots.fail_start, bots.fail_goal, bots.fail_search, bots.climbs, bots.partial_paths,
 			bots.vehicle_entries, bots.vehicle_exits);
 		bots.vehicle_entries = bots.vehicle_exits = 0;
 		bots.fail_start = bots.fail_goal = bots.fail_search = 0;
-		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = bots.stucks = bots.long_stucks = bots.gave_up = bots.climbs = 0;
+		bots.paths_found = bots.paths_failed = bots.pickups = bots.grenades = bots.switches = bots.stucks = bots.long_stucks = bots.gave_up = bots.climbs = bots.partial_paths = 0;
 		for (index = 0; index < MAXIMUM_TRACKED_PLAYERS; index++)
 		{
 			struct player_datum *player = distributed_player(index);
