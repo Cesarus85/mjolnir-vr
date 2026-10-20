@@ -103,6 +103,7 @@ boolean vr_body_debug_camera(short local_player_index, struct render_camera *ren
 #include "structures/structures.h"
 /* port: static transparent part links for the newly loaded model tags. */
 #include "models/models.h"
+#include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
 
 /* ---------- constants */
 
@@ -200,6 +201,8 @@ void render_initialize(
 	void)
 {
 	render_objects_initialize();
+	/* port: the structure culling tests display.structure_culling asks for */
+	structure_culling_initialize();
 }
 
 void render_initialize_for_new_map(
@@ -461,10 +464,15 @@ static void render_window(
 		else
 #endif
 		{
-			/* port: the 3D view antialiased (display.anti_aliasing), before the
-			HUD and menus are drawn over it */
+			/* port: the 3D view tone mapped (display.hdr) and antialiased
+			(display.anti_aliasing), before the HUD and menus are drawn over it */
 			if (rasterizer_target == _render_target_primary)
 			{
+				halo_screen_tone_map(
+					rasterizer_camera->viewport_bounds.x0,
+					rasterizer_camera->viewport_bounds.y0,
+					rasterizer_camera->viewport_bounds.x1,
+					rasterizer_camera->viewport_bounds.y1);
 				halo_screen_anti_alias(
 					rasterizer_camera->viewport_bounds.x0,
 					rasterizer_camera->viewport_bounds.y0,
