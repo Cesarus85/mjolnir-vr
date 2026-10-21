@@ -65,7 +65,7 @@ void host_fatal(const char *format, ...)
 	vsnprintf(message, sizeof(message), format, arguments);
 	va_end(arguments);
 	__android_log_write(ANDROID_LOG_FATAL, "halo", message);
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Ringfall: Mjolnir VR", message, NULL);
+	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Mjolnir VR", message, NULL);
 	_exit(1);
 }
 
@@ -540,7 +540,7 @@ int main(int argc, char *argv[])
 {
 	(void)argc;
 	(void)argv;
-	host_logf(HOST_LOG_INFO, "Ringfall: Mjolnir VR starting");
+	host_logf(HOST_LOG_INFO, "Mjolnir VR starting");
 	host_install_signal_handlers();
 	if (host_native_thread_create(game_main, NULL, MAIN_STACK_SIZE) != 0)
 		host_fatal("cannot start the game thread");

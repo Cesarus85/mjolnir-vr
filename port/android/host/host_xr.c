@@ -1256,7 +1256,7 @@ with vr.log_performance: host_main.c) */
 	android.applicationVM = machine;
 	android.applicationActivity = activity;
 	instance.next = &android;
-	strcpy(instance.applicationInfo.applicationName, "Ringfall Mjolnir VR");
+	strcpy(instance.applicationInfo.applicationName, "Mjolnir VR");
 	instance.applicationInfo.applicationVersion = 1;
 	strcpy(instance.applicationInfo.engineName, "halo-ce-universal");
 	instance.applicationInfo.engineVersion = 1;
@@ -2275,7 +2275,7 @@ void host_xr_test(void)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-	window = SDL_CreateWindow("Ringfall: Mjolnir VR", 640, 480, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+	window = SDL_CreateWindow("Mjolnir VR", 640, 480, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
 	context = window ? SDL_GL_CreateContext(window) : NULL;
 	if (!context || !SDL_GL_MakeCurrent(window, context))
 		host_fatal("VR test: no OpenGL ES context: %s", SDL_GetError());

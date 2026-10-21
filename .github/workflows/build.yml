@@ -13,7 +13,7 @@ name: Build
 # - a newer push to the same branch cancels a run still going;
 # - pushes that only change documentation do not build;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
-# - Ringfall: Mjolnir VR builds only Android (the VR app): the Linux and
+# - Mjolnir VR builds only Android (the VR app): the Linux and
 #   Windows jobs are kept, off (if: false), so that upstream's changes to
 #   them still merge;
 # - artifacts are kept for three days.
@@ -24,7 +24,7 @@ name: Build
 # gives the latest build; the last five are kept. Its web build is then the
 # site on GitHub Pages (https://halocombatevolved.com/, port/web/README.md).
 on:
-  # (Ringfall: Mjolnir VR: main only; its branches are tried on the headsets
+  # (Mjolnir VR: main only; its branches are tried on the headsets
   # from local builds)
   push:
     branches: [main]
@@ -52,7 +52,7 @@ env:
 
 jobs:
   linux:
-    # (off: Ringfall: Mjolnir VR ships the Android app only)
+    # (off: Mjolnir VR ships the Android app only)
     if: ${{ false }}
     # Arch Linux has what the build needs as packages: clang 22 (for the
     # profile-guided optimisation in pgo/), and CMake, pkg-config and
@@ -203,7 +203,7 @@ jobs:
           retention-days: 3
 
   windows:
-    # (off: Ringfall: Mjolnir VR ships the Android app only)
+    # (off: Mjolnir VR ships the Android app only)
     if: ${{ false }}
     # The runner image has LLVM, Python and Visual Studio's x86 libraries and
     # Windows SDK.
@@ -279,7 +279,7 @@ jobs:
           retention-days: 3
 
   web:
-    # (off: Ringfall: Mjolnir VR ships the Android app only)
+    # (off: Mjolnir VR ships the Android app only)
     if: ${{ false }}
     # Emscripten (emsdk, the version below, cached) builds the web port's
     # site (port/web/README.md); the tests check its graph, the page's
@@ -389,18 +389,26 @@ jobs:
       - name: Package
         run: |
           mkdir release
-          # (Ringfall: Mjolnir VR publishes its Android builds only, under
+          # (Mjolnir VR publishes its Android builds only, under
           # its own name: Updater.java looks for them; the desktop ports are
           # built to keep them building)
           for config in debug release; do
             (cd "artifacts/halo-android-$config" &&
-              zip -qr "$GITHUB_WORKSPACE/release/ringfall-mjolnir-vr-android-$config.zip" .)
+              zip -qr "$GITHUB_WORKSPACE/release/mjolnir-vr-android-$config.zip" .)
           done
           # the Steam Frame's installer (port/android/STEAM_FRAME.md): its
           # bundle with the release APK, and the desktop file that fetches it
           python3 tools/steam_frame_bundle.py artifacts/halo-android-release/app-release.apk release "$GH_REPO"
           # the APK itself, for sideloading on the Quest (SideQuest, adb)
-          cp artifacts/halo-android-release/app-release.apk release/RingfallMjolnirVR.apk
+          cp artifacts/halo-android-release/app-release.apk release/MjolnirVR.apk
+          # the same under the names before "Mjolnir VR" (Ringfall: Mjolnir
+          # VR, builds 302 to 313): their updaters (Updater.java, the Frame's
+          # launcher) and the links already shared ask for them
+          cp release/mjolnir-vr-android-debug.zip release/ringfall-mjolnir-vr-android-debug.zip
+          cp release/mjolnir-vr-android-release.zip release/ringfall-mjolnir-vr-android-release.zip
+          cp release/mjolnir-vr-steam-frame.zip release/ringfall-mjolnir-vr-steam-frame.zip
+          cp release/Install-Mjolnir-VR.desktop release/Install-Ringfall-Mjolnir-VR.desktop
+          cp release/MjolnirVR.apk release/RingfallMjolnirVR.apk
           ls -l release
 
       - name: Publish
@@ -415,15 +423,15 @@ jobs:
           readme="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           {
             printf '%s\n\n' "$subject"
-            printf '**Ringfall: Mjolnir VR** is an unofficial VR mod for Halo: Combat Evolved. It needs a disc image of your own, purchased Xbox copy of the game; no game files are included.\n\n'
+            printf '**Mjolnir VR** is an unofficial VR mod for Halo: Combat Evolved. It needs a disc image of your own, purchased Xbox copy of the game; no game files are included.\n\n'
             printf '| Headset | Download | How to install |\n| --- | --- | --- |\n'
-            printf '| Meta Quest 3 / 3S | `RingfallMjolnirVR.apk` | [Install on Quest](%s#install-on-meta-quest-3--3s) |\n' "$readme"
-            printf '| Steam Frame | `Install-Ringfall-Mjolnir-VR.desktop` (open it in Desktop Mode) | [Install on Steam Frame](%s#install-on-steam-frame) |\n\n' "$readme"
-            printf 'The other files are for the built-in updater and the Steam Frame installer.\n\n'
+            printf '| Meta Quest 3 / 3S | `MjolnirVR.apk` | [Install on Quest](%s#install-on-meta-quest-3--3s) |\n' "$readme"
+            printf '| Steam Frame | `Install-Mjolnir-VR.desktop` (open it in Desktop Mode) | [Install on Steam Frame](%s#install-on-steam-frame) |\n\n' "$readme"
+            printf 'The other files are for the built-in updater and the Steam Frame installer (those named `ringfall-…` / `Ringfall…`: the same, for the builds before the name Mjolnir VR).\n\n'
             printf 'Commit: %s\nBuild: %s\n' "$COMMIT_URL" "$RUN_URL"
           } > notes.md
           gh release create "$tag" release/* --target "$GITHUB_SHA" --latest \
-            --title "Ringfall: Mjolnir VR, build $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7})" --notes-file notes.md
+            --title "Mjolnir VR, build $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7})" --notes-file notes.md
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # The Windows builds' executables and PDBs to Sentry, which turns the
@@ -465,7 +473,7 @@ jobs:
           done
 
   pages:
-    # (off: Ringfall: Mjolnir VR ships the Android app only)
+    # (off: Mjolnir VR ships the Android app only)
     if: ${{ false }}
     # The release's web build to GitHub Pages, which serves it at
     # https://halocombatevolved.com/ (port/web/README.md, "Hosting"). Only
@@ -586,7 +594,7 @@ jobs:
             title="Build failed"; color=15548997
           fi
           latest="$SERVER/$REPOSITORY/releases/latest"
-          downloads="[Quest]($latest/download/ringfall-mjolnir-vr-android-release.zip) · [Steam Frame]($latest/download/Install-Ringfall-Mjolnir-VR.desktop) ([all builds]($latest))"
+          downloads="[Quest]($latest/download/mjolnir-vr-android-release.zip) · [Steam Frame]($latest/download/Install-Mjolnir-VR.desktop) ([all builds]($latest))"
           if [ -n "$RELEASE_TAG" ]; then
             release="[$RELEASE_TAG]($SERVER/$REPOSITORY/releases/tag/$RELEASE_TAG)"
             if [ "$PAGES" = success ]; then

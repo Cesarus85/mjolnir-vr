@@ -1,6 +1,6 @@
 # VR roadmap
 
-What Ringfall: Mjolnir VR (Quest 3, Steam Frame) has, and what comes next, in the
+What Mjolnir VR (Quest 3, Steam Frame) has, and what comes next, in the
 agreed order. Updated with every step: a step is **done** once the user has
 tried it in the headset and it is merged into `main`; **built** means in a
 branch, not yet tried in the headset.
@@ -46,6 +46,7 @@ named where code is taken over.
 | 4 | Later: disc image import in the launcher; moving by swinging the arms (in place of the stick, never faster than it: online too), and a sprint by swinging them harder (faster than the game allows: offline only) | import **done** (in `main` 2026-10-06): the app's import (tried on the Quest 3: all 24 maps; on the Frame kept in `~/Documents/RingfallMjolnirVR`), a Steam Frame installer from Desktop Mode (`STEAM_FRAME.md`; tried on the Frame: the old folder renamed, the shortcut added by Steam), a release signing key (CI and local builds the same). Arm swinging and its offline sprint still open |
 | 5 | Later: multiview again (both eyes in one pass, half the drawing's CPU cost): find why its eyes do not fuse in big online games on the Quest 3 (and now and then on the Steam Frame), then turn it back on | open: off by default since 2026-10-16 (`debug.multiview`); findings in the open points |
 | R | Release as **Ringfall: Mjolnir VR** (no "Halo" in the product's name): app name, id `io.github.cesarus85.ringfall`, icon and library pictures (`tools/ringfall_art.py`), Frame folder and installer, release assets, README; the repository renamed | **done** (in `main` 2026-10-06; Quest 3 and Steam Frame good) |
+| R2 | Renamed **Mjolnir VR** ("Ringfall" is another game's name): app and Steam names, logo (`tools/mjolnir_art.py`), release assets (also under the old names for the updaters of builds 302 to 313), updaters, README; the repository renamed `Cesarus85/mjolnir-vr` (GitHub forwards the old links). Kept: the app id, the signing key's alias, the Frame's `~/Documents/RingfallMjolnirVR` and the names inside its bundle (installed games and their shortcuts) | in `feature/rename-mjolnir-vr` (2026-10-21) |
 
 ## Step 2, first part (done)
 

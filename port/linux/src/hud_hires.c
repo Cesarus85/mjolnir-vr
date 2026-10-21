@@ -564,7 +564,7 @@ unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned
 	return png_pixels_texture(pixels, width, height, levels);
 }
 
-/* (port, Ringfall: the same in two steps, the decode on any thread:
+/* (port, Mjolnir VR: the same in two steps, the decode on any thread:
 menu_files.c's menu pictures) */
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height)
 {

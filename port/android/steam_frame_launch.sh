@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ringfall: Mjolnir VR on the Steam Frame: Lepton runs the APK in a container of its own,
+# Mjolnir VR on the Steam Frame: Lepton runs the APK in a container of its own,
 # and installs it anew whenever the APK is newer than the installed one
 # (port/android/STEAM_FRAME.md). The game's data: ~/Documents/RingfallMjolnirVR.
 # (a container of its own, not the shortcut's id: with that, SteamVR's
@@ -121,7 +121,7 @@ update_check()
     log "update: build $latest found (this is $installed), fetching it"
     rm -rf "$UPDATE" && mkdir -p "$UPDATE" || return 0
     if curl -fsSL --retry 2 --max-time 900 -o "$UPDATE/bundle.zip" \
-            "https://github.com/$REPOSITORY/releases/download/build-$latest/ringfall-mjolnir-vr-steam-frame.zip" &&
+            "https://github.com/$REPOSITORY/releases/download/build-$latest/mjolnir-vr-steam-frame.zip" &&
         python3 -I -m zipfile -e "$UPDATE/bundle.zip" "$UPDATE/bundle" &&
         [ "$(cat "$UPDATE/bundle/build.txt" 2>/dev/null)" = "$latest" ] &&
         [ -s "$UPDATE/bundle/RingfallMjolnirVR.apk" ] && [ -s "$UPDATE/bundle/ringfall-mjolnir-vr.sh" ]

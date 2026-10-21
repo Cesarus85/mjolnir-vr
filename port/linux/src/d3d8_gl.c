@@ -2290,7 +2290,7 @@ static void hdr_read(void)
 	exposure = config_real("display.hdr_exposure");
 	wanted = config_boolean("display.hdr");
 #ifdef HALO_ANDROID
-	/* (port, Ringfall: never in VR, whose eyes' pictures go to the headset
+	/* (port, Mjolnir VR: never in VR, whose eyes' pictures go to the headset
 	as they are, and whose GPU time is short already) */
 	if (halo_vr_active())
 		wanted = FALSE;

@@ -648,7 +648,7 @@ static const struct config_setting config_settings[] =
 		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
-	/* (the desktop's local bots, bots.c; Ringfall's host bots have their own
+	/* (the desktop's local bots, bots.c; Mjolnir VR's host bots have their own
 	bots.count and bots.skill, Android's, below: host_bots.c) */
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_desktop,
 		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"

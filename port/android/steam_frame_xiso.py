@@ -42,7 +42,7 @@ name that no file before it had (ignoring case).
 
 A European disc in two languages (Spanish and Italian) has no maps folder
 but one for each, maps_es and maps_it: the one for the language asked for
-(RINGFALL_LANGUAGE, else the system's) is taken, else English's, else the
+(MJOLNIR_LANGUAGE, else the system's) is taken, else English's, else the
 first, and its language written to maps/language.txt, which the game takes
 as the Xbox's language while game.language is unset.
 """
@@ -161,7 +161,7 @@ def choose_maps(folders):
         if folder[0].lower() == "maps":
             return folder, None
     languages = [(maps_language(folder[0]), folder) for folder in folders if maps_language(folder[0])]
-    wanted = (os.environ.get("RINGFALL_LANGUAGE") or os.environ.get("LC_ALL") or
+    wanted = (os.environ.get("MJOLNIR_LANGUAGE") or os.environ.get("LC_ALL") or
         os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "")[:2].lower()
     for preferred in (wanted, "en"):
         for language, folder in languages:

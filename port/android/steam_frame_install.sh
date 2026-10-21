@@ -1,6 +1,6 @@
 #!/bin/bash
-# Ringfall: Mjolnir VR's installer for the Steam Frame, run in its Desktop
-# Mode from the bundle the release's "Install Ringfall: Mjolnir VR" desktop
+# Mjolnir VR's installer for the Steam Frame, run in its Desktop
+# Mode from the bundle the release's "Install Mjolnir VR" desktop
 # file downloads (steam_frame_installer.desktop; the bundle: this script,
 # RingfallMjolnirVR.apk, ringfall-mjolnir-vr.sh = steam_frame_launch.sh,
 # steam_frame_xiso.py and the library pictures in grid/). Everything is
@@ -19,28 +19,31 @@
 #   Steam Frame Desktop Mode runs inside Gaming Mode's session, which ends
 #   with Steam. The shortcut of the builds before the name ("Halo VR") is
 #   left for the player to remove (Steam would write it back).
-# RINGFALL_UNATTENDED=1 answers every question with its default and prints
-# instead of showing dialogs (RINGFALL_IMAGE: the disc image to use), for
+# MJOLNIR_UNATTENDED=1 answers every question with its default and prints
+# instead of showing dialogs (MJOLNIR_IMAGE: the disc image to use), for
 # testing over adb; it never closes Steam.
 
 BUNDLE="$(cd "$(dirname "$0")" && pwd)"
 GAME_DIR="$HOME/Documents/RingfallMjolnirVR"
 STEAM_DIR="$HOME/.local/share/Steam"
 LEPTON="$STEAM_DIR/steamapps/common/Lepton/lepton"
-TITLE="Ringfall: Mjolnir VR"
-NAME="Ringfall: Mjolnir VR"
+TITLE="Mjolnir VR"
+NAME="Mjolnir VR"
 APK_NAME="RingfallMjolnirVR.apk"
 LAUNCHER="ringfall-mjolnir-vr.sh"
 EXE="\"$GAME_DIR/$LAUNCHER\""
 # (the desktop file Steam adds the game from)
-NAME_FILE="Ringfall Mjolnir VR"
+NAME_FILE="Mjolnir VR"
 # the builds before the name: their folder and Steam shortcut
 OLD_DIR="$HOME/Documents/HaloCE"
 OLD_NAME="Halo VR"
+# the name of builds 302 to 313, which their shortcut keeps (Steam writes
+# its shortcuts back from memory: the player renames it)
+FORMER_NAME="Ringfall: Mjolnir VR"
 
 # what the installer did, for looking into problems: written to /tmp while
 # it runs, then kept beside the game as install.log
-LOG="/tmp/ringfall-mjolnir-vr-install.log"
+LOG="/tmp/mjolnir-vr-install.log"
 : > "$LOG"
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 keep_log() { [ -d "$GAME_DIR" ] && cp -f "$LOG" "$GAME_DIR/install.log" 2>/dev/null; }
@@ -59,7 +62,7 @@ steam_running()
     pgrep -f 'ubuntu12_32/steam( |$)' >/dev/null || pgrep -x steam >/dev/null
 }
 
-unattended() { [ "${RINGFALL_UNATTENDED:-0}" = 1 ] || ! command -v zenity >/dev/null; }
+unattended() { [ "${MJOLNIR_UNATTENDED:-0}" = 1 ] || ! command -v zenity >/dev/null; }
 
 info()
 {
@@ -185,7 +188,7 @@ PYTHON
 # must run), from a desktop file beside the game; then its pictures
 add_shortcut()
 {
-    local desktop="$GAME_DIR/$NAME_FILE.desktop" url file id
+    local desktop="$GAME_DIR/$NAME_FILE.desktop" url
     printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nPath=%s\nIcon=steam\nTerminal=false\n' \
         "$NAME" "$GAME_DIR/$LAUNCHER" "$GAME_DIR" > "$desktop" && chmod 755 "$desktop" || return 1
     url="steam://addnonsteamgame/$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$desktop")"
@@ -195,6 +198,16 @@ add_shortcut()
     steam "$url" >/dev/null 2>&1 &
     for _ in $(seq 30); do have_shortcut && break; sleep 1; done
     have_shortcut || return 1
+    add_pictures
+    return 0
+}
+
+# the library pictures of the game's shortcut, for every Steam user who has
+# it (again on an update: the builds before the name "Mjolnir VR" had
+# Ringfall's)
+add_pictures()
+{
+    local file id
     while read -r file; do
         id="$(shortcut_id "$file" "$EXE")" || continue
         log "shortcut $id in $file"
@@ -204,7 +217,6 @@ add_shortcut()
         cp "$BUNDLE/grid/library_hero.png" "$(dirname "$file")/grid/${id}_hero.png"
         cp "$BUNDLE/grid/library_logo.png" "$(dirname "$file")/grid/${id}_logo.png"
     done < <(shortcut_files)
-    return 0
 }
 
 # --- the game
@@ -245,7 +257,7 @@ rm -rf "$GAME_DIR/update"
 # --- the game data
 
 if [ ! -f "$GAME_DIR/maps/ui.map" ]; then
-    image="${RINGFALL_IMAGE:-}"
+    image="${MJOLNIR_IMAGE:-}"
     if [ -z "$image" ]; then
         mapfile -t images < <(find_images)
         for candidate in "${images[@]}"; do
@@ -271,6 +283,7 @@ fi
 
 if have_shortcut; then
     log "the Steam shortcut is there"
+    add_pictures
 elif unattended; then
     echo "info: the Steam shortcut is missing (not added unattended)"
 elif ! steam_running; then
@@ -285,6 +298,9 @@ if unattended; then
 fi
 if have_shortcut_to "$OLD_DIR/halo-vr.sh"; then
     info "The library still shows the old \"$OLD_NAME\" from before the game's new name. It no longer starts: remove it in Steam (its gear or Manage > Remove non-Steam game)."
+fi
+if have_shortcut_to "$FORMER_NAME"; then
+    info "The library shows the game by its former name, \"$FORMER_NAME\". To call it $NAME there: its gear > Properties, then its name at the top."
 fi
 if ask "$NAME is installed.${image_note:-}\n\nSwitch to Gaming Mode now? Start $NAME from your library there (its pictures may show once Steam starts again)." yes; then
     steamos-session-select gamescope >/dev/null 2>&1 ||

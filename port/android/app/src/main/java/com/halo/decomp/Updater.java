@@ -36,7 +36,7 @@ import java.util.zip.ZipInputStream;
  * the latest release when it starts, on a thread of its own, and if it is
  * newer asks the player whether to update:
  *
- * - Yes: the release's app (ringfall-mjolnir-vr-android-release.zip or
+ * - Yes: the release's app (mjolnir-vr-android-release.zip or
  *   -debug.zip) is
  *   downloaded and handed to Android's package installer, which replaces the
  *   game (closing it) and offers to open the new version.
@@ -53,8 +53,8 @@ import java.util.zip.ZipInputStream;
 final class Updater {
     /* the VR port's own releases: the original's, made without VR, must
        never replace it (they share the package name) */
-    private static final String APP_NAME = "Ringfall: Mjolnir VR";
-    private static final String REPOSITORY = "Cesarus85/ringfall-mjolnir-vr";
+    private static final String APP_NAME = "Mjolnir VR";
+    private static final String REPOSITORY = "Cesarus85/mjolnir-vr";
     private static final String USER_AGENT = "halo-ce-universal-updater";
     private static final int TIMEOUT_MILLISECONDS = 20000;
     /** the most a download (a release's zip, about 35 MB) or the app in it may be */
@@ -240,7 +240,7 @@ final class Updater {
     /* ---------- updating */
 
     private static void update(Activity activity, int latest) {
-        String asset = "ringfall-mjolnir-vr-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
+        String asset = "mjolnir-vr-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
         File directory = new File(activity.getCacheDir(), UpdateProvider.DIRECTORY);
         LinearLayout layout = new LinearLayout(activity);
         TextView status = new TextView(activity);

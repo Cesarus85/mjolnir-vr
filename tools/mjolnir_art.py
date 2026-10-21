@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Ringfall: Mjolnir VR's pictures, drawn from nothing but shapes and the
+Mjolnir VR's pictures, drawn from nothing but shapes and the
 port's Overpass font (port/assets/fonts, SIL Open Font License):
 
-    python3 tools/ringfall_art.py
+    python3 tools/mjolnir_art.py
 
 writes
 - port/android/art/android-icon.png, the launcher icon's artwork (then run
@@ -99,11 +99,11 @@ def italic_text(text, height, fill):
 
 
 def logo(width):
-    """"RINGFALL" over "MJOLNIR VR", as wide as asked, transparent"""
-    title = italic_text("RINGFALL", 200, LIGHT)
+    """"MJOLNIR" over "VR", as wide as asked, transparent"""
+    title = italic_text("MJOLNIR", 200, LIGHT)
     title = title.resize((width, int(title.height * width / title.width)), Image.LANCZOS)
-    subtitle = italic_text("MJOLNIR VR", 200, ACCENT)
-    sub_width = int(width * 0.62)
+    subtitle = italic_text("VR", 200, ACCENT)
+    sub_width = int(width * 0.30)
     subtitle = subtitle.resize((sub_width, int(subtitle.height * sub_width / subtitle.width)), Image.LANCZOS)
     gap = int(title.height * 0.16)
     image = Image.new("RGBA", (width, title.height + gap + subtitle.height), (0, 0, 0, 0))

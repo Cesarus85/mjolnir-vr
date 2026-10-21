@@ -10,10 +10,10 @@ On the Frame, in Desktop Mode (Steam menu > Power > Switch to Desktop):
 1. Put your own disc image of Halo: Combat Evolved for the original Xbox (`.iso` or
    `.xiso`, any version) in Downloads (or Documents, the Desktop, a memory
    card).
-2. Download `Install-Ringfall-Mjolnir-VR.desktop` from the latest release and open it
+2. Download `Install-Mjolnir-VR.desktop` from the latest release and open it
    (double-click; confirm running it).
 3. Answer the dialogs: the installer finds the disc image (or asks for it),
-   copies the game data out of it, adds "Ringfall: Mjolnir VR" to the Steam library
+   copies the game data out of it, adds "Mjolnir VR" to the Steam library
    and switches back to Gaming Mode. Start it from the library there.
 
 The game updates itself: while it runs, its launcher looks for a newer
@@ -23,18 +23,20 @@ release, fetches it and puts it in place as the next start begins
 too (settings, saves and game data stay).
 
 The desktop file (`steam_frame_installer.desktop`) downloads the latest
-release's `ringfall-mjolnir-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
+release's `mjolnir-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
 the release job of `.github/workflows/build.yml`) and runs its
 `install.sh` (`steam_frame_install.sh`), with zenity dialogs:
 - `~/Documents/RingfallMjolnirVR`: the launcher (`ringfall-mjolnir-vr.sh`)
   and the release APK (`RingfallMjolnirVR.apk`); the folder of the builds
   before the name, `~/Documents/HaloCE`, renamed to it, and their "Halo VR"
-  shortcut replaced;
+  shortcut replaced. (These keep the name of builds 302 to 313, "Ringfall:
+  Mjolnir VR": the Steam shortcut of an installed game starts the launcher
+  there, and the launcher's update looks for them in the bundle.);
 - the maps folder out of the disc image (`steam_frame_xiso.py`, the app's
   `XisoExtractor.java` in Python), unless `maps/ui.map` is there;
 - the Steam shortcut, unless it is there: added by Steam itself
   (`steam://addnonsteamgame`, as SteamOS's "Add to Steam" does) from
-  `Ringfall Mjolnir VR.desktop` beside the game, then the library pictures
+  `Mjolnir VR.desktop` beside the game, then the library pictures
   under the id Steam gave it. Steam is not closed: on the Frame, Desktop
   Mode runs inside Gaming Mode's session, and closing Steam ends it (and the
   installer with it). An old "Halo VR" shortcut is left for the player to
@@ -83,7 +85,7 @@ dialogs, for testing over adb; it leaves Steam and its shortcuts alone.
 
 ## Starting it on the Frame
 
-A button in the Steam library ("Ringfall: Mjolnir VR", a non-Steam game)
+A button in the Steam library ("Mjolnir VR", a non-Steam game)
 runs `~/Documents/RingfallMjolnirVR/ringfall-mjolnir-vr.sh` (`port/android/steam_frame_launch.sh`),
 which starts the game as Steam starts an Android title of its own:
 `lepton waitforexitandrun -- ~/Documents/RingfallMjolnirVR/RingfallMjolnirVR.apk`, in a container

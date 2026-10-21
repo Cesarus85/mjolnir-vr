@@ -153,7 +153,7 @@ final class XisoExtractor {
                 break;
             }
         }
-        // (Ringfall: a European disc in two languages, Spanish and Italian,
+        // (Mjolnir VR: a European disc in two languages, Spanish and Italian,
         // has no maps folder but one for each, maps_es and maps_it: the
         // device's language's is taken, else English's, else the first, and
         // its language written to maps/language.txt, which the game asks the

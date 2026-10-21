@@ -1,6 +1,6 @@
 # Third-party notices
 
-Ringfall: Mjolnir VR is released under the GNU Affero General Public
+Mjolnir VR is released under the GNU Affero General Public
 License, version 3 or later ([LICENSE](LICENSE)); releases before build 312
 were released under [CC0 1.0](LICENSES/CC0-1.0.txt). It includes or builds
 on the following, under their own licenses; each license's full text is in

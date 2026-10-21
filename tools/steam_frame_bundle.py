@@ -5,14 +5,14 @@ The Steam Frame's installer as release assets (port/android/STEAM_FRAME.md):
     python3 tools/steam_frame_bundle.py <apk> <output folder> <owner/repository>
 
 writes into the output folder
-- ringfall-mjolnir-vr-steam-frame.zip: the installer (port/android/steam_frame_install.sh,
+- mjolnir-vr-steam-frame.zip: the installer (port/android/steam_frame_install.sh,
   as install.sh), the APK (RingfallMjolnirVR.apk), the launcher
   (steam_frame_launch.sh, as ringfall-mjolnir-vr.sh, which updates the game
   from the repository named), the build's number (build.txt: the workflow's
   run number, HALO_BUILD_NUMBER or GITHUB_RUN_NUMBER; 0, which never
   updates, without one), the disc image reader (steam_frame_xiso.py) and
   the library pictures (grid/);
-- Install-Ringfall-Mjolnir-VR.desktop (port/android/steam_frame_installer.desktop): what
+- Install-Mjolnir-VR.desktop (port/android/steam_frame_installer.desktop): what
   the player downloads and opens in Desktop Mode; it fetches the latest
   release's zip from the repository named.
 """
@@ -44,7 +44,7 @@ def main():
     build = os.environ.get("HALO_BUILD_NUMBER") or os.environ.get("GITHUB_RUN_NUMBER") or "0"
     if not build.isdigit():
         build = "0"
-    bundle = output / "ringfall-mjolnir-vr-steam-frame.zip"
+    bundle = output / "mjolnir-vr-steam-frame.zip"
     with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
         for path, name, mode in files:
             info = zipfile.ZipInfo.from_file(path, name)
@@ -60,7 +60,7 @@ def main():
     print(f"{bundle.relative_to(Path.cwd()) if bundle.is_relative_to(Path.cwd()) else bundle}")
 
     desktop = (ANDROID / "steam_frame_installer.desktop").read_text().replace("@REPOSITORY@", repository)
-    installer = output / "Install-Ringfall-Mjolnir-VR.desktop"
+    installer = output / "Install-Mjolnir-VR.desktop"
     installer.write_text(desktop)
     installer.chmod(0o755)
     print(installer)

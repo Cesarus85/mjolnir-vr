@@ -47,7 +47,7 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #endif
 
 /* the VR port's own releases (the original's must not replace it) */
-#define UPDATE_REPOSITORY "Cesarus85/ringfall-mjolnir-vr"
+#define UPDATE_REPOSITORY "Cesarus85/mjolnir-vr"
 #ifdef _WIN32
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"

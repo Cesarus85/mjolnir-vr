@@ -1,6 +1,7 @@
 # Android
 
-The app of Ringfall: Mjolnir VR (application id `io.github.cesarus85.ringfall`;
+The app of Mjolnir VR (application id `io.github.cesarus85.ringfall`, from
+the name before, "Ringfall: Mjolnir VR", kept so that installed apps update;
 its Java classes keep the decompilation's package, `com.halo.decomp`).
 `ninja android` builds the game for 64-bit ARM Android (arm64-v8a).
 `ninja android_apk` makes an app from it:

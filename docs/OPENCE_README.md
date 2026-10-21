@@ -1,5 +1,5 @@
 > This is the README of [OpenCE](https://github.com/OpenCommunityEdition/OpenCE),
-> the port Ringfall: Mjolnir VR is built on, kept for its build and
+> the port Mjolnir VR is built on, kept for its build and
 > development notes. Its download links are OpenCE's. For the VR mod, see
 > the [main README](../README.md).
 

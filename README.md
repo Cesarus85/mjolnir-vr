@@ -1,21 +1,24 @@
 <p align="center">
-  <img src="port/android/steam_frame_grid/library.png" width="640" alt="Ringfall: Mjolnir VR">
+  <img src="port/android/steam_frame_grid/library.png" width="640" alt="Mjolnir VR">
 </p>
 
-# Ringfall: Mjolnir VR
+# Mjolnir VR
 
 **A VR mod for Halo: Combat Evolved** (the original Xbox game) on the
 **Meta Quest 3 / 3S** and the **Steam Frame**. Play the campaign and
 multiplayer in full 6DoF virtual reality, with your hands in the game.
 
-Ringfall: Mjolnir VR runs on your headset by itself, without a PC. It
+Mjolnir VR runs on your headset by itself, without a PC. It
 brings no game files: it uses a disc image of **your own, purchased copy**
 of the game.
 
-> **Unofficial fan project.** Ringfall: Mjolnir VR is a free,
+> **Unofficial fan project.** Mjolnir VR is a free,
 > non-commercial fan project. It is not affiliated with, endorsed,
 > sponsored or approved by Microsoft, Xbox Game Studios, Halo Studios or
 > Bungie. See [Legal](#legal).
+
+Until build 313 it was called *Ringfall: Mjolnir VR*. Installed builds
+update to the new name by themselves, and the old links lead here.
 
 ## Contents
 
@@ -86,14 +89,14 @@ that it updates itself.
 2. **Install [SideQuest](https://sidequestvr.com/setup-howto)** (the
    "Advanced Installer") on your computer and connect the Quest with a
    USB cable. In the headset, allow USB debugging for this computer.
-3. **Download `RingfallMjolnirVR.apk`** from the
+3. **Download `MjolnirVR.apk`** from the
    [latest release](../../releases/latest) and drag it onto the SideQuest
    window. It installs the game.
 4. **Copy your disc image** to the Quest's `Download` folder: in
    SideQuest, open the file manager (the folder icon), go to `Download`
    and drag the `.iso` file in.
 5. **In the headset**, open your *Library*, choose *Unknown Sources* and
-   start **Ringfall: Mjolnir VR**. Select **Choose disc image** and pick
+   start **Mjolnir VR**. Select **Choose disc image** and pick
    your file in `Download`. The game copies what it needs (about 1.8 GB,
    a minute or two) and starts.
 
@@ -108,14 +111,14 @@ No computer and no keyboard needed.
    *Switch to Desktop*.
 2. **Put your disc image** in the `Downloads` folder (for example from a
    USB stick or memory card with the file manager, Dolphin).
-3. **Download `Install-Ringfall-Mjolnir-VR.desktop`** from the
+3. **Download `Install-Mjolnir-VR.desktop`** from the
    [latest release](../../releases/latest) with the web browser.
 4. **Open it**: in Dolphin, open `Downloads` and double-click the file.
    If you are asked whether to run it, choose to continue.
 5. **Answer the dialogs.** The installer finds your disc image, copies
-   what the game needs, adds **Ringfall: Mjolnir VR** to your Steam
+   what the game needs, adds **Mjolnir VR** to your Steam
    library and offers to switch back to Gaming Mode.
-6. Start **Ringfall: Mjolnir VR** from your library (under *Non-Steam*).
+6. Start **Mjolnir VR** from your library (under *Non-Steam*).
 
 The game updates itself: when a new version is out, it is downloaded
 while you play and used from the next start on. Your settings, saves and
@@ -155,7 +158,7 @@ telemetry.
 
 ## Credits
 
-Ringfall: Mjolnir VR stands on the work of others:
+Mjolnir VR stands on the work of others:
 
 - **[OpenCE](https://github.com/OpenCommunityEdition/OpenCE)** (Open
   Community Edition): the port of the decompiled game to Linux, Windows
@@ -186,7 +189,7 @@ port it is built on.
 
 ## Legal
 
-Ringfall: Mjolnir VR is an unofficial, free, non-commercial fan project.
+Mjolnir VR is an unofficial, free, non-commercial fan project.
 It is not affiliated with, endorsed, sponsored or approved by Microsoft
 Corporation, Xbox Game Studios, Halo Studios or Bungie. Halo, Halo: Combat
 Evolved and Xbox are trademarks of Microsoft Corporation; they are named
@@ -201,7 +204,7 @@ their games.
 
 ### Licence
 
-Ringfall: Mjolnir VR is free software: you can give it to others and change
+Mjolnir VR is free software: you can give it to others and change
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, version 3 of the License or (at your option)
 any later version (`AGPL-3.0-or-later`), as OpenCE, which it builds on, is.
