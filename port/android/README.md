@@ -233,7 +233,7 @@ These settings are only for Android:
 | `display.shader_cache` | `true` (the default): the linked shader programs are kept in `shader_cache` in the data folder (their binaries, the driver that made them and their sources), and each map's list of the programs it drew with; as a map loads, the programs on its list are made ready, so that its first frames do not wait for the driver to compile them. A driver update compiles them again from the kept sources. `false`: each program is compiled the first time it is drawn. The folder may be deleted at any time. |
 | `display.shader_worker` | `true` (the default): the shader programs are made on a thread of their own, whose GL context shares the game's (loaded from the shader cache, or compiled), and drawn with once there (`debug.shader_warm_up`: `"worker"`, `"load"` on the game's thread as a map loads, or `"off"`); a draw whose program is not made yet is left out for the frames it takes, and the frame does not wait. As a map loads, its own programs and then every map's (`shader_cache/all.txt`) are asked for. `false`: each is made on the game's thread when first drawn with. |
 | `debug.sample_seconds` | Refer to "Find problems". |
-| `debug.memory_watch` | `true` (the default): the app notices the game's writes to textures and vertices by page protection. `false`: it compares page contents once a frame instead, which is slower. Refer to "Limits". |
+| `debug.memory_watch` | `true` (the default): the app notices the game's writes to cached textures by page protection. `false`: it compares page contents once a frame instead, which is slower. Geometry uses the streaming path in either mode. Refer to "Limits". |
 
 ## Internet play
 
@@ -543,6 +543,23 @@ assembly of the port is necessary:
 - The symbol aliases in `guest/libc/src_include/features.h`. The Darwin
   target does not accept alias attributes.
 
+## Geometry uploads
+
+Android streams vertex and index data from the current CPU bytes instead
+of reusing the persistent geometry mirror or its cached index extents.
+This is automatic; no console command or configuration change is needed.
+Affected players reported that bypassing the cache resolved stretched or
+missing geometry, with some also reporting better performance. The exact
+cache failure mechanism remains unconfirmed.
+
+The Android-only guard in `mirror_range` uses the existing streaming
+fallback. Streamed upload methods, frame fences, shaders, texture caching
+and CPU write tracking are unchanged. Desktop and web retain their cache.
+Xbox and Custom Edition maps keep their existing loaders and resource
+paths. `tools/test_android_mirror_uploads.py` checks the bypass with large
+and reused ranges, frame-counter rollover and desktop/web cache controls;
+it does not substitute for device gameplay validation.
+
 ## Find problems
 
 - Enter `adb logcat -s halo` to see the log of the port and the errors of
@@ -572,11 +589,11 @@ assembly of the port is necessary:
   operate. The Xbox memory uses 4 KB pages.
 - The x86 Android emulator runs the app through its ARM translation. The
   translation cannot deliver the page faults that the renderer uses to
-  notice changed textures and vertices. On the emulator the app compares
+  notice changed textures. On the emulator the app compares
   page contents once a frame instead ("write tracking: page hashes" in the
-  log). This is slower, and a write shows one frame later, so moving
-  geometry can glitch briefly. `debug.memory_watch = false` does the same
-  on a device. The translation also has no scalar conversion from floating
+  log). This is slower, and texture changes may appear one frame later.
+  `debug.memory_watch = false` does the same on a device. The translation
+  also has no scalar conversion from floating
   point to an integer in a SIMD register (`fcvtzs s0, s1`, an illegal
   instruction there), so `tools/android_asm_convert.py` writes each as the
   vector form, which leaves the register and the exception flags the same.
