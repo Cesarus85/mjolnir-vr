@@ -21,7 +21,8 @@ a VR player of another (players.c, weapons.c, units.c) as long as their
 hands keep coming, else as before.
 
 What the hands decide is only how the game looks: damage is the shooter's
-report, which the host checks as any other (network_damage.c).
+report, which the host checks as any other (network_damage.c), except that
+its line of sight may start at the weapon hand as well as the camera.
 
 A machine that does not know the message (a build without this, of the same
 network version) drops it, as it drops any type past its own

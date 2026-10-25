@@ -67,6 +67,14 @@ being hit looks and feels like on the clients).
 #include "scenario/scenario.h"
 #include "units/units.h"
 #include "network_distributed.h"
+#ifdef HALO_ANDROID
+#include "halo_vr.h"
+
+/* port (Mjolnir VR): how far from the unit's camera a VR player's weapon
+hand may be for the line of sight (world units, 1.2 m: vr.lean_limit's
+0.35 m and an arm) */
+#define VR_SIGHT_HAND_REACH 0.4f
+#endif
 
 #include <math.h>
 
@@ -1502,6 +1510,33 @@ static void distributed_note_targets(
 							point->mounted = distributed_vehicle_muzzle(vehicle_index, &point->muzzle);
 						}
 					}
+#ifdef HALO_ANDROID
+					/* port (Mjolnir VR): a VR player of another machine fires
+					from the weapon in their hand (network_vr.c), which may
+					be past a corner the unit's camera is behind: the hand is
+					a muzzle as a vehicle's gun is, with the line from the
+					eye to it clear (no hand through a wall), and no further
+					from the eye than a lean and an arm reach */
+					else
+					{
+						real vr_origin[3];
+
+						if (halo_vr_network_weapon_origin(player_index, unit_index, vr_origin))
+						{
+							real dx = vr_origin[0] - camera.x;
+							real dy = vr_origin[1] - camera.y;
+							real dz = vr_origin[2] - camera.z;
+
+							if (dx * dx + dy * dy + dz * dz <= VR_SIGHT_HAND_REACH * VR_SIGHT_HAND_REACH)
+							{
+								point->muzzle.x = vr_origin[0];
+								point->muzzle.y = vr_origin[1];
+								point->muzzle.z = vr_origin[2];
+								point->mounted = TRUE;
+							}
+						}
+					}
+#endif
 				}
 			}
 		}
