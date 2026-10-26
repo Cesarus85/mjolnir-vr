@@ -48,12 +48,12 @@ menus): reaching the host, connected (its game is in the system link list),
 or why not */
 enum
 {
-	P2P_JOIN_NONE,
-	P2P_JOIN_REACHING,
-	P2P_JOIN_CONNECTED,
-	P2P_JOIN_NO_ANSWER,
-	P2P_JOIN_BLOCKED,
-	P2P_JOIN_LOST,
+	P2P_JOIN_STATE_NONE,
+	P2P_JOIN_STATE_REACHING,
+	P2P_JOIN_STATE_CONNECTED,
+	P2P_JOIN_STATE_NO_ANSWER,
+	P2P_JOIN_STATE_BLOCKED,
+	P2P_JOIN_STATE_LOST,
 };
 int p2p_join_state(void);
 
