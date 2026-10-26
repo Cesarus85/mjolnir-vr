@@ -21,8 +21,9 @@ a VR player of another (players.c, weapons.c, units.c) as long as their
 hands keep coming, else as before.
 
 What the hands decide is only how the game looks: damage is the shooter's
-report, which the host checks as any other (network_damage.c), except that
-its line of sight may start at the weapon hand as well as the camera.
+report, which the host checks as any other (network_damage.c); a VR
+player's weapon hand also goes to the host as their fire origin, which its
+line of sight check looks from too.
 
 A machine that does not know the message (a build without this, of the same
 network version) drops it, as it drops any type past its own
@@ -274,11 +275,35 @@ static boolean network_vr_local_pose(
 	return TRUE;
 }
 
+/* where a local VR player's shots leave from, from the unit's camera: the
+weapon hand, on foot (network_damage.c's fire origins, which the host's
+line of sight check also looks from) */
+static boolean network_vr_fire_origin(
+	short local_player_index,
+	real_vector3d *offset)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	struct unit_datum *unit = player && player->unit_index != NONE ? unit_try_and_get(player->unit_index) : NULL;
+	float vector[3];
+
+	if (!unit || !halo_vr_active() || unit->object.parent_object_index != NONE ||
+		!halo_vr_weapon_origin_offset(local_player_index, vector))
+	{
+		return FALSE;
+	}
+	offset->i = vector[0];
+	offset->j = vector[1];
+	offset->k = vector[2];
+	return TRUE;
+}
+
 /* ---------- public code */
 
 void network_vr_new_game(
 	void)
 {
+	network_damage_set_fire_origin_source(network_vr_fire_origin);
 	short index;
 
 	csmemset(network_vr_players, 0, sizeof(network_vr_players));
