@@ -2951,52 +2951,66 @@ void p2p_set_game_description(const char *name, const char *map, const char *mod
 	pthread_mutex_unlock(&p2p_lock);
 }
 
-/* the server browser's games first (every build lists its public games
-there: PC, phones, VR), then the VR port's own list's that it has not */
+/* the public games for the VR port's online list: the games players host
+first (the server browser's, then the VR port's own list's that it has not:
+a friend's game is not pushed below the panel's rows by the dedicated
+servers, which the server browser lists first), then the dedicated servers.
+Every build lists its public games in the server browser: PC, phones, VR. */
 int p2p_public_games(struct p2p_public_game *games, int maximum)
 {
-	struct p2p_listing listings[32];
+	enum { MAXIMUM_LISTINGS = 64 };
+	/* (the UI thread's alone, as the panel that asks) */
+	static struct p2p_listing listings[MAXIMUM_LISTINGS];
 	struct p2p_public_game own[32];
 	int listing_count;
 	int own_count;
 	int count = 0;
 	int index;
+	int pass;
 
 	p2p_lobby_browse(1);
-	listing_count = p2p_lobby_games(listings, 32);
-	for (index = 0; index < listing_count && count < maximum; index++)
-	{
-		struct p2p_public_game *game;
-
-		/* (one with a password: joined from the server browser, which asks
-		for it, not from this list, which has no way to) */
-		if (listings[index].locked)
-			continue;
-		game = &games[count++];
-
-		memset(game, 0, sizeof(*game));
-		snprintf(game->name, sizeof(game->name), "%s", listings[index].name);
-		snprintf(game->map, sizeof(game->map), "%s", listings[index].map);
-		snprintf(game->mode, sizeof(game->mode), "%s", listings[index].gametype);
-		snprintf(game->invite, sizeof(game->invite), "%s", listings[index].invite);
-		game->players = listings[index].player_count;
-		game->maximum_players = listings[index].maximum_player_count;
-	}
+	listing_count = p2p_lobby_games(listings, MAXIMUM_LISTINGS);
 	pthread_mutex_lock(&p2p_lock);
 	own_count = p2p.running ? p2p_list_games(own, 32) : 0;
 	pthread_mutex_unlock(&p2p_lock);
-	for (index = 0; index < own_count && count < maximum; index++)
+	/* (the players' games, the VR list's, the dedicated servers) */
+	for (pass = 0; pass < 3; pass++)
 	{
-		int other;
-		int listed = 0;
-
-		for (other = 0; other < listing_count; other++)
+		if (pass == 1)
 		{
-			if (!strcmp(own[index].name, listings[other].name) && !strcmp(own[index].map, listings[other].map))
-				listed = 1;
+			for (index = 0; index < own_count && count < maximum; index++)
+			{
+				int other;
+				int listed = 0;
+
+				for (other = 0; other < listing_count; other++)
+				{
+					if (!strcmp(own[index].name, listings[other].name) && !strcmp(own[index].map, listings[other].map))
+						listed = 1;
+				}
+				if (!listed)
+					games[count++] = own[index];
+			}
+			continue;
 		}
-		if (!listed)
-			games[count++] = own[index];
+		for (index = 0; index < listing_count && count < maximum; index++)
+		{
+			struct p2p_public_game *game;
+
+			/* (one with a password: joined from the server browser, which
+			asks for it, not from this list, which has no way to) */
+			if (listings[index].locked || (listings[index].dedicated != 0) != (pass == 2))
+				continue;
+			game = &games[count++];
+
+			memset(game, 0, sizeof(*game));
+			snprintf(game->name, sizeof(game->name), "%s", listings[index].name);
+			snprintf(game->map, sizeof(game->map), "%s", listings[index].map);
+			snprintf(game->mode, sizeof(game->mode), "%s", listings[index].gametype);
+			snprintf(game->invite, sizeof(game->invite), "%s", listings[index].invite);
+			game->players = listings[index].player_count;
+			game->maximum_players = listings[index].maximum_player_count;
+		}
 	}
 	return count;
 }
