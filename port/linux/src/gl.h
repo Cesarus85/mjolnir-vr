@@ -267,6 +267,10 @@ GL_KHR_parallel_shader_compile, as above */
 	X(glLinkProgram) \
 	X(glGetProgramiv) \
 	X(glGetProgramInfoLog) \
+	X(glProgramParameteri) \
+	X(glGetProgramBinary) \
+	X(glProgramBinary) \
+	X(glDeleteProgram) \
 	X(glUseProgram) \
 	X(glGetUniformLocation) \
 	X(glUniform1i) \
@@ -524,6 +528,10 @@ pointers, sees the declarations without these aliases */
 #define glLinkProgram halo_glLinkProgram
 #define glGetProgramiv halo_glGetProgramiv
 #define glGetProgramInfoLog halo_glGetProgramInfoLog
+#define glProgramParameteri halo_glProgramParameteri
+#define glGetProgramBinary halo_glGetProgramBinary
+#define glProgramBinary halo_glProgramBinary
+#define glDeleteProgram halo_glDeleteProgram
 #define glUseProgram halo_glUseProgram
 #define glGetUniformLocation halo_glGetUniformLocation
 #define glUniform1i halo_glUniform1i
