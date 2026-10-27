@@ -4383,7 +4383,18 @@ static void lobby_browser_begin(void)
 	lobby_browser.shown = FALSE;
 	lobby_browser.error_shown = FALSE;
 	lobby_browser.source = NONE;
-	lobby_browser.order = (short)p2p_lobby_sort_parse(config_string("network.browser_sort"), &reverse);
+	{
+		char const *order = config_string("network.browser_sort");
+
+#ifdef HALO_ANDROID
+		/* port (Mjolnir VR): in VR, the most players first where the order is
+		the default ("servers", the dedicated servers first), so that a game a
+		friend hosts is not below them; a column chosen is kept */
+		if (halo_vr_active() && order && !strcmp(order, "servers"))
+			order = "players";
+#endif
+		lobby_browser.order = (short)p2p_lobby_sort_parse(order, &reverse);
+	}
 	lobby_browser.reverse = reverse != 0;
 	/* (going on with the join the password screen began) */
 	lobby_browser.joining = lobby_browser.password_joined;
