@@ -484,6 +484,15 @@ static void *game_main(void *unused)
 				environment_set(&environment, "HALO_DISPLAY_WIDTH", width);
 				host_logf(HOST_LOG_INFO, "display %dx%d: rendering %sx480", mode->w, mode->h, width);
 			}
+			if (mode)
+			{
+				/* display.max_fps's "twice the refresh rate" (sdl_platform.c):
+				the guest cannot ask SDL for the display mode */
+				char refresh[16];
+
+				snprintf(refresh, sizeof(refresh), "%g", mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
+				environment_set(&environment, "HALO_DISPLAY_REFRESH", refresh);
+			}
 			{
 				/* dp for the touch controls (port/linux/src/touch_input.c): SDL
 				gives Android's densityDpi / 160 */
