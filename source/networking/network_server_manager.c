@@ -1734,10 +1734,12 @@ boolean network_game_server_idle(
 			csstrncpy(mode, kind > 0 && kind < (long)NUMBEROF(kinds) ? kinds[kind] : "Custom", sizeof(mode) - 1);
 			mode[sizeof(mode) - 1] = 0;
 		}
+		/* (whether it is listed in the server browser too is set where it is
+		chosen, not here every update: the PC menus' LISTING and the VR host
+		options (p2p_set_public_game) each set it, and setting it back and
+		forth here against the PC menus made a new invite at every turn to
+		private, which no one could join) */
 		p2p_set_game_description(name, map, mode, server->game.player_count, server->game.maximum_players);
-		/* (listed in the server browser too, as public as the VR port's list
-		has it) */
-		p2p_set_hosting_public(p2p_public_game());
 	}
 #endif
 	network_game_server_list(server);
