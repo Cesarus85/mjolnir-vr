@@ -1623,6 +1623,7 @@ In the menus the buttons are the Xbox's by position: A accepts, B goes back. */
 
 int halo_vr_controllers(struct halo_xr_hand hands[HALO_XR_HAND_COUNT], int *menus);
 int halo_vr_wheel_held(void);
+int halo_vr_seated(void);
 
 /* a click that stands for the pad's A (ui_widget.c: the screen where
 controllers join by pressing it), held a moment */
@@ -1737,6 +1738,17 @@ static void vr_gamepad_state(XINPUT_GAMEPAD *pad)
 	the flashlight) */
 	merge_button(pad, XINPUT_GAMEPAD_BLACK, (left->buttons & HALO_XR_BUTTON_BUMPER) != 0);
 	merge_button(pad, XINPUT_GAMEPAD_WHITE, (right->buttons & HALO_XR_BUTTON_BUMPER) != 0);
+	/* (a vote running, on foot: the turning stick pushed up votes yes and
+	down no, as the D-pad's left and right do (network_votekick.c), which
+	the Quest's controllers have not; on foot nothing else reads its up and
+	down, which a seat aims with) */
+	if (network_vote_pad_open() && !halo_vr_seated())
+	{
+		if (right->thumbstick[1] > 0.7f)
+			pad->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+		if (right->thumbstick[1] < -0.7f)
+			pad->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+	}
 	{
 		/* B: a tap is the flashlight, holding it switches grenades; the
 		game sees a short press of either */

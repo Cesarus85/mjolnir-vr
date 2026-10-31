@@ -135,6 +135,9 @@ game data stay. More about the Steam Frame:
 - **Voice chat** in network games: hold the grip of the hand without the
   weapon to talk (not while it holds the weapon or the Warthog's wheel).
   The *BUTTONS* page can put push to talk on another button.
+- **Votes** in network games (to kick a player or end the game, shown at
+  the left of the HUD): push the turning stick **up** for yes, **down** for
+  no.
 
 ## Problems and questions
 

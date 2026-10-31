@@ -1651,6 +1651,11 @@ int halo_vr_wheel_held(void)
 	return vr.active && vr.wheel_hands != 0;
 }
 
+int halo_vr_seated(void)
+{
+	return vr.active && vr.seat_mode != HALO_VR_SEAT_NONE;
+}
+
 /* The comfort vignette: while a vehicle turns the player (from 15 degrees a
 second, fully at 60), the eye images darken from their edges; on foot
 (vr.foot_vignette), while the turning stick turns smoothly and, with

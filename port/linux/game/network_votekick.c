@@ -93,6 +93,12 @@ void console_warning(const char *format, ...);
 int halo_server_mode(void);
 unsigned char network_chat_keyboard_open(void);
 
+
+#ifdef HALO_ANDROID
+/* port (Mjolnir VR): port/linux/src/vr.c */
+int halo_vr_active(void);
+#endif
+
 /* ---------- constants */
 
 enum
@@ -1481,10 +1487,23 @@ void network_votekick_draw(
 	{
 		boolean pad = halo_gamepad_last_used() != 0;
 
-		usprintf(text, pad ? L"D-pad Left   Yes: %d" : touch ? L"!yes   Yes: %d" : L"F1   Yes: %d", status.votes);
-		votekick_draw_row(font_index, left, top, width, line_height, 1, text, status.voted ? 0.5f : 0.45f,
-			status.voted ? 1.0f : 0.85f, 0.45f);
-		usprintf(text, pad ? L"D-pad Right  No: %d" : touch ? L"!no    No: %d" : L"F2   No: %d", status.no_votes);
+#ifdef HALO_ANDROID
+		/* port (Mjolnir VR): the turning stick's up and down (xinput_sdl.c) */
+		if (halo_vr_active())
+		{
+			usprintf(text, L"Stick up     Yes: %d", status.votes);
+			votekick_draw_row(font_index, left, top, width, line_height, 1, text, status.voted ? 0.5f : 0.45f,
+				status.voted ? 1.0f : 0.85f, 0.45f);
+			usprintf(text, L"Stick down   No: %d", status.no_votes);
+		}
+		else
+#endif
+		{
+			usprintf(text, pad ? L"D-pad Left   Yes: %d" : touch ? L"!yes   Yes: %d" : L"F1   Yes: %d", status.votes);
+			votekick_draw_row(font_index, left, top, width, line_height, 1, text, status.voted ? 0.5f : 0.45f,
+				status.voted ? 1.0f : 0.85f, 0.45f);
+			usprintf(text, pad ? L"D-pad Right  No: %d" : touch ? L"!no    No: %d" : L"F2   No: %d", status.no_votes);
+		}
 	}
 	votekick_draw_row(font_index, left, top, width, line_height, 2, text, status.voted_no ? 1.0f : 0.9f,
 		status.voted_no ? 0.45f : 0.5f, 0.4f);
