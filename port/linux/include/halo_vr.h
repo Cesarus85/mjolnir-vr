@@ -143,6 +143,26 @@ int halo_vr_free_hand(short local_player_index, float position[3], float forward
   and the game's camera: where the eyes are standing straight (lower
   crouched by the button), from which the physical crouch is measured; */
 int halo_vr_head_pose(short local_player_index, float eye[3], float forward[3], float up[3], float standing[3]);
+/* - for the other machines (network_vr.c's avatars): the head and both
+  hands, each an offset from the game's camera (world units) and a rotation
+  (a quaternion x, y, z, w of the frame forward, left, up in the game's
+  axes), as they are in the room (not mirrored left-handed): the eyes; the
+  weapon hand's grip, turned as the weapon points; the free hand's grip,
+  turned as its controller points. Which are known: HALO_VR_AVATAR_* */
+enum
+{
+	HALO_VR_AVATAR_HEAD = 1,
+	HALO_VR_AVATAR_WEAPON_HAND = 2,
+	HALO_VR_AVATAR_FREE_HAND = 4,
+};
+struct halo_vr_avatar
+{
+	int known;
+	float head[3], head_rotation[4];
+	float weapon_hand[3], weapon_hand_rotation[4];
+	float free_hand[3], free_hand_rotation[4];
+};
+int halo_vr_avatar(short local_player_index, struct halo_vr_avatar *avatar);
 int halo_vr_two_hand(short local_player_index, const float foregrip[3], const float reference[3]);
 /* - the fingers of a hand of the model (0 the left, the free hand; 1 the
   right, the weapon's), from the controller's trigger, grip and touch: the thumb, index, middle finger and the last two, each

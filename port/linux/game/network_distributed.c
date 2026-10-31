@@ -3830,6 +3830,7 @@ void network_distributed_new_game(
 	network_objects_new_game();
 	network_damage_new_game();
 	network_vr_new_game();
+	network_vr_avatars_new_game();
 	bots_new_game();
 	network_actors_new_game();
 	network_coop_new_game();
@@ -3892,6 +3893,7 @@ void network_distributed_tick(
 		}
 		profile_scope(distributed_tick_send_players_section, distributed_host_send_players();)
 		network_vr_tick();
+		network_vr_avatars_tick();
 		bots_tick();
 		profile_scope(distributed_tick_actors_host_tick_section, network_actors_host_tick();)
 		profile_scope(distributed_tick_coop_host_tick_section, network_coop_host_tick();)
@@ -3908,6 +3910,7 @@ void network_distributed_tick(
 			distributed_refresh_pings();
 		profile_scope(distributed_tick_send_inputs_section, distributed_client_send_inputs();)
 		network_vr_tick();
+		network_vr_avatars_tick();
 		profile_scope(distributed_tick_send_predictions_section, distributed_client_send_predictions();)
 		profile_scope(distributed_tick_objects_client_tick_section, network_objects_client_tick();)
 		profile_scope(distributed_tick_damage_client_tick_section, network_damage_client_tick();)
@@ -3998,6 +4001,7 @@ static boolean distributed_message_stale(
 	case _distributed_message_relayed_actions:
 	case _distributed_message_damage_events:
 	case _distributed_message_vr_poses:
+	case _distributed_message_vr_avatars:
 	case _distributed_message_pings:
 	case _distributed_message_actor_states:
 	case _distributed_message_structure_bsp:
@@ -4827,6 +4831,7 @@ void network_distributed_handle_message(
 	case _distributed_message_client_ready: entry_size = 0; break;
 	case _distributed_message_client_identity: entry_size = sizeof(struct distributed_client_identity); break;
 	case _distributed_message_vr_poses: entry_size = network_vr_entry_size(); break;
+	case _distributed_message_vr_avatars: entry_size = network_vr_avatars_entry_size(); break;
 	case _distributed_message_client_build: entry_size = sizeof(struct distributed_client_build); break;
 	case _distributed_message_damage_events:
 	case _distributed_message_hit_reports:
@@ -4879,6 +4884,17 @@ void network_distributed_handle_message(
 		}
 		if (!distributed_message_stale(machine_index, &header))
 			network_vr_handle_poses(machine_index, entries, header.count);
+		return;
+	}
+	if (header.type == _distributed_message_vr_avatars)
+	{
+		if (machine_index == NONE ? game_connection() != _game_connection_network_client :
+				game_connection() != _game_connection_network_server)
+		{
+			return;
+		}
+		if (!distributed_message_stale(machine_index, &header))
+			network_vr_avatars_handle(machine_index, entries, header.count);
 		return;
 	}
 	switch (header.type)

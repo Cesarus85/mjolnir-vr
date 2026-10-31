@@ -360,6 +360,7 @@ the target), keeping the size it has in the HUD: this part of the HUD. */
 /* ---------- math */
 
 static void cross3(const float a[3], const float b[3], float out[3]);
+static void quaternion_from_axes(const float x[3], const float y[3], const float z[3], float q[4]);
 static float normalize3(float v[3]);
 static int crosshair_pose(struct halo_xr_pose *pose, float *size);
 static int name_pose(const float point[3], struct halo_xr_pose *pose, float *width);
@@ -3012,6 +3013,60 @@ int halo_vr_head_pose(short local_player_index, float eye[3], float forward[3], 
 	return 1;
 }
 
+/* a frame's rotation from its forward and up (game axes), as a quaternion
+of forward, left, up */
+static void avatar_rotation(const float forward[3], const float up[3], float q[4])
+{
+	float f[3], l[3], u[3];
+
+	memcpy(f, forward, sizeof(f));
+	normalize3(f);
+	cross3(up, f, l);
+	if (normalize3(l) < 1e-6f)
+	{
+		q[0] = q[1] = q[2] = 0.0f;
+		q[3] = 1.0f;
+		return;
+	}
+	cross3(f, l, u);
+	quaternion_from_axes(f, l, u, q);
+}
+
+int halo_vr_avatar(short local_player_index, struct halo_vr_avatar *avatar)
+{
+	float eye[3], forward[3], up[3], right[3], standing[3], offset[3];
+	const struct halo_xr_hand *free = &vr.frame.hands[free_hand()];
+	int axis;
+
+	memset(avatar, 0, sizeof(*avatar));
+	if (!vr.active || local_player_index != 0 || !halo_vr_stereo_frame())
+		return 0;
+	if (halo_vr_head_pose(local_player_index, eye, forward, up, standing))
+	{
+		for (axis = 0; axis < 3; axis++)
+			avatar->head[axis] = eye[axis] - vr.game_camera[axis];
+		avatar_rotation(forward, up, avatar->head_rotation);
+		avatar->known |= HALO_VR_AVATAR_HEAD;
+	}
+	if (weapon_hand_tracked(local_player_index))
+	{
+		hand_offset(avatar->weapon_hand);
+		weapon_axes(forward, up, right);
+		avatar_rotation(forward, up, avatar->weapon_hand_rotation);
+		avatar->known |= HALO_VR_AVATAR_WEAPON_HAND;
+	}
+	if (vr.aim_with_controller && free->active && (free->flags & HALO_XR_POSE_VALID))
+	{
+		tracked_offset(free->grip.position, offset);
+		for (axis = 0; axis < 3; axis++)
+			avatar->free_hand[axis] = offset[axis] / METRES_PER_WORLD_UNIT;
+		hand_axes(free_hand(), 0, forward, up, right);
+		avatar_rotation(forward, up, avatar->free_hand_rotation);
+		avatar->known |= HALO_VR_AVATAR_FREE_HAND;
+	}
+	return avatar->known != 0;
+}
+
 int halo_vr_free_hand(short local_player_index, float position[3], float forward[3], float up[3])
 {
 	static const float local_forward[3] = { 0.0f, 0.0f, -1.0f };
@@ -3754,6 +3809,12 @@ void halo_vr_present(unsigned int back_buffer_texture) { (void)back_buffer_textu
 int halo_vr_eye_size(int *width, int *height) { (void)width; (void)height; return 0; }
 int halo_vr_aim_vector(short local_player_index, float vector[3]) { (void)local_player_index; (void)vector; return 0; }
 int halo_vr_weapon_origin_offset(short local_player_index, float offset[3]) { (void)local_player_index; (void)offset; return 0; }
+int halo_vr_avatar(short local_player_index, struct halo_vr_avatar *avatar)
+{
+	(void)local_player_index;
+	memset(avatar, 0, sizeof(*avatar));
+	return 0;
+}
 void halo_vr_weapon_wrist(long graph_index, const float wrist[3]) { (void)graph_index; (void)wrist; }
 int halo_vr_weapon_camera(short local_player_index, long graph_index, float position[3], float forward[3],
 	float up[3])

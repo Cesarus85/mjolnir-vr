@@ -116,6 +116,7 @@ symbols in this file:
 #include "units/vehicles.h"
 #include "halo_vr.h"
 #include "vr_body.h" /* port: port/linux/game/vr_body.c */
+#include "vr_avatars.h" /* port: port/linux/game/vr_avatars.c */
 #endif
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
@@ -661,6 +662,12 @@ static void render_object_list(
 					node_matrices = vr_body ?
 						vr_body_node_matrices(object_index) :
 						object_vr_headless_node_matrices(object_index);
+				}
+				/* (another VR player: their body after their head and hands,
+				and what they hold with it; vr_avatars.c) */
+				else if (!legs)
+				{
+					node_matrices = vr_avatar_node_matrices(object_index, node_matrices);
 				}
 #endif
 

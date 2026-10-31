@@ -163,6 +163,10 @@ enum
 	/* a VR player's hands, every tick: a client's own to the host, the
 	host's of the others to each client (unreliable; network_vr.c) */
 	_distributed_message_vr_poses = 240,
+	/* a VR player's head and hands, every tick, to draw their body after them:
+	a client's own to the host, the host's of the others to each client
+	(unreliable; network_vr_avatars.c) */
+	_distributed_message_vr_avatars = 241,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
@@ -513,6 +517,11 @@ void network_vr_new_game(void);
 void network_vr_tick(void);
 word network_vr_entry_size(void);
 void network_vr_handle_poses(long machine_index, void const *entries, short count);
+/* (network_vr_avatars.c, vr_avatars.h) */
+void network_vr_avatars_new_game(void);
+void network_vr_avatars_tick(void);
+word network_vr_avatars_entry_size(void);
+void network_vr_avatars_handle(long machine_index, void const *entries, short count);
 
 /* bots (bots.c) */
 void bots_new_game(void);
