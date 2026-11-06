@@ -592,6 +592,8 @@ struct draw_uniforms
 	float screen_offset;
 	float texture_lod_bias[4];
 	float height_fade[4];
+	/* display.reversed_depth: a z bias's depth units (nv2a_vsh.c) */
+	float depth_bias;
 };
 
 struct program_entry
@@ -617,6 +619,7 @@ struct program_entry
 	GLint mv_depth;
 	float mv_depth_value[4];
 	GLint height_fade;
+	GLint depth_bias;
 	/* nv2a_pixel_shader_key's source_blend's color, and what it last had */
 	GLint blend_constant;
 	float blend_constant_value[4];
@@ -1040,13 +1043,14 @@ vertices. */
 /* what a test's place in the buffer holds until the GPU copies its count
 there: more than any test covers (8K with 4x MSAA has 133 million samples) */
 #define VISIBILITY_UNCOPIED 0xFFFFFFFFUL
-/* a frame's tests: their queries (kept until every count is read), the slot
-and area of each, and (once the frame is presented) the fence its copies
-wait on */
+/* a frame's tests: their queries (kept until every count is read), the
+slot, number (visibility_ended) and area of each, and (once the frame is
+presented) the fence its copies wait on */
 struct visibility_batch
 {
 	GLuint queries[VISIBILITY_TEST_SLOTS];
 	unsigned short slots[VISIBILITY_TEST_SLOTS];
+	ULONGLONG tests[VISIBILITY_TEST_SLOTS];
 	float areas[VISIBILITY_TEST_SLOTS];
 	unsigned long count, read, frame;
 	ULONGLONG serial;
@@ -1145,6 +1149,8 @@ struct gl_device
 	GLuint queries[VISIBILITY_TEST_SLOTS];
 	GLuint scratch_query;
 	BOOL visibility_unread[VISIBILITY_TEST_SLOTS];
+	/* the number of the test each slot's query is (visibility_ended) */
+	ULONGLONG query_tests[VISIBILITY_TEST_SLOTS];
 #endif
 	BOOL query_pending[VISIBILITY_TEST_SLOTS];
 	/* the pixels each of the game's pixels covered in the test's target
@@ -1156,6 +1162,12 @@ struct gl_device
 	is incomplete, so until a test's count has arrived the slot's earlier
 	count stands. A frame of The Library's lights makes hundreds of tests. */
 	GLuint visibility_known[VISIBILITY_TEST_SLOTS];
+	/* the tests ended at each slot so far, dropped ones too, and the number
+	(from 1) of the one whose count the slot gives, 0 for none: the latest
+	read, which can be frames older than the slot's latest test
+	(xgpu_visibility_tests_ended) */
+	ULONGLONG visibility_ended[VISIBILITY_TEST_SLOTS];
+	ULONGLONG visibility_counted[VISIBILITY_TEST_SLOTS];
 #ifdef HALO_GLES
 	/* with atomic counters: one counter per test, used as a ring */
 	GLuint visibility_counters;
@@ -1170,6 +1182,8 @@ struct gl_device
 		unsigned short counter;
 		/* drawn into both eyes at once: counted twice */
 		unsigned short views;
+		/* its number at its index (visibility_counted's) */
+		ULONGLONG number;
 	} frame_tests[STREAM_BUFFER_RING][VISIBILITY_FRAME_TESTS];
 	unsigned long frame_test_count[STREAM_BUFFER_RING];
 	GLuint visibility_latest[VISIBILITY_TEST_SLOTS];
@@ -3790,6 +3804,7 @@ void WINAPI D3DDevice_BeginVisibilityTest(void)
 
 HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 {
+	ULONGLONG test;
 #ifdef HALO_GLES
 	GLuint scratch;
 #endif
@@ -3798,6 +3813,8 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		return S_OK;
 	device.visibility_test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
+	/* (numbered whether its count will come or not) */
+	test = ++device.visibility_ended[index];
 #ifdef HALO_GLES
 	if (xgpu_capabilities.atomic_counters)
 	{
@@ -3814,6 +3831,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 #else
 			device.frame_tests[device.buffer_ring][*count].views = 1;
 #endif
+			device.frame_tests[device.buffer_ring][*count].number = test;
 			(*count)++;
 		}
 		return S_OK;
@@ -3824,6 +3842,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		if (device.visibility_unavailable)
 		{
 			device.visibility_known[index] = VISIBILITY_ALL_SAMPLES;
+			device.visibility_counted[index] = test;
 			device.query_pending[index] = TRUE;
 		}
 		return S_OK;
@@ -3841,6 +3860,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		struct visibility_batch *batch = &device.visibility_batches[device.visibility_batch];
 
 		batch->slots[batch->count] = (unsigned short)index;
+		batch->tests[batch->count] = test;
 		batch->areas[batch->count++] = device.query_area[index];
 		device.query_pending[index] = TRUE;
 		return S_OK;
@@ -3850,6 +3870,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	scratch = device.scratch_query;
 	device.scratch_query = device.queries[index];
 	device.queries[index] = scratch;
+	device.query_tests[index] = test;
 	device.query_pending[index] = TRUE;
 	device.visibility_unread[index] = TRUE;
 	return S_OK;
@@ -3882,6 +3903,7 @@ static void visibility_results_update(void)
 			const struct visibility_frame_test *entry = &device.frame_tests[ring][test];
 
 			device.visibility_latest[entry->slot] = counts[entry->counter] / (entry->views ? entry->views : 1);
+			device.visibility_counted[entry->slot] = entry->number;
 		}
 	}
 	device.frame_test_count[ring] = 0;
@@ -3927,6 +3949,7 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 			if (samples)
 				samples = VISIBILITY_ALL_SAMPLES;
 			device.visibility_known[index] = samples;
+			device.visibility_counted[index] = device.query_tests[index];
 			device.visibility_unread[index] = FALSE;
 		}
 	}
@@ -3934,6 +3957,17 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 	if (result)
 		*result = device.visibility_known[index];
 	return S_OK;
+}
+
+/* (xgpu.h) */
+unsigned long long xgpu_visibility_tests_ended(unsigned long index)
+{
+	return device.visibility_ended[index % VISIBILITY_TEST_SLOTS];
+}
+
+unsigned long long xgpu_visibility_test_counted(unsigned long index)
+{
+	return device.visibility_counted[index % VISIBILITY_TEST_SLOTS];
 }
 
 /* ---------- render and texture stage state */
@@ -4668,6 +4702,7 @@ static void program_setup(struct program_entry *entry)
 	entry->mv_depth = glGetUniformLocation(entry->program, "mv_depth");
 	entry->mv_depth_value[0] = entry->mv_depth_value[1] = -1.0e30f;
 	entry->height_fade = glGetUniformLocation(entry->program, "height_fade");
+	entry->depth_bias = glGetUniformLocation(entry->program, "depth_bias");
 	entry->blend_constant = glGetUniformLocation(entry->program, "blend_constant");
 	entry->model_lights = glGetUniformLocation(entry->program, "model_lights");
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
@@ -5574,11 +5609,20 @@ static void apply_raster_state(BOOL has_depth)
 
 		offset[0] = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
 		offset[1] = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
-		/* (display.reversed_depth: toward the camera is up) */
+		/* The slope is the depth's change across a pixel, and a target drawn
+		at several pixels to the game's one (render_target_get) has that many
+		times less depth across each: the Xbox's slope term, taken across its
+		own pixels, is that many times the scale. On a surface seen at an
+		angle it is most of the bias (the Pelican's lights on its curved hull
+		sank in at 1080 lines with it a 2.25th as large). */
+		offset[0] *= target_scale[0] > target_scale[1] ? target_scale[0] : target_scale[1];
+		/* (display.reversed_depth: toward the camera is up, and the units,
+		which a floating-point depth buffer measures by the depth itself,
+		are the vertex program's, in the Xbox's measure: depth_bias) */
 		if (xgpu_reversed_depth)
 		{
 			offset[0] = -offset[0];
-			offset[1] = -offset[1];
+			offset[1] = 0.0f;
 		}
 		if (memcmp(gl_state.polygon_offset, offset, sizeof(offset)))
 		{
@@ -5613,7 +5657,7 @@ static void gl_check_errors(const char *where)
 
 /* the uniforms of the latest draws, converted from these inputs; the serial
 counts the conversions */
-#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES + 4)
+#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES + 4 + 2)
 
 /* the height fade of the draws that follow (d3d8_gl_set_height_fade): off
 while its scale is zero */
@@ -5985,6 +6029,8 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		}
 		memcpy(&inputs[count], height_fade_value, sizeof(height_fade_value));
 		count += 4;
+		inputs[count++] = D3D__RenderState[D3DRS_SOLIDOFFSETENABLE];
+		inputs[count++] = D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET];
 		if (!draw_uniforms_serial || !words_equal(inputs, draw_uniform_inputs, sizeof(inputs)))
 		{
 			struct draw_uniforms *converted = &draw_uniforms;
@@ -6024,6 +6070,13 @@ static struct program_entry *prepare_draw(BOOL immediate)
 			}
 			converted->screen_offset = (float)UI_OFFSET;
 			memcpy(converted->height_fade, height_fade_value, sizeof(converted->height_fade));
+			/* (display.reversed_depth: the z bias's units, the Xbox's depth
+			units toward the camera, in the depth the vertex program writes:
+			one is 1 / viewport_scale.z, the depth buffer's range over the
+			viewport's) */
+			converted->depth_bias = xgpu_reversed_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] &&
+				device.viewport_scale[2] != 0.0f ?
+				-dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / device.viewport_scale[2] : 0.0f;
 		}
 	}
 	/* and a program that has had them since needs none of them */
@@ -6046,6 +6099,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	uniform_float(entry->screen_offset, &entry->uniforms.screen_offset, draw_uniforms.screen_offset);
 	uniform_vec4(entry->texture_lod_bias, entry->uniforms.texture_lod_bias, draw_uniforms.texture_lod_bias, 1);
 	uniform_vec4(entry->height_fade, entry->uniforms.height_fade, draw_uniforms.height_fade, 1);
+	uniform_float(entry->depth_bias, &entry->uniforms.depth_bias, draw_uniforms.depth_bias);
 	return entry;
 }
 
@@ -8563,6 +8617,7 @@ static void visibility_read_batch(void)
 			}
 			device.visibility_known[batch->slots[test]] = area > 1.0f ?
 				(GLuint)(samples / area + 0.5f) : samples;
+			device.visibility_counted[batch->slots[test]] = batch->tests[test];
 			device.visibility_stats.samples++;
 			device.visibility_stats.nonzero += samples != 0;
 			if (samples > device.visibility_stats.maximum)
