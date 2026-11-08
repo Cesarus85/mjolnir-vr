@@ -1039,6 +1039,13 @@ static boolean director_update_controls(
 		director_inhibit_input(local_player_index);
 		director_inhibit_facing(local_player_index);
 	}
+#ifdef HALO_ANDROID
+	/* VR: the view is the player's own eyes, never a camera behind or above
+	them. The camera cycle's button is the Steam Frame's left bumper (black,
+	switch grenades: xinput_sdl.c), held a second it left first person */
+	if (halo_vr_active())
+		switch_camera = FALSE;
+#endif
 	return switch_camera;
 }
 
