@@ -19,8 +19,10 @@ On the Frame, in Desktop Mode (Steam menu > Power > Switch to Desktop):
 The game updates itself: while it runs, its launcher looks for a newer
 release, fetches it and puts it in place as the next start begins
 (`steam_frame_launch.sh`; `update.auto = false` in `config.toml` stops it;
-`launcher.log` says what it did). Opening the same file again updates it
-too (settings, saves and game data stay).
+`launcher.log` says what it found and did, a failed look too). The fetch
+runs as a systemd user unit of its own, so it goes on after the game ends.
+Opening the same file again updates it too (settings, saves and game data
+stay).
 
 The desktop file (`steam_frame_installer.desktop`) downloads the latest
 release's `mjolnir-vr-steam-frame.zip` (`tools/steam_frame_bundle.py`, made by
