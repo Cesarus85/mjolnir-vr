@@ -19,6 +19,58 @@ Physical mice use the same control bindings. During play, F12 toggles mouse
 capture; captured mode hides Android's pointer and uses relative movement for
 continuous aiming, while releasing capture restores normal pointer behavior.
 
+## Importing MCC packages
+
+Quit the game, then long-press its launcher icon and choose **Import MCC maps**.
+The first-run game-data screen also has an import button. Copy a complete Halo 1
+Workshop package from your computer to a selectable folder (for example Downloads)
+or a ZIP on the phone. Select **Workshop package**, then **Choose folder** or
+**Choose ZIP**. Keep `ModInfo.json`, `CampaignInfo.json`, the mission JSON files
+and maps together. Steam is not needed on Android.
+
+Keep the supplied PNG previews too, including `assets` when present. Folder
+and ZIP imports preserve these images and their relative metadata paths.
+MCC level panels automatically use `Images.Large`, falling back to
+`Images.Thumbnail` or the question-mark picture. The image fits inside the
+existing thumbnail box in each menu style. Supported PNGs are 8-bit RGB/RGBA,
+non-interlaced, at most 2048 by 2048 pixels and 8 MiB per file; other encodings
+keep the placeholder. See [MCC previews](../../docs/reading/mcc_level_previews.md).
+
+The importer defaults to the Workshop ID as its destination folder; an optional
+name can use letters, digits, spaces, underscores and hyphens. It checks package
+paths, metadata, campaign completeness and MCC cache headers before offering
+installation. It copies the package's maps into `mcc_maps/<package>`, retaining
+metadata subfolders and writing `workshop_id.txt`. Folder and ZIP inputs share
+the same importer. Android document URIs are read as streams through the system
+picker, with no broad storage permission.
+
+Use the shared-resource modes separately: singleplayer requires `bitmaps.map`;
+multiplayer requires `bitmaps.map` and `sounds.map`. Select one resource set at a
+time. These are installed under `mcc_maps/_shared/singleplayer` or `multiplayer`.
+The engine performs its normal full map/resource validation when loading; an
+importer's header check does not establish full gameplay compatibility.
+
+An existing destination requires explicit replacement confirmation. New files
+are staged outside `mcc_maps`; a failed publish restores the old package. An
+interrupted replacement is recovered at the next import. Cancellation removes
+staged files, and installed Xbox/CE maps and game saves are preserved. Imports
+are serialized and the activity refuses to import while the game process runs.
+Limits are 4,096 files, 16 GiB total, less than 2 GiB per map, 256 KiB per JSON
+file and 64 declared campaign missions. Hub/flashback mission kinds are refused.
+
+Start the game after importing. Enable **CAMPAIGN MISSIONS** in Settings >
+Network Setup > Map Sharing > MCC Packages for mission ordering and progression;
+it is off by default. **COLLECTION FOLDERS** can group identified imported
+packages without Steam. See [MCC packages](../../docs/mcc_maps.md) for desktop
+discovery, resource rules and compatibility limits.
+
+The archived [Android importer test](https://github.com/chestahh/GulchCE/blob/1db929c5e34101a45f644436e031016b5584c7bf/tools/test_mcc_android_importer.py)
+compiles and runs the actual Java core with
+JDK 17+, including failure rollback, cancellation, malformed metadata, path
+traversal and legacy/save preservation. These checks do not exercise an Android
+document provider or establish on-device rendering compatibility. This wider
+test is not included in the focused upstream regression subset.
+
 ## Requirements
 
 You do not need the Xbox SDK. You need the tools of the Linux build (Python,
@@ -76,6 +128,19 @@ of the whole `save` folder stops there.
 `ninja android` builds only the game image and the native libraries.
 
 ## Game data
+
+MCC maps need a fixed 64 MiB virtual address window for their linked tags.
+The Android host attempts to reserve the usual `0x50000000` window at app
+startup, before the guest and renderer allocate memory. This reserves address
+space, not 64 MiB of physical RAM. Unloading an MCC map discards its pages
+but retains the reservation for the next load; exiting the process releases it.
+Xbox and Custom Edition keep their existing memory paths.
+
+If another mapping already occupies the window, the app leaves it untouched
+and MCC loading fails safely. Logcat (`halo`) lists overlapping mappings;
+the load error in `debug.txt` identifies the requested address. This is an
+address-space conflict, not a duplicate map file. Early reservation cannot
+guarantee that every device makes this address available.
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) made from your own copy of the game, any version. The app extracts `maps/` from the disc
@@ -143,9 +208,18 @@ value. Touches that start in the edge-gesture zones of Android do not tap
 or scroll at the sides, and do not scroll at the top and bottom, because the
 first swipe from an edge in full screen only shows the system bars.
 
-A tap during a cinematic that can be skipped skips it, as A does. On the
-game's on-screen keyboard (a player profile's name), tap a key to press it,
-"B =BACK" to cancel and "A =ENTER" to accept the name.
+During a cinematic that can be skipped, a SKIP button shows at the top
+right, in the black bar: tap it to skip the cinematic, as A does. Taps
+elsewhere do nothing, so a stray tap does not skip it. In network co-op,
+SKIP votes to skip, the line at the bottom counts the votes, and the button
+reads VOTED once you have voted; the cinematic is skipped once more than
+half the players have voted. The button follows the touch controls
+(`input.touch_controls`): while a controller is connected, or with `off`,
+there is no button and any tap skips, or votes to skip, as A does
+(`port/linux/game/touch_cinematic.c`).
+
+On the game's on-screen keyboard (a player profile's name), tap a key to
+press it, "B =BACK" to cancel and "A =ENTER" to accept the name.
 
 While a name is typed, on the game's on-screen keyboard or in a menu's text
 field (Server Setup's server name and password, a game's password when
@@ -269,7 +343,7 @@ These settings are only for Android:
 | Setting | Function |
 | --- | --- |
 | `input.touch_aim_assist` | `true` (the default): the touch controls' swipe aiming gets the aim assist of a controller (the aim slows over a target and follows a moving one). `false`: none, as with a mouse; the bullets' own autoaim stays. |
-| `input.touch_controls` | The touch controls in a game. `"auto"` (the default): shown on a touchscreen while no controller is connected. `"on"`: also shown with a controller. `"off"`: never shown. A device without a touchscreen never shows them. The carnage report's CONTINUE and LEAVE buttons follow the same rule (otherwise it shows its A and B prompt). The menus take taps in any case. |
+| `input.touch_controls` | The touch controls in a game. `"auto"` (the default): shown on a touchscreen while no controller is connected. `"on"`: also shown with a controller. `"off"`: never shown. A device without a touchscreen never shows them. The carnage report's CONTINUE and LEAVE buttons follow the same rule (otherwise it shows its A and B prompt), and so does a cinematic's SKIP button (otherwise any tap skips it). The menus take taps in any case. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `display.shader_cache` | `true` (the default): the linked shader programs are kept in `shader_cache` in the data folder (their binaries, the driver that made them and their sources), and each map's list of the programs it drew with; as a map loads, the programs on its list are made ready, so that its first frames do not wait for the driver to compile them. A driver update compiles them again from the kept sources. `false`: each program is compiled the first time it is drawn. The folder may be deleted at any time. |
 | `display.shader_worker` | `true` (the default): the shader programs are made on a thread of their own, whose GL context shares the game's (loaded from the shader cache, or compiled), and drawn with once there (`debug.shader_warm_up`: `"worker"`, `"load"` on the game's thread as a map loads, or `"off"`); a draw whose program is not made yet is left out for the frames it takes, and the frame does not wait. As a map loads, its own programs and then every map's (`shader_cache/all.txt`) are asked for. `false`: each is made on the game's thread when first drawn with. |
@@ -540,6 +614,25 @@ functions of OpenGL ES 3.2 if they are available:
   the query buffer of desktop OpenGL. A read of the counters themselves
   waits for the GPU, which halved the frame rate on Turnip (Zink).
 
+`host_gl_wait_frame` in [`host/host_gl.c`](host/host_gl.c) releases an upload
+ring slot only after GPU completion. A signaled fence takes the normal path;
+if the one-second wait times out or fails, `glFinish` completes queued work
+before the slot is reused. Failed fence creation uses the same fallback.
+This can stall longer than one second under GPU pressure, but cannot safely
+be replaced by treating a timeout as completion. The first fallback is logged.
+The contract applies to every Android chip policy and map family, including
+frames drawn during loading; it neither reads nor deletes saved games or maps.
+
+[`test_android_frame_fences.py`](../../tools/test_android_frame_fences.py)
+compiles the production host fence and upload functions with a delayed fake
+GPU. Timeout, wait failure and fence creation failure previously let queued
+draws read the next upload's bytes. The test covers those failures, successful
+waits and repeated slot reuse. This establishes a synchronization defect found
+while investigating [issue #80](https://github.com/chestahh/GulchCE/issues/80),
+not that it explains the reported save-folder workaround. An affected-device
+comparison across consecutive matches with the original saves retained is
+still needed to establish whether that issue is resolved.
+
 ### Calling conventions
 
 Some files of the game declare a function differently from its definition,
@@ -616,7 +709,7 @@ and fixed stream buffers, without registering static-cache entries or
 allocating per-draw pooled buffers. Desktop and web retain their existing
 geometry cache and upload paths. These geometry
 changes preserve shaders, texture caching and CPU write tracking.
-Xbox and Custom Edition maps keep their existing loaders and resource
+Xbox, Custom Edition and MCC maps keep their existing loaders and resource
 paths. `tools/test_android_mirror_uploads.py` checks the bypass with large
 and reused ranges, frame-counter rollover and desktop/web cache controls;
 it does not substitute for device gameplay validation. The chip and policy
